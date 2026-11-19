@@ -38,6 +38,7 @@ fun PatientPortalScreen(
     appointments: List<AppointmentRequestEntity>,
     notifications: List<NotificationEntity>,
     isRewardedReady: Boolean,
+    isRewardedLoading: Boolean = false,
     onWatchRewardedAd: () -> Unit,
     onRefreshDirectory: () -> Unit,
     onToggleFavorite: (String) -> Unit,
@@ -112,6 +113,7 @@ fun PatientPortalScreen(
             RewardedAdCard(
                 lang = lang,
                 isReady = isRewardedReady,
+                isLoading = isRewardedLoading,
                 onWatchClick = onWatchRewardedAd
             )
         }

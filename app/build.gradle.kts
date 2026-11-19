@@ -107,6 +107,7 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)
   implementation("com.startapp:inapp-sdk:5.+")
+  implementation(libs.play.services.ads.identifier)
   // implementation(libs.converter.moshi)
   // implementation(libs.firebase.ai)
   // Uncomment to use Firestore:

@@ -1,0 +1,132 @@
+name: Build Doctor List BD APK
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Build Release & Debug APKs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses & install required tools
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platform-tools" "platforms;android-36.1" || sdkmanager "platform-tools" "platforms;android-36" || true
+
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Prepare Debug & Release Signing Keystores
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          SECRET_STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          SECRET_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          # 1. Debug keystore (decode committed debug.keystore.base64 or generate fallback)
+          if [ ! -f debug.keystore ]; then
+            if [ -f debug.keystore.base64 ]; then
+              base64 -d debug.keystore.base64 > debug.keystore
+            else
+              keytool -genkeypair -v \
+                -keystore debug.keystore \
+                -storepass android \
+                -alias androiddebugkey \
+                -keypass android \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000 \
+                -dname "CN=Android Debug,O=Android,C=US"
+            fi
+          fi
+
+          # 2. Release upload keystore (uses GitHub Secrets if configured; otherwise generates a valid signing key)
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$SECRET_STORE_PASSWORD" ] && [ -n "$SECRET_KEY_PASSWORD" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
+            echo "KEYSTORE_PATH=${GITHUB_WORKSPACE}/my-upload-key.jks" >> "$GITHUB_ENV"
+            echo "STORE_PASSWORD=${SECRET_STORE_PASSWORD}" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=${SECRET_KEY_PASSWORD}" >> "$GITHUB_ENV"
+            echo "Using production upload keystore from GitHub Secrets."
+          else
+            FALLBACK_PASS="DoctorListBD2026"
+            keytool -genkeypair -v \
+              -keystore my-upload-key.jks \
+              -storepass "$FALLBACK_PASS" \
+              -alias upload \
+              -keypass "$FALLBACK_PASS" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Doctor List BD,OU=Mobile,O=DoctorListBD,L=Dhaka,ST=Dhaka,C=BD"
+            echo "KEYSTORE_PATH=${GITHUB_WORKSPACE}/my-upload-key.jks" >> "$GITHUB_ENV"
+            echo "STORE_PASSWORD=${FALLBACK_PASS}" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=${FALLBACK_PASS}" >> "$GITHUB_ENV"
+            echo "Generated signing keystore for release APK build (add KEYSTORE_BASE64, STORE_PASSWORD, KEY_PASSWORD secrets for Play Store uploads)."
+          fi
+
+          # 3. Ensure .env file exists for Secrets Gradle Plugin
+          touch .env
+
+      - name: Build Signed Release & Debug APKs
+        run: |
+          gradle :app:assembleRelease :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Prepare APK Outputs
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk dist/Doctor-List-BD-release.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/Doctor-List-BD-debug.apk
+          ls -lh dist/
+
+      - name: Upload Release APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Doctor-List-BD-Release-APK
+          path: dist/Doctor-List-BD-release.apk
+          retention-days: 30
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Doctor-List-BD-Debug-APK
+          path: dist/Doctor-List-BD-debug.apk
+          retention-days: 14
+
+      - name: Publish GitHub Release on Version Tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Doctor-List-BD-release.apk
+            dist/Doctor-List-BD-debug.apk
+          generate_release_notes: true
+
+      - name: Build Summary
+        run: |
+          echo "### Doctor List BD — APK Build Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **App Name:** Doctor List BD" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Package Name:** \`com.doctorlist.bd\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Start.io App ID:** \`210630916\` (Live Production Ads)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Artifacts:** \`Doctor-List-BD-release.apk\` & \`Doctor-List-BD-debug.apk\`" >> "$GITHUB_STEP_SUMMARY"

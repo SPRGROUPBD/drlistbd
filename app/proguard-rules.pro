@@ -1,21 +1,31 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# ==========================================
+# Doctor List BD — Production R8/ProGuard Rules
+# ==========================================
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# 1. Start.io (StartApp) In-App SDK
+-keep class com.startapp.** { *; }
+-dontwarn com.startapp.**
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Preserve WebView JavaScript interfaces & reflection metadata used by Start.io ad templates
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,RuntimeVisibleAnnotations,RuntimeVisibleParameterAnnotations
+-keepclassmembers class * extends android.webkit.WebView {
+    public *;
+}
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# 2. Google Play Services Ads Identifier (GAID for real production ads)
+-keep class com.google.android.gms.ads.identifier.** { *; }
+-dontwarn com.google.android.gms.ads.identifier.**
+-keep class com.google.android.gms.common.** { *; }
+-dontwarn com.google.android.gms.common.**
+
+# 3. Room Entities & DAOs
+-keep class com.example.data.local.** { *; }
+-keep class com.example.data.model.** { *; }
+
+# 4. Serializable & Reflection Safety
+-keepclassmembers class * implements java.io.Serializable {
+    static long serialVersionUID;
+    private static final java.io.ObjectStreamField[] serialPersistentFields;
+    !static !transient <fields>;
+    !private <methods>;
+}

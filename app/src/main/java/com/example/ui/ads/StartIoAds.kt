@@ -31,7 +31,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.BuildConfig
 import com.example.i18n.AppLang
 import com.example.i18n.tr
 import com.example.ui.theme.*
@@ -66,15 +65,15 @@ object StartIoConfig {
     fun init(activity: Activity) {
         if (_isInitialized.value) return
         try {
-            // Enable Start.io test ads automatically in debug builds so Banner, Native,
-            // and Rewarded ads always fill during testing, while release builds serve live ads.
-            StartAppSDK.setTestAdsEnabled(BuildConfig.DEBUG)
+            // Production mode: always serve REAL Start.io live ads for App ID 210630916
+            StartAppSDK.setTestAdsEnabled(false)
             StartAppSDK.setUserConsent(activity, "pas", System.currentTimeMillis(), true)
 
             StartAppSDK.initParams(activity, APP_ID)
                 .setReturnAdsEnabled(false)
                 .setCallback {
-                    Log.d(TAG, "Start.io SDK initialized successfully for App ID $APP_ID (debug=${BuildConfig.DEBUG})")
+                    StartAppSDK.setTestAdsEnabled(false)
+                    Log.d(TAG, "Start.io SDK initialized in LIVE production mode for App ID $APP_ID")
                     _isInitialized.value = true
                 }
                 .init()
@@ -102,7 +101,6 @@ fun StartIoBannerAd(modifier: Modifier = Modifier) {
     val sdkReady by StartIoConfig.isInitialized.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
-    var bannerLoaded by remember { mutableStateOf(false) }
 
     if (!sdkReady || activity == null) return
 
@@ -135,7 +133,6 @@ fun StartIoBannerAd(modifier: Modifier = Modifier) {
                     val banner = Banner(activity, object : BannerListener {
                         override fun onReceiveAd(view: View?) {
                             Log.d("StartIoAds", "Banner ad received")
-                            bannerLoaded = true
                             view?.visibility = View.VISIBLE
                         }
 
@@ -169,13 +166,6 @@ fun StartIoBannerAd(modifier: Modifier = Modifier) {
                     .fillMaxWidth()
                     .height(50.dp)
             )
-            if (!bannerLoaded) {
-                Text(
-                    text = "Ad",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextMuted
-                )
-            }
         }
     }
 }
@@ -480,6 +470,7 @@ fun rememberStartIoRewardedHelper(): StartIoRewardedHelper {
 fun RewardedAdCard(
     lang: AppLang,
     isReady: Boolean,
+    isLoading: Boolean = false,
     onWatchClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -520,12 +511,21 @@ fun RewardedAdCard(
             }
             Button(
                 onClick = onWatchClick,
+                enabled = !isLoading,
                 colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue)
             ) {
-                Text(
-                    text = if (isReady) tr(lang, "দেখুন", "Watch") else tr(lang, "চালান", "Play"),
-                    maxLines = 1
-                )
+                if (isLoading && !isReady) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = SurfaceWhite,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text(
+                        text = if (isReady) tr(lang, "দেখুন", "Watch") else tr(lang, "চালান", "Play"),
+                        maxLines = 1
+                    )
+                }
             }
         }
     }

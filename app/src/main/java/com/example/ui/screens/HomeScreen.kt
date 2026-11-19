@@ -53,6 +53,7 @@ fun HomeScreen(
     hospitals: List<HospitalEntity>,
     favoriteIds: Set<String>,
     isRewardedReady: Boolean,
+    isRewardedLoading: Boolean = false,
     onWatchRewardedAd: () -> Unit,
     onRefreshDirectory: () -> Unit,
     onSearchSubmit: (String) -> Unit,
@@ -477,6 +478,7 @@ fun HomeScreen(
             RewardedAdCard(
                 lang = lang,
                 isReady = isRewardedReady,
+                isLoading = isRewardedLoading,
                 onWatchClick = onWatchRewardedAd,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
