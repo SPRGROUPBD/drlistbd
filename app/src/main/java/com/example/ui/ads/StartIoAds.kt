@@ -1,13 +1,19 @@
 package com.example.ui.ads
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.Color as AndroidColor
 import android.graphics.Typeface
+import android.os.Handler
+import android.os.Looper
 import android.text.TextUtils
 import android.util.Log
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -24,42 +30,82 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.BuildConfig
 import com.example.i18n.AppLang
 import com.example.i18n.tr
 import com.example.ui.theme.*
 import com.startapp.sdk.ads.banner.Banner
+import com.startapp.sdk.ads.banner.BannerListener
 import com.startapp.sdk.ads.nativead.NativeAdDetails
 import com.startapp.sdk.ads.nativead.NativeAdPreferences
 import com.startapp.sdk.ads.nativead.StartAppNativeAd
 import com.startapp.sdk.adsbase.Ad
 import com.startapp.sdk.adsbase.StartAppAd
 import com.startapp.sdk.adsbase.StartAppSDK
+import com.startapp.sdk.adsbase.adlisteners.AdDisplayListener
 import com.startapp.sdk.adsbase.adlisteners.AdEventListener
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
 object StartIoConfig {
     const val APP_ID = "210630916"
     private const val TAG = "StartIoAds"
 
-    fun init(context: Context) {
+    private val _isInitialized = MutableStateFlow(false)
+    val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
+
+    fun init(activity: Activity) {
+        if (_isInitialized.value) return
         try {
-            StartAppSDK.initParams(context.applicationContext, APP_ID)
+            // Enable Start.io test ads automatically in debug builds so Banner, Native,
+            // and Rewarded ads always fill during testing, while release builds serve live ads.
+            StartAppSDK.setTestAdsEnabled(BuildConfig.DEBUG)
+            StartAppSDK.setUserConsent(activity, "pas", System.currentTimeMillis(), true)
+
+            StartAppSDK.initParams(activity, APP_ID)
                 .setReturnAdsEnabled(false)
                 .setCallback {
-                    Log.d(TAG, "Start.io SDK initialized for App ID $APP_ID")
+                    Log.d(TAG, "Start.io SDK initialized successfully for App ID $APP_ID (debug=${BuildConfig.DEBUG})")
+                    _isInitialized.value = true
                 }
                 .init()
-            StartAppAd.disableSplash()
+
+            // Safety fallback so UI ad views still request ads if callback is delayed
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (!_isInitialized.value) {
+                    Log.w(TAG, "Start.io init callback timeout; enabling ad requests anyway")
+                    _isInitialized.value = true
+                }
+            }, 2200L)
         } catch (e: Exception) {
-            Log.w(TAG, "Start.io init error: ${e.message}")
+            Log.e(TAG, "Start.io init error: ${e.message}", e)
+            _isInitialized.value = true
         }
     }
 }
 
 /**
- * Standard Start.io Banner Ad anchored cleanly above bottom navigation.
+ * Start.io Banner Ad (320x50) properly attached to an Activity-backed FrameLayout,
+ * explicitly calling loadAd(320, 50) + showBanner() after SDK initialization.
  */
 @Composable
 fun StartIoBannerAd(modifier: Modifier = Modifier) {
+    val sdkReady by StartIoConfig.isInitialized.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    var bannerLoaded by remember { mutableStateOf(false) }
+
+    if (!sdkReady || activity == null) return
+
     Surface(
         color = SurfaceWhite,
         border = BorderStroke(1.dp, OutlineSoft),
@@ -70,178 +116,333 @@ fun StartIoBannerAd(modifier: Modifier = Modifier) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 52.dp),
+                .height(54.dp),
             contentAlignment = Alignment.Center
         ) {
             AndroidView(
-                factory = { ctx ->
-                    Banner(ctx).apply {
+                factory = {
+                    val density = activity.resources.displayMetrics.density
+                    val widthPx = (320 * density).toInt()
+                    val heightPx = (50 * density).toInt()
+
+                    val container = FrameLayout(activity).apply {
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT
+                            heightPx
                         )
                     }
+
+                    val banner = Banner(activity, object : BannerListener {
+                        override fun onReceiveAd(view: View?) {
+                            Log.d("StartIoAds", "Banner ad received")
+                            bannerLoaded = true
+                            view?.visibility = View.VISIBLE
+                        }
+
+                        override fun onFailedToReceiveAd(view: View?) {
+                            Log.w("StartIoAds", "Banner ad failed to load; SDK will auto-retry")
+                        }
+
+                        override fun onImpression(view: View?) {
+                            Log.d("StartIoAds", "Banner impression recorded")
+                        }
+
+                        override fun onClick(view: View?) {
+                            Log.d("StartIoAds", "Banner clicked")
+                        }
+                    })
+
+                    val bannerLp = FrameLayout.LayoutParams(widthPx, heightPx, Gravity.CENTER)
+                    container.addView(banner, bannerLp)
+                    // Post loadAd so the Banner is attached to the Activity window first
+                    container.post {
+                        try {
+                            banner.loadAd(320, 50)
+                            banner.showBanner()
+                        } catch (e: Exception) {
+                            Log.e("StartIoAds", "Banner loadAd exception: ${e.message}")
+                        }
+                    }
+                    container
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
             )
+            if (!bannerLoaded) {
+                Text(
+                    text = "Ad",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted
+                )
+            }
         }
     }
 }
 
 /**
- * Start.io Native Banner Ad card loaded via StartAppNativeAd and bound via registerViewForInteraction.
+ * Start.io Native Banner Ad card loaded via StartAppNativeAd (using Activity context)
+ * once SDK is initialized, with automatic retry & live Banner fallback if native fill is empty.
  */
 @Composable
 fun StartIoNativeBannerCard(
     lang: AppLang,
     modifier: Modifier = Modifier
 ) {
+    val sdkReady by StartIoConfig.isInitialized.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+
+    var activeNativeAd by remember { mutableStateOf<StartAppNativeAd?>(null) }
     var adDetails by remember { mutableStateOf<NativeAdDetails?>(null) }
     var isLoading by remember { mutableStateOf(true) }
+    var retryTick by remember { mutableIntStateOf(0) }
 
-    DisposableEffect(Unit) {
-        val nativeAd = StartAppNativeAd(context)
-        val prefs = NativeAdPreferences()
-            .setAdsNumber(1)
-            .setAutoBitmapDownload(true)
-            .setPrimaryImageSize(2)
+    LaunchedEffect(sdkReady, activity, retryTick) {
+        if (!sdkReady || activity == null) return@LaunchedEffect
+        isLoading = true
+        try {
+            val nativeAd = StartAppNativeAd(activity)
+            activeNativeAd = nativeAd
+            val prefs = NativeAdPreferences()
+                .setAdsNumber(1)
+                .setAutoBitmapDownload(true)
+                .setPrimaryImageSize(2)
 
-        nativeAd.loadAd(prefs, object : AdEventListener {
-            override fun onReceiveAd(ad: Ad) {
-                val list = nativeAd.nativeAds
-                adDetails = list?.firstOrNull()
-                isLoading = false
-            }
+            nativeAd.loadAd(prefs, object : AdEventListener {
+                override fun onReceiveAd(ad: Ad) {
+                    val list = nativeAd.nativeAds
+                    val first = list?.firstOrNull()
+                    Log.d("StartIoAds", "Native ad received: ${first?.title}")
+                    adDetails = first
+                    isLoading = false
+                }
 
-            override fun onFailedToReceiveAd(ad: Ad?) {
-                isLoading = false
-            }
-        })
-        onDispose {}
+                override fun onFailedToReceiveAd(ad: Ad?) {
+                    Log.w("StartIoAds", "Native ad failed: ${ad?.errorMessage}")
+                    isLoading = false
+                }
+            })
+        } catch (e: Exception) {
+            Log.e("StartIoAds", "Native ad exception: ${e.message}")
+            isLoading = false
+        }
+    }
+
+    // One automatic retry after 4 seconds if initial cold-start native call returned empty
+    LaunchedEffect(isLoading, adDetails, sdkReady) {
+        if (sdkReady && !isLoading && adDetails == null && retryTick == 0) {
+            delay(4000L)
+            retryTick = 1
+        }
     }
 
     val details = adDetails
-    if (details != null) {
-        Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = SurfaceWhite,
-            border = BorderStroke(1.dp, OutlineSoft),
-            modifier = modifier
-                .fillMaxWidth()
-                .testTag("startio_native_banner_ad")
-        ) {
-            AndroidView(
-                factory = { ctx ->
-                    val dp = ctx.resources.displayMetrics.density
-                    val pad = (12 * dp).toInt()
-                    val container = LinearLayout(ctx).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        gravity = Gravity.CENTER_VERTICAL
-                        setPadding(pad, pad, pad, pad)
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT
-                        )
-                    }
-
-                    val iconView = ImageView(ctx).apply {
-                        val size = (54 * dp).toInt()
-                        layoutParams = LinearLayout.LayoutParams(size, size).apply {
-                            marginEnd = (10 * dp).toInt()
+    if (details != null && activity != null) {
+        key(details.title, details.description) {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = SurfaceWhite,
+                border = BorderStroke(1.dp, OutlineSoft),
+                modifier = modifier
+                    .fillMaxWidth()
+                    .testTag("startio_native_banner_ad")
+            ) {
+                AndroidView(
+                    factory = {
+                        val dp = activity.resources.displayMetrics.density
+                        val pad = (12 * dp).toInt()
+                        val container = LinearLayout(activity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
+                            setPadding(pad, pad, pad, pad)
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT
+                            )
                         }
-                        scaleType = ImageView.ScaleType.CENTER_CROP
-                        details.imageBitmap?.let { setImageBitmap(it) }
-                    }
 
-                    val textCol = LinearLayout(ctx).apply {
-                        orientation = LinearLayout.VERTICAL
-                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                    }
-
-                    val badge = TextView(ctx).apply {
-                        text = tr(lang, "বিজ্ঞাপন • Sponsored", "Ad • Sponsored")
-                        textSize = 10f
-                        setTextColor(AndroidColor.parseColor("#0284C7"))
-                        setTypeface(null, Typeface.BOLD)
-                    }
-
-                    val title = TextView(ctx).apply {
-                        text = details.title ?: "Sponsored"
-                        textSize = 14f
-                        setTextColor(AndroidColor.parseColor("#0F172A"))
-                        setTypeface(null, Typeface.BOLD)
-                        maxLines = 1
-                        ellipsize = TextUtils.TruncateAt.END
-                    }
-
-                    val desc = TextView(ctx).apply {
-                        text = details.description ?: ""
-                        textSize = 12f
-                        setTextColor(AndroidColor.parseColor("#475569"))
-                        maxLines = 2
-                        ellipsize = TextUtils.TruncateAt.END
-                    }
-
-                    textCol.addView(badge)
-                    textCol.addView(title)
-                    textCol.addView(desc)
-
-                    val ctaBtn = Button(ctx).apply {
-                        text = details.callToAction?.takeIf { it.isNotBlank() } ?: "Open"
-                        textSize = 12f
-                        setTextColor(AndroidColor.WHITE)
-                        setBackgroundColor(AndroidColor.parseColor("#0D9488"))
-                        val btnPadH = (12 * dp).toInt()
-                        val btnPadV = (6 * dp).toInt()
-                        setPadding(btnPadH, btnPadV, btnPadH, btnPadV)
-                        layoutParams = LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.WRAP_CONTENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT
-                        ).apply {
-                            marginStart = (8 * dp).toInt()
+                        val iconView = ImageView(activity).apply {
+                            val size = (54 * dp).toInt()
+                            layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                                marginEnd = (10 * dp).toInt()
+                            }
+                            scaleType = ImageView.ScaleType.CENTER_CROP
+                            val bmp = details.imageBitmap ?: details.secondaryImageBitmap
+                            if (bmp != null) {
+                                setImageBitmap(bmp)
+                            } else {
+                                setBackgroundColor(AndroidColor.parseColor("#E0F2FE"))
+                            }
                         }
-                    }
 
-                    container.addView(iconView)
-                    container.addView(textCol)
-                    container.addView(ctaBtn)
+                        val textCol = LinearLayout(activity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                        }
 
-                    details.registerViewForInteraction(container)
-                    container
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
+                        val badge = TextView(activity).apply {
+                            text = tr(lang, "বিজ্ঞাপন • Sponsored", "Ad • Sponsored")
+                            textSize = 10f
+                            setTextColor(AndroidColor.parseColor("#0284C7"))
+                            setTypeface(null, Typeface.BOLD)
+                        }
+
+                        val title = TextView(activity).apply {
+                            text = details.title ?: "Sponsored"
+                            textSize = 14f
+                            setTextColor(AndroidColor.parseColor("#0F172A"))
+                            setTypeface(null, Typeface.BOLD)
+                            maxLines = 1
+                            ellipsize = TextUtils.TruncateAt.END
+                        }
+
+                        val desc = TextView(activity).apply {
+                            text = details.description ?: ""
+                            textSize = 12f
+                            setTextColor(AndroidColor.parseColor("#475569"))
+                            maxLines = 2
+                            ellipsize = TextUtils.TruncateAt.END
+                        }
+
+                        textCol.addView(badge)
+                        textCol.addView(title)
+                        textCol.addView(desc)
+
+                        val ctaBtn = Button(activity).apply {
+                            text = details.callToAction?.takeIf { it.isNotBlank() } ?: "Open"
+                            textSize = 12f
+                            setTextColor(AndroidColor.WHITE)
+                            setBackgroundColor(AndroidColor.parseColor("#0D9488"))
+                            val btnPadH = (12 * dp).toInt()
+                            val btnPadV = (6 * dp).toInt()
+                            setPadding(btnPadH, btnPadV, btnPadH, btnPadV)
+                            layoutParams = LinearLayout.LayoutParams(
+                                ViewGroup.LayoutParams.WRAP_CONTENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT
+                            ).apply {
+                                marginStart = (8 * dp).toInt()
+                            }
+                        }
+
+                        container.addView(iconView)
+                        container.addView(textCol)
+                        container.addView(ctaBtn)
+
+                        details.registerViewForInteraction(container, listOf(container, ctaBtn))
+                        container
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
-    } else if (!isLoading) {
-        // Fallback standard Start.io inline Banner if native inventory is empty in test/emulator region
+    } else if (!isLoading && sdkReady) {
+        // Fallback to a live Start.io Banner inside the native slot if native inventory is empty
         StartIoBannerAd(modifier = modifier)
     }
 }
 
 /**
- * Controller for Start.io Rewarded Video Ads.
+ * Controller for Start.io Rewarded Video Ads (with Activity context, SDK-ready gating,
+ * load-on-demand auto-display, and fallback ad mode if rewarded video inventory is empty).
  */
-class StartIoRewardedHelper(private val context: Context) {
+class StartIoRewardedHelper(private val activity: Activity?) {
     private var rewardedAd: StartAppAd? = null
+    private var loadedIsRewardedVideo: Boolean = true
+    private var pendingOnRewarded: (() -> Unit)? = null
+    private var pendingOnUnavailable: (() -> Unit)? = null
+
     var isReady by mutableStateOf(false)
         private set
+    var isLoading by mutableStateOf(false)
+        private set
 
-    fun preload() {
+    fun preload(showImmediatelyWhenLoaded: Boolean = false, tryFallbackInterstitial: Boolean = false) {
+        val act = activity ?: return
+        if (isLoading && !showImmediatelyWhenLoaded) return
+        isLoading = true
+
+        val mode = if (tryFallbackInterstitial) StartAppAd.AdMode.AUTOMATIC else StartAppAd.AdMode.REWARDED_VIDEO
         try {
-            val ad = StartAppAd(context)
-            ad.loadAd(StartAppAd.AdMode.REWARDED_VIDEO, object : AdEventListener {
-                override fun onReceiveAd(p0: Ad) {
+            val ad = StartAppAd(act)
+            ad.loadAd(mode, object : AdEventListener {
+                override fun onReceiveAd(receivedAd: Ad) {
+                    Log.d("StartIoAds", "Rewarded/Full ad received (mode=$mode)")
+                    rewardedAd = ad
+                    loadedIsRewardedVideo = !tryFallbackInterstitial
                     isReady = true
+                    isLoading = false
+                    if (showImmediatelyWhenLoaded || pendingOnRewarded != null) {
+                        val rewardCb = pendingOnRewarded
+                        val failCb = pendingOnUnavailable
+                        pendingOnRewarded = null
+                        pendingOnUnavailable = null
+                        if (rewardCb != null) {
+                            displayLoadedAd(ad, isRewardedVideo = loadedIsRewardedVideo, onRewarded = rewardCb, onUnavailable = failCb ?: {})
+                        }
+                    }
                 }
 
-                override fun onFailedToReceiveAd(p0: Ad?) {
+                override fun onFailedToReceiveAd(failedAd: Ad?) {
+                    Log.w("StartIoAds", "Rewarded ad failed (mode=$mode): ${failedAd?.errorMessage}")
+                    isLoading = false
                     isReady = false
+                    if (!tryFallbackInterstitial && (showImmediatelyWhenLoaded || pendingOnRewarded != null)) {
+                        // Fall back to standard StartAppAd video/interstitial so user still sees an ad
+                        preload(showImmediatelyWhenLoaded = true, tryFallbackInterstitial = true)
+                    } else if (pendingOnUnavailable != null) {
+                        val failCb = pendingOnUnavailable
+                        pendingOnRewarded = null
+                        pendingOnUnavailable = null
+                        failCb?.invoke()
+                    }
                 }
             })
-            rewardedAd = ad
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e("StartIoAds", "Rewarded ad exception: ${e.message}")
+            isLoading = false
             isReady = false
+        }
+    }
+
+    private fun displayLoadedAd(
+        ad: StartAppAd,
+        isRewardedVideo: Boolean,
+        onRewarded: () -> Unit,
+        onUnavailable: () -> Unit
+    ) {
+        var rewarded = false
+        if (isRewardedVideo) {
+            ad.setVideoListener {
+                rewarded = true
+                onRewarded()
+            }
+        }
+        val shown = ad.showAd(object : AdDisplayListener {
+            override fun adHidden(p0: Ad?) {
+                if (!isRewardedVideo && !rewarded) {
+                    rewarded = true
+                    onRewarded()
+                }
+                preload(showImmediatelyWhenLoaded = false)
+            }
+
+            override fun adDisplayed(p0: Ad?) {
+                Log.d("StartIoAds", "Rewarded ad displayed")
+            }
+
+            override fun adClicked(p0: Ad?) {}
+
+            override fun adNotDisplayed(p0: Ad?) {
+                Log.w("StartIoAds", "Rewarded ad could not be displayed: ${p0?.errorMessage}")
+                onUnavailable()
+                preload(showImmediatelyWhenLoaded = false)
+            }
+        })
+        isReady = false
+        if (!shown) {
+            onUnavailable()
+            preload(showImmediatelyWhenLoaded = false)
         }
     }
 
@@ -251,26 +452,26 @@ class StartIoRewardedHelper(private val context: Context) {
     ) {
         val ad = rewardedAd
         if (ad != null && isReady) {
-            ad.setVideoListener {
-                onRewarded()
-            }
-            val shown = ad.showAd()
-            isReady = false
-            preload()
-            if (!shown) onUnavailable()
+            displayLoadedAd(ad, isRewardedVideo = loadedIsRewardedVideo, onRewarded = onRewarded, onUnavailable = onUnavailable)
         } else {
-            preload()
-            onUnavailable()
+            pendingOnRewarded = onRewarded
+            pendingOnUnavailable = onUnavailable
+            preload(showImmediatelyWhenLoaded = true, tryFallbackInterstitial = false)
         }
     }
 }
 
 @Composable
 fun rememberStartIoRewardedHelper(): StartIoRewardedHelper {
+    val sdkReady by StartIoConfig.isInitialized.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val helper = remember(context) { StartIoRewardedHelper(context) }
-    LaunchedEffect(helper) {
-        helper.preload()
+    val activity = remember(context) { context.findActivity() }
+    val helper = remember(activity) { StartIoRewardedHelper(activity) }
+
+    LaunchedEffect(sdkReady, helper) {
+        if (sdkReady) {
+            helper.preload(showImmediatelyWhenLoaded = false)
+        }
     }
     return helper
 }
@@ -322,7 +523,7 @@ fun RewardedAdCard(
                 colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue)
             ) {
                 Text(
-                    text = if (isReady) tr(lang, "দেখুন", "Watch") else tr(lang, "লোড...", "Load"),
+                    text = if (isReady) tr(lang, "দেখুন", "Watch") else tr(lang, "চালান", "Play"),
                     maxLines = 1
                 )
             }
