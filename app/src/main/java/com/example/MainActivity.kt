@@ -37,6 +37,7 @@ object Routes {
     const val FIND_DOCTORS = "find_doctors"
     const val FACILITIES = "facilities"
     const val PORTAL = "portal"
+    const val ABOUT_US = "about_us"
     const val DOCTOR_PROFILE = "doctor_profile/{doctorId}"
     const val INFO = "info/{pageKey}"
 
@@ -131,7 +132,8 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
         BottomTabItem(Routes.HOME, AppStrings.navHome(lang), Icons.Rounded.Home, Icons.Outlined.Home, "nav_home"),
         BottomTabItem(Routes.FIND_DOCTORS, AppStrings.navDoctors(lang), Icons.Rounded.MedicalServices, Icons.Outlined.MedicalServices, "nav_doctors"),
         BottomTabItem(Routes.FACILITIES, AppStrings.navFacilities(lang), Icons.Rounded.LocalHospital, Icons.Outlined.LocalHospital, "nav_facilities"),
-        BottomTabItem(Routes.PORTAL, AppStrings.navPortal(lang), Icons.Rounded.Favorite, Icons.Outlined.FavoriteBorder, "nav_portal")
+        BottomTabItem(Routes.PORTAL, AppStrings.navPortal(lang), Icons.Rounded.Favorite, Icons.Outlined.FavoriteBorder, "nav_portal"),
+        BottomTabItem(Routes.ABOUT_US, AppStrings.navAbout(lang), Icons.Rounded.Info, Icons.Outlined.Info, "nav_about")
     )
 
     val showMainChrome = currentRoute in mainTabs.map { it.route }
@@ -149,6 +151,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                     Routes.FIND_DOCTORS -> AppStrings.navDoctors(lang)
                     Routes.FACILITIES -> AppStrings.navFacilities(lang)
                     Routes.PORTAL -> AppStrings.navPortal(lang)
+                    Routes.ABOUT_US -> AppStrings.aboutUs(lang)
                     else -> AppStrings.appTitle(lang)
                 }
                 MedicalTopBar(
@@ -275,8 +278,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             onNavigateFacilitiesTab = { tabIdx ->
                                 facilitiesTab = tabIdx
                                 navController.navigate(Routes.FACILITIES)
-                            },
-                            onNavigateInfo = { key -> navController.navigate(Routes.info(key)) }
+                            }
                         )
                     }
 
@@ -333,6 +335,24 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             onToggleFavorite = vm::toggleFavorite,
                             onDoctorClick = { id -> navController.navigate(Routes.doctorProfile(id)) },
                             onMarkNotificationRead = vm::markNotificationRead,
+                            onNavigateInfo = { key ->
+                                if (key == "about") {
+                                    navController.navigate(Routes.ABOUT_US) { launchSingleTop = true }
+                                } else {
+                                    navController.navigate(Routes.info(key))
+                                }
+                            }
+                        )
+                    }
+
+                    composable(Routes.ABOUT_US) {
+                        AboutUsScreen(
+                            lang = lang,
+                            settings = settings,
+                            doctorsCount = publicDoctors.size,
+                            hospitalsCount = hospitals.size,
+                            diagnosticCount = diagnosticCenters.size,
+                            specialtiesCount = specialties.size,
                             onNavigateInfo = { key -> navController.navigate(Routes.info(key)) }
                         )
                     }

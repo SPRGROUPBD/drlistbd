@@ -16,6 +16,7 @@ object AppStrings {
     fun navDoctors(lang: AppLang) = tr(lang, "ডাক্তার", "Doctors")
     fun navFacilities(lang: AppLang) = tr(lang, "হাসপাতাল", "Facilities")
     fun navPortal(lang: AppLang) = tr(lang, "সেভড", "Saved")
+    fun navAbout(lang: AppLang) = tr(lang, "সম্পর্কে", "About")
 
     fun searchHint(lang: AppLang) = tr(
         lang,

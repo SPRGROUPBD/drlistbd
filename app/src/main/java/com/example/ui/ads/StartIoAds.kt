@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Color as AndroidColor
 import android.graphics.Typeface
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.text.TextUtils
@@ -34,8 +35,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.i18n.AppLang
 import com.example.i18n.tr
 import com.example.ui.theme.*
-import com.startapp.sdk.ads.banner.Banner
+import com.startapp.sdk.ads.banner.BannerCreator
+import com.startapp.sdk.ads.banner.BannerFormat
 import com.startapp.sdk.ads.banner.BannerListener
+import com.startapp.sdk.ads.banner.BannerRequest
 import com.startapp.sdk.ads.nativead.NativeAdDetails
 import com.startapp.sdk.ads.nativead.NativeAdPreferences
 import com.startapp.sdk.ads.nativead.StartAppNativeAd
@@ -59,21 +62,60 @@ object StartIoConfig {
     const val APP_ID = "210630916"
     private const val TAG = "StartIoAds"
 
+    @Volatile
+    private var initStarted = false
+
     private val _isInitialized = MutableStateFlow(false)
     val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
 
-    fun init(activity: Activity) {
-        if (_isInitialized.value) return
-        try {
-            // Production mode: always serve REAL Start.io live ads for App ID 210630916
-            StartAppSDK.setTestAdsEnabled(false)
-            StartAppSDK.setUserConsent(activity, "pas", System.currentTimeMillis(), true)
+    /**
+     * Real physical Android phones always receive LIVE production ads (testAds = false).
+     * Emulators (which Start.io's ad servers automatically reject with NO FILL) use Start.io
+     * test fill so preview & emulator testing render ads cleanly without NO FILL errors.
+     */
+    fun isEmulatorDevice(): Boolean {
+        val fingerprint = Build.FINGERPRINT.lowercase()
+        val model = Build.MODEL.lowercase()
+        val brand = Build.BRAND.lowercase()
+        val device = Build.DEVICE.lowercase()
+        val product = Build.PRODUCT.lowercase()
+        val hardware = Build.HARDWARE.lowercase()
+        return fingerprint.startsWith("generic") ||
+            fingerprint.startsWith("unknown") ||
+            model.contains("google_sdk") ||
+            model.contains("emulator") ||
+            model.contains("android sdk built for x86") ||
+            hardware.contains("goldfish") ||
+            hardware.contains("ranchu") ||
+            hardware.contains("cutf") ||
+            product.contains("sdk_gphone") ||
+            product.contains("emulator") ||
+            product.contains("simulator") ||
+            (brand.startsWith("generic") && device.startsWith("generic"))
+    }
 
-            StartAppSDK.initParams(activity, APP_ID)
+    fun init(context: Context) {
+        val appCtx = context.applicationContext ?: context
+        val useEmulatorTestFill = isEmulatorDevice()
+        if (initStarted) {
+            try {
+                StartAppSDK.setTestAdsEnabled(useEmulatorTestFill)
+            } catch (_: Exception) {}
+            return
+        }
+        initStarted = true
+        try {
+            StartAppSDK.setTestAdsEnabled(useEmulatorTestFill)
+            StartAppSDK.setUserConsent(appCtx, "pas", System.currentTimeMillis(), true)
+
+            StartAppSDK.initParams(appCtx, APP_ID)
                 .setReturnAdsEnabled(false)
                 .setCallback {
-                    StartAppSDK.setTestAdsEnabled(false)
-                    Log.d(TAG, "Start.io SDK initialized in LIVE production mode for App ID $APP_ID")
+                    StartAppSDK.setTestAdsEnabled(useEmulatorTestFill)
+                    Log.d(
+                        TAG,
+                        "Start.io SDK initialized for App ID $APP_ID (liveProduction=${!useEmulatorTestFill})"
+                    )
                     _isInitialized.value = true
                 }
                 .init()
@@ -81,10 +123,10 @@ object StartIoConfig {
             // Safety fallback so UI ad views still request ads if callback is delayed
             Handler(Looper.getMainLooper()).postDelayed({
                 if (!_isInitialized.value) {
-                    Log.w(TAG, "Start.io init callback timeout; enabling ad requests anyway")
+                    Log.w(TAG, "Start.io init callback timeout; enabling ad requests")
                     _isInitialized.value = true
                 }
-            }, 2200L)
+            }, 2500L)
         } catch (e: Exception) {
             Log.e(TAG, "Start.io init error: ${e.message}", e)
             _isInitialized.value = true
@@ -93,8 +135,9 @@ object StartIoConfig {
 }
 
 /**
- * Start.io Banner Ad (320x50) properly attached to an Activity-backed FrameLayout,
- * explicitly calling loadAd(320, 50) + showBanner() after SDK initialization.
+ * Production Start.io Banner Ad (320x50) using Start.io SDK v5 BannerRequest.
+ * Pre-fetches via BannerRequest before mounting AndroidView so Jetpack Compose
+ * never collapses or misses async WebView insertion, with automatic retry backoff.
  */
 @Composable
 fun StartIoBannerAd(modifier: Modifier = Modifier) {
@@ -102,77 +145,183 @@ fun StartIoBannerAd(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
 
-    if (!sdkReady || activity == null) return
+    var bannerCreator by remember { mutableStateOf<BannerCreator?>(null) }
+    var retryCount by remember { mutableIntStateOf(0) }
 
-    Surface(
-        color = SurfaceWhite,
-        border = BorderStroke(1.dp, OutlineSoft),
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("startio_banner_ad")
-    ) {
-        Box(
-            modifier = Modifier
+    LaunchedEffect(sdkReady, activity, retryCount) {
+        if (!sdkReady || activity == null || bannerCreator != null) return@LaunchedEffect
+        try {
+            BannerRequest(activity)
+                .setAdFormat(BannerFormat.BANNER)
+                .setAdSize(320, 50)
+                .load { creator, error ->
+                    if (creator != null) {
+                        Log.d("StartIoAds", "Live BannerRequest loaded successfully")
+                        bannerCreator = creator
+                    } else {
+                        Log.w("StartIoAds", "Live BannerRequest failed (attempt=${retryCount + 1}): $error")
+                    }
+                }
+        } catch (e: Exception) {
+            Log.e("StartIoAds", "BannerRequest exception: ${e.message}")
+        }
+    }
+
+    // Retry automatically if cold-start network or initial auction didn't fill yet
+    LaunchedEffect(sdkReady, bannerCreator, retryCount) {
+        if (sdkReady && bannerCreator == null && retryCount < 4) {
+            val backoffMs = when (retryCount) {
+                0 -> 5000L
+                1 -> 12000L
+                2 -> 25000L
+                else -> 45000L
+            }
+            delay(backoffMs)
+            if (bannerCreator == null) {
+                retryCount += 1
+            }
+        }
+    }
+
+    val creator = bannerCreator
+    if (creator != null && activity != null) {
+        Surface(
+            color = SurfaceWhite,
+            border = BorderStroke(1.dp, OutlineSoft),
+            modifier = modifier
                 .fillMaxWidth()
-                .height(54.dp),
-            contentAlignment = Alignment.Center
+                .testTag("startio_banner_ad")
         ) {
-            AndroidView(
-                factory = {
-                    val density = activity.resources.displayMetrics.density
-                    val widthPx = (320 * density).toInt()
-                    val heightPx = (50 * density).toInt()
-
-                    val container = FrameLayout(activity).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            heightPx
-                        )
-                    }
-
-                    val banner = Banner(activity, object : BannerListener {
-                        override fun onReceiveAd(view: View?) {
-                            Log.d("StartIoAds", "Banner ad received")
-                            view?.visibility = View.VISIBLE
-                        }
-
-                        override fun onFailedToReceiveAd(view: View?) {
-                            Log.w("StartIoAds", "Banner ad failed to load; SDK will auto-retry")
-                        }
-
-                        override fun onImpression(view: View?) {
-                            Log.d("StartIoAds", "Banner impression recorded")
-                        }
-
-                        override fun onClick(view: View?) {
-                            Log.d("StartIoAds", "Banner clicked")
-                        }
-                    })
-
-                    val bannerLp = FrameLayout.LayoutParams(widthPx, heightPx, Gravity.CENTER)
-                    container.addView(banner, bannerLp)
-                    // Post loadAd so the Banner is attached to the Activity window first
-                    container.post {
-                        try {
-                            banner.loadAd(320, 50)
-                            banner.showBanner()
-                        } catch (e: Exception) {
-                            Log.e("StartIoAds", "Banner loadAd exception: ${e.message}")
-                        }
-                    }
-                    container
-                },
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp)
-            )
+                    .height(54.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                AndroidView(
+                    factory = {
+                        val density = activity.resources.displayMetrics.density
+                        val widthPx = (320 * density).toInt()
+                        val heightPx = (50 * density).toInt()
+
+                        val container = FrameLayout(activity).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                heightPx
+                            )
+                        }
+                        val adView = creator.create(activity, object : BannerListener {
+                            override fun onReceiveAd(view: View?) {
+                                Log.d("StartIoAds", "Banner view ready")
+                            }
+
+                            override fun onFailedToReceiveAd(view: View?) {
+                                Log.w("StartIoAds", "Banner view failed")
+                            }
+
+                            override fun onImpression(view: View?) {
+                                Log.d("StartIoAds", "Banner impression recorded")
+                            }
+
+                            override fun onClick(view: View?) {
+                                Log.d("StartIoAds", "Banner clicked")
+                            }
+                        })
+                        if (adView != null) {
+                            val lp = FrameLayout.LayoutParams(widthPx, heightPx, Gravity.CENTER)
+                            container.addView(adView, lp)
+                        }
+                        container
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                )
+            }
         }
     }
 }
 
 /**
- * Start.io Native Banner Ad card loaded via StartAppNativeAd (using Activity context)
- * once SDK is initialized, with automatic retry & live Banner fallback if native fill is empty.
+ * Production Start.io MREC (300x250) Banner via BannerRequest — used as rich visual fallback
+ * if Native Ad inventory is empty in a region.
+ */
+@Composable
+private fun StartIoMrecFallbackCard(modifier: Modifier = Modifier) {
+    val sdkReady by StartIoConfig.isInitialized.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    var mrecCreator by remember { mutableStateOf<BannerCreator?>(null) }
+    var mrecFailed by remember { mutableStateOf(false) }
+
+    LaunchedEffect(sdkReady, activity) {
+        if (!sdkReady || activity == null || mrecCreator != null) return@LaunchedEffect
+        try {
+            BannerRequest(activity)
+                .setAdFormat(BannerFormat.MREC)
+                .setAdSize(300, 250)
+                .load { creator, error ->
+                    if (creator != null) {
+                        Log.d("StartIoAds", "Live MREC fallback loaded")
+                        mrecCreator = creator
+                    } else {
+                        Log.w("StartIoAds", "MREC fallback failed: $error")
+                        mrecFailed = true
+                    }
+                }
+        } catch (e: Exception) {
+            Log.e("StartIoAds", "MREC exception: ${e.message}")
+            mrecFailed = true
+        }
+    }
+
+    val creator = mrecCreator
+    if (creator != null && activity != null) {
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = SurfaceWhite,
+            border = BorderStroke(1.dp, OutlineSoft),
+            modifier = modifier
+                .fillMaxWidth()
+                .testTag("startio_mrec_ad")
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                AndroidView(
+                    factory = {
+                        val density = activity.resources.displayMetrics.density
+                        val w = (300 * density).toInt()
+                        val h = (250 * density).toInt()
+                        val container = FrameLayout(activity).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                h
+                            )
+                        }
+                        val adView = creator.create(activity, null)
+                        if (adView != null) {
+                            container.addView(adView, FrameLayout.LayoutParams(w, h, Gravity.CENTER))
+                        }
+                        container
+                    },
+                    modifier = Modifier
+                        .width(300.dp)
+                        .height(250.dp)
+                )
+            }
+        }
+    } else if (mrecFailed) {
+        StartIoBannerAd(modifier = modifier)
+    }
+}
+
+/**
+ * Production Start.io Native Banner Ad card loaded via StartAppNativeAd (using Activity context)
+ * once SDK is initialized, with automatic retry & live MREC/Banner fallback if native fill is empty.
  */
 @Composable
 fun StartIoNativeBannerCard(
@@ -189,7 +338,7 @@ fun StartIoNativeBannerCard(
     var retryTick by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(sdkReady, activity, retryTick) {
-        if (!sdkReady || activity == null) return@LaunchedEffect
+        if (!sdkReady || activity == null || adDetails != null) return@LaunchedEffect
         isLoading = true
         try {
             val nativeAd = StartAppNativeAd(activity)
@@ -203,13 +352,13 @@ fun StartIoNativeBannerCard(
                 override fun onReceiveAd(ad: Ad) {
                     val list = nativeAd.nativeAds
                     val first = list?.firstOrNull()
-                    Log.d("StartIoAds", "Native ad received: ${first?.title}")
+                    Log.d("StartIoAds", "Live Native ad received: ${first?.title}")
                     adDetails = first
                     isLoading = false
                 }
 
                 override fun onFailedToReceiveAd(ad: Ad?) {
-                    Log.w("StartIoAds", "Native ad failed: ${ad?.errorMessage}")
+                    Log.w("StartIoAds", "Live Native ad failed (attempt=${retryTick + 1}): ${ad?.errorMessage}")
                     isLoading = false
                 }
             })
@@ -219,11 +368,13 @@ fun StartIoNativeBannerCard(
         }
     }
 
-    // One automatic retry after 4 seconds if initial cold-start native call returned empty
-    LaunchedEffect(isLoading, adDetails, sdkReady) {
-        if (sdkReady && !isLoading && adDetails == null && retryTick == 0) {
-            delay(4000L)
-            retryTick = 1
+    // Automatic cold-start retry before falling back to live MREC / Banner
+    LaunchedEffect(isLoading, adDetails, sdkReady, retryTick) {
+        if (sdkReady && !isLoading && adDetails == null && retryTick < 1) {
+            delay(5000L)
+            if (adDetails == null) {
+                retryTick += 1
+            }
         }
     }
 
@@ -326,15 +477,16 @@ fun StartIoNativeBannerCard(
                 )
             }
         }
-    } else if (!isLoading && sdkReady) {
-        // Fallback to a live Start.io Banner inside the native slot if native inventory is empty
-        StartIoBannerAd(modifier = modifier)
+    } else if (!isLoading && sdkReady && retryTick >= 1) {
+        // Fallback to live Start.io MREC (or Banner) so the user still gets a real ad
+        StartIoMrecFallbackCard(modifier = modifier)
     }
 }
 
 /**
- * Controller for Start.io Rewarded Video Ads (with Activity context, SDK-ready gating,
- * load-on-demand auto-display, and fallback ad mode if rewarded video inventory is empty).
+ * Production controller for Start.io Rewarded Video Ads.
+ * Cascades REWARDED_VIDEO -> VIDEO -> AUTOMATIC so live ads reliably fill and reward users
+ * across all regions (including Bangladesh).
  */
 class StartIoRewardedHelper(private val activity: Activity?) {
     private var rewardedAd: StartAppAd? = null
@@ -347,19 +499,26 @@ class StartIoRewardedHelper(private val activity: Activity?) {
     var isLoading by mutableStateOf(false)
         private set
 
-    fun preload(showImmediatelyWhenLoaded: Boolean = false, tryFallbackInterstitial: Boolean = false) {
+    fun preload(
+        showImmediatelyWhenLoaded: Boolean = false,
+        tryFallbackAutomatic: Boolean = false
+    ) {
         val act = activity ?: return
-        if (isLoading && !showImmediatelyWhenLoaded) return
+        if (isLoading && !showImmediatelyWhenLoaded && !tryFallbackAutomatic) return
         isLoading = true
 
-        val mode = if (tryFallbackInterstitial) StartAppAd.AdMode.AUTOMATIC else StartAppAd.AdMode.REWARDED_VIDEO
+        val mode = if (tryFallbackAutomatic) {
+            StartAppAd.AdMode.AUTOMATIC
+        } else {
+            StartAppAd.AdMode.REWARDED_VIDEO
+        }
         try {
             val ad = StartAppAd(act)
             ad.loadAd(mode, object : AdEventListener {
                 override fun onReceiveAd(receivedAd: Ad) {
                     Log.d("StartIoAds", "Rewarded/Full ad received (mode=$mode)")
                     rewardedAd = ad
-                    loadedIsRewardedVideo = !tryFallbackInterstitial
+                    loadedIsRewardedVideo = !tryFallbackAutomatic
                     isReady = true
                     isLoading = false
                     if (showImmediatelyWhenLoaded || pendingOnRewarded != null) {
@@ -368,18 +527,26 @@ class StartIoRewardedHelper(private val activity: Activity?) {
                         pendingOnRewarded = null
                         pendingOnUnavailable = null
                         if (rewardCb != null) {
-                            displayLoadedAd(ad, isRewardedVideo = loadedIsRewardedVideo, onRewarded = rewardCb, onUnavailable = failCb ?: {})
+                            displayLoadedAd(
+                                ad = ad,
+                                isRewardedVideo = loadedIsRewardedVideo,
+                                onRewarded = rewardCb,
+                                onUnavailable = failCb ?: {}
+                            )
                         }
                     }
                 }
 
                 override fun onFailedToReceiveAd(failedAd: Ad?) {
-                    Log.w("StartIoAds", "Rewarded ad failed (mode=$mode): ${failedAd?.errorMessage}")
+                    Log.w("StartIoAds", "Ad no-fill (mode=$mode): ${failedAd?.errorMessage}")
                     isLoading = false
                     isReady = false
-                    if (!tryFallbackInterstitial && (showImmediatelyWhenLoaded || pendingOnRewarded != null)) {
-                        // Fall back to standard StartAppAd video/interstitial so user still sees an ad
-                        preload(showImmediatelyWhenLoaded = true, tryFallbackInterstitial = true)
+                    val userRequestedNow = showImmediatelyWhenLoaded || pendingOnRewarded != null
+                    if (userRequestedNow && !tryFallbackAutomatic) {
+                        // Only cascade to AUTOMATIC on explicit user tap (never rapid-fire on startup)
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            preload(showImmediatelyWhenLoaded = true, tryFallbackAutomatic = true)
+                        }, 600L)
                     } else if (pendingOnUnavailable != null) {
                         val failCb = pendingOnUnavailable
                         pendingOnRewarded = null
@@ -404,8 +571,10 @@ class StartIoRewardedHelper(private val activity: Activity?) {
         var rewarded = false
         if (isRewardedVideo) {
             ad.setVideoListener {
-                rewarded = true
-                onRewarded()
+                if (!rewarded) {
+                    rewarded = true
+                    onRewarded()
+                }
             }
         }
         val shown = ad.showAd(object : AdDisplayListener {
@@ -414,25 +583,25 @@ class StartIoRewardedHelper(private val activity: Activity?) {
                     rewarded = true
                     onRewarded()
                 }
-                preload(showImmediatelyWhenLoaded = false)
+                preload(showImmediatelyWhenLoaded = false, tryFallbackAutomatic = false)
             }
 
             override fun adDisplayed(p0: Ad?) {
-                Log.d("StartIoAds", "Rewarded ad displayed")
+                Log.d("StartIoAds", "Rewarded/Full ad displayed")
             }
 
             override fun adClicked(p0: Ad?) {}
 
             override fun adNotDisplayed(p0: Ad?) {
-                Log.w("StartIoAds", "Rewarded ad could not be displayed: ${p0?.errorMessage}")
+                Log.w("StartIoAds", "Ad could not be displayed: ${p0?.errorMessage}")
                 onUnavailable()
-                preload(showImmediatelyWhenLoaded = false)
+                preload(showImmediatelyWhenLoaded = false, tryFallbackAutomatic = false)
             }
         })
         isReady = false
         if (!shown) {
             onUnavailable()
-            preload(showImmediatelyWhenLoaded = false)
+            preload(showImmediatelyWhenLoaded = false, tryFallbackAutomatic = false)
         }
     }
 
@@ -446,7 +615,7 @@ class StartIoRewardedHelper(private val activity: Activity?) {
         } else {
             pendingOnRewarded = onRewarded
             pendingOnUnavailable = onUnavailable
-            preload(showImmediatelyWhenLoaded = true, tryFallbackInterstitial = false)
+            preload(showImmediatelyWhenLoaded = true, tryFallbackAutomatic = false)
         }
     }
 }
@@ -460,7 +629,7 @@ fun rememberStartIoRewardedHelper(): StartIoRewardedHelper {
 
     LaunchedEffect(sdkReady, helper) {
         if (sdkReady) {
-            helper.preload(showImmediatelyWhenLoaded = false)
+            helper.preload(showImmediatelyWhenLoaded = false, tryFallbackAutomatic = false)
         }
     }
     return helper

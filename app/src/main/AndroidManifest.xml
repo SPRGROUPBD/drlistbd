@@ -8,9 +8,11 @@
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
 
     <application
+        android:name=".DoctorListApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
+        android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -18,9 +20,10 @@
         android:theme="@style/Theme.MyApplication"
         android:usesCleartextTraffic="true">
 
+        <!-- Referenced via @string so Android PackageManager parses it as String, not Integer -->
         <meta-data
             android:name="com.startapp.sdk.APPLICATION_ID"
-            android:value="210630916" />
+            android:value="@string/startio_app_id" />
 
         <meta-data
             android:name="com.startapp.sdk.RETURN_ADS_ENABLED"

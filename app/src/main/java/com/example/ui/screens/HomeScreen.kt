@@ -63,7 +63,6 @@ fun HomeScreen(
     onDoctorClick: (String) -> Unit,
     onNavigateFindDoctors: (availableTodayOnly: Boolean, verifiedOnly: Boolean) -> Unit,
     onNavigateFacilitiesTab: (Int) -> Unit,
-    onNavigateInfo: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var quickQuery by remember { mutableStateOf("") }
@@ -482,45 +481,7 @@ fun HomeScreen(
                 onWatchClick = onWatchRewardedAd,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
-        }
-
-        // Footer Card (Info & Legal ONLY — NO Login / NO Admin link)
-        item {
-            Spacer(Modifier.height(14.dp))
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                shape = RoundedCornerShape(20.dp),
-                color = SurfaceWhite,
-                border = BorderStroke(1.dp, OutlineSoft)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        settings.siteTitle.ifBlank { "Doctor List BD" },
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MedicalBlueDark,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        tr(lang, settings.taglineBn, settings.taglineEn),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    HorizontalDivider(color = SurfaceMuted)
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        FooterLink(AppStrings.aboutUs(lang)) { onNavigateInfo("about") }
-                        FooterLink(AppStrings.contactUs(lang)) { onNavigateInfo("contact") }
-                        FooterLink(AppStrings.privacyPolicy(lang)) { onNavigateInfo("privacy") }
-                        FooterLink(AppStrings.termsConditions(lang)) { onNavigateInfo("terms") }
-                    }
-                }
-            }
+            Spacer(Modifier.height(12.dp))
         }
     }
 }
@@ -547,17 +508,4 @@ private fun QuickNavChip(
             Text(label, style = MaterialTheme.typography.labelLarge, color = TextPrimary)
         }
     }
-}
-
-@Composable
-private fun FooterLink(label: String, onClick: () -> Unit) {
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelMedium,
-        color = MedicalBlueDark,
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 6.dp)
-    )
 }
