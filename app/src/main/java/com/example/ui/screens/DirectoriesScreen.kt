@@ -24,8 +24,11 @@ import androidx.compose.ui.unit.dp
 import com.example.data.local.DiagnosticCenterEntity
 import com.example.data.local.HospitalEntity
 import com.example.data.local.SpecialtyEntity
+import com.example.data.model.ChamberSessionType
 import com.example.data.model.DayOfWeekBd
 import com.example.data.model.DoctorFullProfile
+import com.example.data.model.sessionType
+import com.example.data.model.startMinutesOfDay
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
@@ -57,6 +60,7 @@ fun DirectoriesScreen(
     )
     var search by remember { mutableStateOf("") }
     var selectedDay by remember { mutableStateOf(DayOfWeekBd.today()) }
+    var selectedSession by remember { mutableStateOf<ChamberSessionType?>(null) }
     val context = LocalContext.current
 
     Column(
@@ -190,24 +194,68 @@ fun DirectoriesScreen(
                 }
             }
 
-            3 -> { // Chamber Schedule by Day
+            3 -> { // Chamber Schedule by Day & Time Session
+                val today = remember { DayOfWeekBd.today() }
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(DayOfWeekBd.entries) { day ->
+                        val isToday = day == today
                         FilterChip(
                             selected = selectedDay == day,
                             onClick = { selectedDay = day },
-                            label = { Text(tr(lang, day.bnLabel, day.enLabel)) }
+                            label = {
+                                Text(
+                                    text = "${day.shortBn} • ${day.shortEn}${if (isToday) " ★" else ""}",
+                                    maxLines = 1
+                                )
+                            }
                         )
                     }
                 }
                 Spacer(Modifier.height(6.dp))
-                val matching = remember(doctors, selectedDay, search) {
+                // Morning / Afternoon / All Session Filter Chips
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        FilterChip(
+                            selected = selectedSession == null,
+                            onClick = { selectedSession = null },
+                            label = { Text(tr(lang, "সব সময় (All)", "All Times")) }
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedSession == ChamberSessionType.MORNING,
+                            onClick = {
+                                selectedSession = if (selectedSession == ChamberSessionType.MORNING) null else ChamberSessionType.MORNING
+                            },
+                            leadingIcon = { Icon(Icons.Rounded.WbSunny, null, Modifier.size(16.dp)) },
+                            label = { Text(tr(lang, "সকাল (Morning)", "Morning")) }
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedSession == ChamberSessionType.AFTERNOON,
+                            onClick = {
+                                selectedSession = if (selectedSession == ChamberSessionType.AFTERNOON) null else ChamberSessionType.AFTERNOON
+                            },
+                            leadingIcon = { Icon(Icons.Rounded.LightMode, null, Modifier.size(16.dp)) },
+                            label = { Text(tr(lang, "বিকাল (Afternoon)", "Afternoon")) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                val matching = remember(doctors, selectedDay, selectedSession, search) {
                     doctors.flatMap { doc ->
                         doc.chambers.mapNotNull { cw ->
-                            val daySlots = cw.schedules.filter { it.dayOfWeek == selectedDay.name }
+                            val daySlots = cw.schedules
+                                .filter { it.dayOfWeek == selectedDay.name }
+                                .filter { selectedSession == null || it.sessionType() == selectedSession }
+                                .sortedBy { it.startMinutesOfDay() }
                             val matchesSearch = search.isBlank() ||
                                 doc.doctor.fullNameEn.contains(search, true) ||
                                 doc.doctor.fullNameBn.contains(search, true) ||
@@ -220,7 +268,11 @@ fun DirectoriesScreen(
                     }
                 }
                 if (matching.isEmpty()) {
-                    EmptyStateCard(Icons.Rounded.Schedule, tr(lang, "কোনো চেম্বার সময়সূচী নেই", "No Schedules Found"), "")
+                    EmptyStateCard(
+                        Icons.Rounded.Schedule,
+                        tr(lang, "কোনো চেম্বার সময়সূচী নেই", "No Schedules Found"),
+                        tr(lang, "অন্য বার বা সময় নির্বাচন করে দেখুন।", "Try selecting another weekday or time session.")
+                    )
                 } else {
                     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(matching) { (doc, ch, slots) ->
@@ -236,22 +288,35 @@ fun DirectoriesScreen(
                                     Text(doc.specialty?.let { tr(lang, it.nameBn, it.nameEn) } ?: "", style = MaterialTheme.typography.bodySmall, color = MedicalBlueDark)
                                     Spacer(Modifier.height(4.dp))
                                     Text("${ch.facilityName} • ${ch.upazila}, ${ch.district}", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                                    Spacer(Modifier.height(6.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        StatusPill(
-                                            text = slots.joinToString(" | ") { "${it.openTime} - ${it.closeTime}" },
-                                            bgColor = EmeraldSoft,
-                                            textColor = Color(0xFF065F46),
-                                            icon = Icons.Rounded.AccessTime
-                                        )
-                                        if (ch.serialPhone.isNotBlank()) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        slots.forEach { slot ->
+                                            val session = slot.sessionType()
+                                            val (bg, fg) = when (session) {
+                                                ChamberSessionType.MORNING -> AmberSoft to Color(0xFF92400E)
+                                                ChamberSessionType.AFTERNOON -> MedicalTealLight to MedicalTealDark
+                                                ChamberSessionType.EVENING -> MedicalBlueLight to MedicalBlueDark
+                                            }
+                                            val label = slot.slotLabel.ifBlank { tr(lang, session.bnLabel, session.enLabel) }
+                                            StatusPill(
+                                                text = "$label: ${slot.openTime} – ${slot.closeTime}",
+                                                bgColor = bg,
+                                                textColor = fg,
+                                                icon = Icons.Rounded.AccessTime
+                                            )
+                                        }
+                                    }
+                                    if (ch.serialPhone.isNotBlank()) {
+                                        Spacer(Modifier.height(6.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End
+                                        ) {
                                             TextButton(onClick = {
                                                 context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${ch.serialPhone}")))
                                             }) {
+                                                Icon(Icons.Rounded.Call, null, Modifier.size(16.dp))
+                                                Spacer(Modifier.width(4.dp))
                                                 Text(AppStrings.callForSerial(lang))
                                             }
                                         }

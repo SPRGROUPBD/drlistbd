@@ -22,20 +22,56 @@ enum class VerificationStatus(val bnLabel: String, val enLabel: String) {
     REJECTED("বাতিলকৃত", "Rejected")
 }
 
-enum class DayOfWeekBd(val bnLabel: String, val enLabel: String, val shortBn: String, val calendarDay: Int) {
-    SATURDAY("শনিবার", "Saturday", "শনি", Calendar.SATURDAY),
-    SUNDAY("রবিবার", "Sunday", "রবি", Calendar.SUNDAY),
-    MONDAY("সোমবার", "Monday", "সোম", Calendar.MONDAY),
-    TUESDAY("মঙ্গলবার", "Tuesday", "মঙ্গল", Calendar.TUESDAY),
-    WEDNESDAY("বুধবার", "Wednesday", "বুধ", Calendar.WEDNESDAY),
-    THURSDAY("বৃহস্পতিবার", "Thursday", "বৃহঃ", Calendar.THURSDAY),
-    FRIDAY("শুক্রবার", "Friday", "শুক্র", Calendar.FRIDAY);
+enum class DayOfWeekBd(
+    val bnLabel: String,
+    val enLabel: String,
+    val shortBn: String,
+    val shortEn: String,
+    val calendarDay: Int
+) {
+    SATURDAY("শনিবার", "Saturday", "শনি", "Sat", Calendar.SATURDAY),
+    SUNDAY("রবিবার", "Sunday", "রবি", "Sun", Calendar.SUNDAY),
+    MONDAY("সোমবার", "Monday", "সোম", "Mon", Calendar.MONDAY),
+    TUESDAY("মঙ্গলবার", "Tuesday", "মঙ্গল", "Tue", Calendar.TUESDAY),
+    WEDNESDAY("বুধবার", "Wednesday", "বুধ", "Wed", Calendar.WEDNESDAY),
+    THURSDAY("বৃহস্পতিবার", "Thursday", "বৃহঃ", "Thu", Calendar.THURSDAY),
+    FRIDAY("শুক্রবার", "Friday", "শুক্র", "Fri", Calendar.FRIDAY);
 
     companion object {
         fun today(): DayOfWeekBd {
             val calDay = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
             return entries.firstOrNull { it.calendarDay == calDay } ?: SATURDAY
         }
+    }
+}
+
+enum class ChamberSessionType(val bnLabel: String, val enLabel: String) {
+    MORNING("সকাল", "Morning"),
+    AFTERNOON("বিকাল", "Afternoon"),
+    EVENING("সন্ধ্যা", "Evening")
+}
+
+fun ChamberScheduleEntity.startMinutesOfDay(): Int {
+    val cleaned = openTime.trim().uppercase()
+    val match = Regex("""^(\d{1,2}):(\d{2})\s*(AM|PM)?$""").find(cleaned) ?: return 0
+    var hour = match.groupValues[1].toIntOrNull() ?: 0
+    val min = match.groupValues[2].toIntOrNull() ?: 0
+    val meridiem = match.groupValues[3]
+    if (meridiem == "PM" && hour < 12) hour += 12
+    if (meridiem == "AM" && hour == 12) hour = 0
+    return hour * 60 + min
+}
+
+fun ChamberScheduleEntity.sessionType(): ChamberSessionType {
+    val label = slotLabel.lowercase()
+    if (label.contains("morning") || label.contains("সকাল")) return ChamberSessionType.MORNING
+    if (label.contains("afternoon") || label.contains("বিকাল")) return ChamberSessionType.AFTERNOON
+    if (label.contains("evening") || label.contains("night") || label.contains("সন্ধ্যা")) return ChamberSessionType.EVENING
+    val mins = startMinutesOfDay()
+    return when {
+        mins < 13 * 60 -> ChamberSessionType.MORNING
+        mins < 18 * 60 -> ChamberSessionType.AFTERNOON
+        else -> ChamberSessionType.EVENING
     }
 }
 
