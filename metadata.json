@@ -1,0 +1,6 @@
+{
+  "name": "Doctor Dir BD",
+  "description": "Doctor Directory Bangladesh — ডাক্তার কোথায় বসেন, কখন বসেন, সব তথ্য এক জায়গায়।",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
