@@ -105,7 +105,7 @@ fun FindDoctorsScreen(
             // Quick Pill Filter Row (like Reference Image 1)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
-                    val isDefault = !searchState.availableTodayOnly && !searchState.verifiedOnly &&
+                    val isDefault = !searchState.availableTodayOnly &&
                         searchState.specialtyId == null && searchState.district == null
                     FilterChip(
                         selected = isDefault,
@@ -121,14 +121,6 @@ fun FindDoctorsScreen(
                         leadingIcon = if (searchState.availableTodayOnly) {
                             { Icon(Icons.Rounded.Check, null, Modifier.size(16.dp)) }
                         } else null
-                    )
-                }
-                item {
-                    FilterChip(
-                        selected = searchState.verifiedOnly,
-                        onClick = { onUpdateSearch { it.copy(verifiedOnly = !it.verifiedOnly) } },
-                        label = { Text(AppStrings.verifiedOnly(lang)) },
-                        leadingIcon = { Icon(Icons.Rounded.Verified, null, Modifier.size(16.dp)) }
                     )
                 }
                 item {

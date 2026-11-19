@@ -268,27 +268,14 @@ fun DoctorCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                        Text(
+                            text = tr(lang, doc.fullNameBn, doc.fullNameEn),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
-                        ) {
-                            if (doc.bmdcVerified) {
-                                StatusPill(
-                                    text = AppStrings.bmdcVerified(lang),
-                                    bgColor = EmeraldSoft,
-                                    textColor = MedicalTealDark,
-                                    icon = Icons.Rounded.Verified
-                                )
-                            }
-                            if (doc.isDemoData) {
-                                StatusPill(
-                                    text = "DEMO",
-                                    bgColor = AmberSoft,
-                                    textColor = Color(0xFF92400E)
-                                )
-                            }
-                        }
+                        )
 
                         IconButton(
                             onClick = onToggleFavorite,
@@ -305,24 +292,30 @@ fun DoctorCard(
                         }
                     }
 
+                    if (doc.qualification.isNotBlank()) {
+                        Text(
+                            text = doc.qualification,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MedicalTealDark,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                     Text(
-                        text = tr(lang, doc.fullNameBn, doc.fullNameEn),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = specName,
+                        text = if (doc.subSpecialty.isNotBlank()) "$specName • ${doc.subSpecialty}" else specName,
                         style = MaterialTheme.typography.bodySmall,
                         color = MedicalBlueDark,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (doc.currentHospital.isNotBlank()) {
+                    if (doc.currentHospital.isNotBlank() || doc.currentDesignation.isNotBlank()) {
+                        val workLine = listOf(doc.currentDesignation, doc.currentHospital)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" • ")
                         Text(
-                            text = "${doc.currentDesignation.ifBlank { tr(lang, "বিশেষজ্ঞ", "Specialist") }} • ${doc.currentHospital}",
+                            text = workLine,
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary,
                             maxLines = 1,

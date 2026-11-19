@@ -61,14 +61,12 @@
         <button data-tab="dashboard" class="nav-item active text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">1. Dashboard</button>
         <button data-tab="doctors" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">2. Doctors</button>
         <button data-tab="chambers" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">3. Chambers & Schedules</button>
-        <button data-tab="eduemp" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">4. Education & Jobs</button>
-        <button data-tab="hospitals" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">5. Hospitals</button>
-        <button data-tab="diagnostics" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">6. Diagnostic Centers</button>
-        <button data-tab="specialties" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">7. Specialties</button>
-        <button data-tab="locations" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">8. Locations</button>
-        <button data-tab="notifications" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">9. Notifications</button>
-        <button data-tab="inbox" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">10. Reports & Serials</button>
-        <button data-tab="settings" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">11. Settings & CSV</button>
+        <button data-tab="hospitals" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">4. Hospitals</button>
+        <button data-tab="diagnostics" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">5. Diagnostic Centers</button>
+        <button data-tab="specialties" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">6. Specialties</button>
+        <button data-tab="locations" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">7. Locations</button>
+        <button data-tab="notifications" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">8. Notifications</button>
+        <button data-tab="settings" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">9. Settings & CSV</button>
       </nav>
     </aside>
 
@@ -169,10 +167,79 @@ function timeSortMinutes(t) {
   return (h || 0) * 60 + (m || 0);
 }
 
+// Built-in Bangladesh District -> Upazila/Area map (automatically merged with Admin-managed Locations tab)
+const BD_DEFAULT_LOCATIONS = {
+  "Dhaka": ["Dhanmondi", "Mirpur", "Uttara", "Gulshan", "Banani", "Shahbagh", "Panthapath", "Mohammadpur", "Motijheel", "Badda", "Bashundhara R/A", "Savar", "Keraniganj", "Dhamrai"],
+  "Gazipur": ["Gazipur Sadar", "Tongi", "Kaliakair", "Kapasia", "Sreepur"],
+  "Narayanganj": ["Narayanganj Sadar", "Chashara", "Siddhirganj", "Fatullah", "Rupganj", "Sonargaon"],
+  "Chattogram": ["Panchlaish", "Probartak Circle", "GEC Circle", "Agrabad", "Halishahar", "Chawkbazar", "Kotwali", "Patenga", "Sitakunda", "Hathazari", "Patiya"],
+  "Cox's Bazar": ["Cox's Bazar Sadar", "Kolatoli", "Chakaria", "Teknaf", "Ukhiya", "Ramu"],
+  "Cumilla": ["Cumilla Sadar", "Kandirpar", "Daudkandi", "Laksam", "Chauddagram", "Debidwar"],
+  "Sylhet": ["Sylhet Sadar", "Zindabazar", "Subhanighat", "Ambarkhana", "Beanibazar", "Golapganj", "Moulvibazar"],
+  "Rajshahi": ["Boalia", "Laxmipur", "Motihar", "Rajpara", "Shah Makhdum", "Paba", "Godagari"],
+  "Bogura": ["Bogura Sadar", "Satmatha", "Sherpur", "Shibganj", "Sariakandi"],
+  "Khulna": ["Sonadanga", "Khalishpur", "Daulatpur", "Khulna Sadar", "Rupsha", "Dumuria"],
+  "Jashore": ["Jashore Sadar", "Jhikargacha", "Benapole", "Manirampur", "Abhaynagar"],
+  "Barishal": ["Barishal Sadar", "Banglabazar", "Nathullabad", "Bakerganj", "Banaripara", "Gournadi"],
+  "Rangpur": ["Rangpur Sadar", "Dhap", "Medical Mor", "Mithapukur", "Pirganj", "Badarganj"],
+  "Dinajpur": ["Dinajpur Sadar", "Birganj", "Parbatipur", "Fulbari", "Birampur"],
+  "Mymensingh": ["Mymensingh Sadar", "Charpara", "Trishal", "Bhaluka", "Muktagachha", "Gafargaon"],
+  "Tangail": ["Tangail Sadar", "Mirzapur", "Madhupur", "Sakhipur", "Kalihati"],
+  "Faridpur": ["Faridpur Sadar", "Bhanga", "Boalmari", "Nagarkanda"],
+  "Noakhali": ["Noakhali Sadar", "Maijdee", "Begumganj", "Companiganj", "Senbagh"],
+  "Feni": ["Feni Sadar", "Chhagalnaiya", "Daganbhuiyan", "Parshuram"],
+  "Pabna": ["Pabna Sadar", "Ishwardi", "Santhia", "Bera"],
+  "Kushtia": ["Kushtia Sadar", "Kumarkhali", "Bheramara", "Mirpur"]
+};
+
+function getDistrictUpazilaMap() {
+  const map = {};
+  for (const [dist, upzList] of Object.entries(BD_DEFAULT_LOCATIONS)) {
+    map[dist] = new Set(upzList);
+  }
+  Object.values(dbState.locations || {}).forEach(l => {
+    const dist = (l.district || "").trim();
+    if (!dist) return;
+    if (!map[dist]) map[dist] = new Set();
+    if (l.upazila && l.upazila.trim()) map[dist].add(l.upazila.trim());
+    if (l.area && l.area.trim()) map[dist].add(l.area.trim());
+  });
+  return map;
+}
+
+function getAllAdminFacilities() {
+  const hospitals = Object.entries(dbState.hospitals || {}).map(([id, h]) => ({
+    id,
+    type: "HOSPITAL",
+    name: h.nameEn || h.nameBn || "",
+    label: h.nameBn && h.nameEn && h.nameBn !== h.nameEn ? `${h.nameEn} (${h.nameBn})` : (h.nameEn || h.nameBn || ""),
+    district: h.district || "",
+    upazila: h.upazila || ""
+  })).filter(x => x.name);
+
+  const diagnostics = Object.entries(dbState.diagnostic_centers || {}).map(([id, d]) => ({
+    id,
+    type: "DIAGNOSTIC_CENTER",
+    name: d.nameEn || d.nameBn || "",
+    label: d.nameBn && d.nameEn && d.nameBn !== d.nameEn ? `${d.nameEn} (${d.nameBn})` : (d.nameEn || d.nameBn || ""),
+    district: d.district || "",
+    upazila: d.upazila || ""
+  })).filter(x => x.name);
+
+  return { hospitals, diagnostics };
+}
+
+function switchTab(tabKey) {
+  document.querySelectorAll("#sidebarNav button").forEach(b => {
+    b.classList.toggle("active", b.dataset.tab === tabKey);
+  });
+  activeTab = tabKey;
+  editing = {};
+  renderTab();
+}
+
 let dbState = {
   doctors: {},
-  education: {},
-  employment_history: {},
   chambers: {},
   chamber_schedules: {},
   hospitals: {},
@@ -180,20 +247,18 @@ let dbState = {
   specialties: {},
   locations: {},
   notifications: {},
-  reports: {},
-  appointments: {},
   settings: {
     siteTitle: "Doctor List BD",
     taglineBn: "ডাক্তার কোথায় বসেন, কখন বসেন — সব তথ্য এক জায়গায়।",
     taglineEn: "Where doctors sit & when they sit — all verified chamber info in one place.",
     contactEmail: "support@doctorlistbd.org",
-    contactPhone: "+880 1700-000000",
-    allowOnlineBooking: true
+    contactPhone: "+880 1700-000000"
   }
 };
 
 let activeTab = "dashboard";
 let editing = {};
+let chamberFormState = { district: "", upazila: "", isActive: true };
 
 // Auth (admin / admin only)
 document.getElementById("loginForm").addEventListener("submit", (e) => {
@@ -312,15 +377,13 @@ async function patchCollectionNodes(collection, entriesMap, successMsg) {
 function renderTab() {
   const titles = {
     dashboard: "Dashboard Overview",
-    doctors: "Doctor Management (No Fees)",
+    doctors: "Doctor Management",
     chambers: "Chambers & Weekly Schedules",
-    eduemp: "Education & Previous Employment",
     hospitals: "Hospital Management",
     diagnostics: "Diagnostic Center Management",
     specialties: "Medical Specialties",
     locations: "Bangladesh Locations",
     notifications: "App Notifications",
-    inbox: "Patient Reports & Serial Requests",
     settings: "App Settings & CSV Export"
   };
   document.getElementById("pageTitle").textContent = titles[activeTab] || "Admin";
@@ -328,31 +391,30 @@ function renderTab() {
   if (activeTab === "dashboard") el.innerHTML = renderDashboard();
   else if (activeTab === "doctors") el.innerHTML = renderDoctors();
   else if (activeTab === "chambers") el.innerHTML = renderChambers();
-  else if (activeTab === "eduemp") el.innerHTML = renderEduEmp();
   else if (activeTab === "hospitals") el.innerHTML = renderHospitals();
   else if (activeTab === "diagnostics") el.innerHTML = renderDiagnostics();
   else if (activeTab === "specialties") el.innerHTML = renderSpecialties();
   else if (activeTab === "locations") el.innerHTML = renderLocations();
   else if (activeTab === "notifications") el.innerHTML = renderNotifications();
-  else if (activeTab === "inbox") el.innerHTML = renderInbox();
   else if (activeTab === "settings") el.innerHTML = renderSettings();
 }
 
 function renderDashboard() {
   const docs = Object.values(dbState.doctors);
+  const chambers = Object.values(dbState.chambers);
+  const activeChambers = chambers.filter(c => c.isActive !== false).length;
   const stats = [
     ["Total Doctors", docs.length, "text-sky-700"],
-    ["BMDC Verified", docs.filter(d => d.bmdcVerified).length, "text-emerald-600"],
-    ["Pending Doctors", docs.filter(d => d.approvalStatus === "PENDING").length, "text-amber-600"],
-    ["Hospitals", Object.keys(dbState.hospitals).length, "text-teal-700"],
-    ["Diagnostic Centers", Object.keys(dbState.diagnostic_centers).length, "text-sky-600"],
-    ["Chambers", Object.keys(dbState.chambers).length, "text-indigo-600"],
+    ["Active Chambers", activeChambers, "text-emerald-600"],
+    ["Total Chambers", chambers.length, "text-indigo-600"],
+    ["Weekly Time Slots", Object.keys(dbState.chamber_schedules).length, "text-teal-700"],
+    ["Hospitals", Object.keys(dbState.hospitals).length, "text-sky-600"],
+    ["Diagnostic Centers", Object.keys(dbState.diagnostic_centers).length, "text-cyan-700"],
     ["Specialties", Object.keys(dbState.specialties).length, "text-slate-800"],
-    ["Open Reports", Object.values(dbState.reports).filter(r => r.status === "OPEN").length, "text-rose-600"],
-    ["Serial Requests", Object.values(dbState.appointments).filter(a => a.status === "PENDING").length, "text-amber-700"]
+    ["Custom Locations", Object.keys(dbState.locations).length, "text-amber-700"]
   ];
   return `
-    <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
       ${stats.map(([label, count, cls]) => `
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <div class="text-3xl font-bold ${cls}">${count}</div>
@@ -364,112 +426,201 @@ function renderDashboard() {
       <h3 class="font-bold text-slate-800 mb-2">Quick Guide</h3>
       <p class="text-sm text-slate-600 leading-relaxed">
         Everything you add, edit, or delete here is saved directly to your Firebase Realtime Database
-        (<code>octor-aad88</code>) and automatically synced into the <strong>Doctor List BD</strong> Android app's Room local database.
-        Zero demo data is preloaded — only the real doctors, hospitals, diagnostic centers, and chamber schedules you publish here appear in the app.
+        (<code>octor-aad88</code>) and automatically synced into the <strong>Doctor List BD</strong> Android app.
+        Only <strong>Active Chambers</strong> are visible in the patient app.
       </p>
     </div>
   `;
 }
 
-// --- DOCTORS ---
+// --- DOCTORS (Exact 7-Field Clean Form) ---
 function renderDoctors() {
   const d = editing.doctor || {};
   const specs = Object.entries(dbState.specialties);
   const docs = Object.entries(dbState.doctors);
+  const { hospitals, diagnostics } = getAllAdminFacilities();
+  const savedName = d.doctorName || d.fullNameEn || d.fullNameBn || "";
+  const savedQual = d.qualification || d.degree || d.trainings || "";
+  const savedInst = d.currentHospital || d.institution || "";
+
+  const allInstNames = [...hospitals.map(h => h.name), ...diagnostics.map(dc => dc.name)];
+  const hasSavedCustomInst = savedInst && !allInstNames.includes(savedInst);
 
   return `
-    <div class="bg-white p-6 rounded-2xl border border-slate-200 mb-6">
-      <h3 class="font-bold text-lg text-sky-800 mb-4">${d.id ? "Edit Doctor" : "Add New Doctor"}</h3>
-      <form onsubmit="submitDoctor(event)" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-6">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <div>
+          <h3 class="font-bold text-lg text-sky-800">${d.id ? "Edit Doctor" : "Add New Doctor"}</h3>
+          <p class="text-xs text-slate-500">Manage doctor profile details synced to the Doctor List BD app</p>
+        </div>
+        ${d.id ? `<button type="button" onclick="editing={};renderTab()" class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-xs font-semibold">Cancel Edit</button>` : ""}
+      </div>
+
+      <form onsubmit="submitDoctor(event)" class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <input type="hidden" id="doc_id" value="${esc(d.id || "")}" />
-        <input id="doc_nameBn" value="${esc(d.fullNameBn || "")}" required placeholder="Full Name (Bangla) *" class="input" />
-        <input id="doc_nameEn" value="${esc(d.fullNameEn || "")}" required placeholder="Full Name (English) *" class="input" />
-        <input id="doc_bmdc" value="${esc(d.bmdcNumber || "")}" required placeholder="BMDC Registration Number *" class="input" />
-        <input id="doc_photo" value="${esc(d.photoUrl || "")}" placeholder="External Photo URL (https://...)" class="input" />
-        <select id="doc_spec" class="input">
-          <option value="">-- Select Specialty --</option>
-          ${specs.map(([id, s]) => `<option value="${esc(id)}" ${d.mainSpecialtyId === id ? "selected" : ""}>${esc(s.nameBn)} (${esc(s.nameEn)})</option>`).join("")}
-        </select>
-        <input id="doc_subSpec" value="${esc(d.subSpecialty || "")}" placeholder="Sub-specialty" class="input" />
-        <input id="doc_expertise" value="${esc(d.expertise || "")}" placeholder="Treatment Expertise" class="input" />
-        <input id="doc_phone" value="${esc(d.contactNumber || "")}" placeholder="Contact Phone" class="input" />
-        <input id="doc_hosp" value="${esc(d.currentHospital || "")}" placeholder="Current Hospital" class="input" />
-        <input id="doc_college" value="${esc(d.currentMedicalCollege || "")}" placeholder="Medical College" class="input" />
-        <input id="doc_dept" value="${esc(d.currentDepartment || "")}" placeholder="Department" class="input" />
-        <input id="doc_desig" value="${esc(d.currentDesignation || "")}" placeholder="Designation (e.g. Professor)" class="input" />
-        <input id="doc_exp" type="number" value="${esc(d.totalExperienceYears || 0)}" placeholder="Total Experience (Years)" class="input" />
-        <input id="doc_teach" type="number" value="${esc(d.teachingExperienceYears || 0)}" placeholder="Teaching Experience (Years)" class="input" />
-        <input id="doc_gender" value="${esc(d.gender || "")}" placeholder="Gender (optional)" class="input" />
-        <input id="doc_trainings" value="${esc(d.trainings || "")}" placeholder="Trainings & Certifications" class="input" />
-        <textarea id="doc_bioBn" placeholder="Biography (Bangla)" class="input md:col-span-2" rows="2">${esc(d.bioBn || "")}</textarea>
-        <textarea id="doc_bioEn" placeholder="Biography (English)" class="input md:col-span-2" rows="2">${esc(d.bioEn || "")}</textarea>
-        <div class="md:col-span-2 flex flex-wrap gap-5 items-center py-2">
-          <label class="flex items-center gap-2 text-sm"><input id="doc_verified" type="checkbox" ${d.bmdcVerified ? "checked" : ""} /> BMDC Verified</label>
-          <label class="flex items-center gap-2 text-sm"><input id="doc_featured" type="checkbox" ${d.isFeatured ? "checked" : ""} /> Featured</label>
-          <label class="flex items-center gap-2 text-sm"><input id="doc_active" type="checkbox" ${d.isActive !== false ? "checked" : ""} /> Active</label>
-          <select id="doc_approval" class="border rounded-lg px-3 py-1.5 text-sm">
-            <option value="APPROVED" ${d.approvalStatus === "APPROVED" ? "selected" : ""}>APPROVED</option>
-            <option value="PENDING" ${d.approvalStatus === "PENDING" ? "selected" : ""}>PENDING</option>
-            <option value="REJECTED" ${d.approvalStatus === "REJECTED" ? "selected" : ""}>REJECTED</option>
+
+        <!-- 1. Profile Photo (Image URL, Required) -->
+        <div class="md:col-span-2">
+          <label class="block text-xs font-semibold text-slate-700 mb-1">1. Profile Photo (Image URL) <span class="text-rose-600">*</span></label>
+          <div class="flex items-center gap-3">
+            <img id="doc_photo_preview" src="${esc(d.photoUrl || "")}" alt="Preview"
+              class="${d.photoUrl ? "" : "hidden"} w-12 h-12 rounded-xl object-cover border border-slate-200 flex-shrink-0 bg-slate-50"
+              onerror="this.classList.add('hidden')" />
+            <input id="doc_photo" type="url" value="${esc(d.photoUrl || "")}" required
+              oninput="previewDoctorPhoto(this.value)"
+              placeholder="https://example.com/doctor-photo.jpg" class="input" />
+          </div>
+        </div>
+
+        <!-- 2. Doctor Name (Text, Required) -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">2. Doctor Name <span class="text-rose-600">*</span></label>
+          <input id="doc_name" type="text" value="${esc(savedName)}" required
+            placeholder="e.g. Dr. Md. Rafiqul Islam / ডাঃ মোঃ রফিকুল ইসলাম" class="input" />
+        </div>
+
+        <!-- 3. Degree / Qualification (Text, Required) -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">3. Degree / Qualification <span class="text-rose-600">*</span></label>
+          <input id="doc_qual" type="text" value="${esc(savedQual)}" required
+            placeholder="e.g. MBBS, FCPS (Medicine), MD" class="input" />
+        </div>
+
+        <!-- 4. Specialty (Dropdown, Required) -->
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-xs font-semibold text-slate-700">4. Specialty <span class="text-rose-600">*</span></label>
+            ${specs.length === 0 ? `<button type="button" onclick="switchTab('specialties')" class="text-[11px] text-sky-600 font-semibold hover:underline">+ Add Specialty</button>` : ""}
+          </div>
+          <select id="doc_spec" required class="input bg-white">
+            <option value="">-- Select Specialty * --</option>
+            ${specs.map(([id, s]) => `<option value="${esc(id)}" ${d.mainSpecialtyId === id ? "selected" : ""}>${esc(s.nameBn)} (${esc(s.nameEn)})</option>`).join("")}
           </select>
         </div>
-        <div class="md:col-span-2 flex gap-2">
-          <button type="submit" class="px-5 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Save Doctor</button>
-          ${d.id ? `<button type="button" onclick="editing={};renderTab()" class="px-4 py-2.5 rounded-xl bg-slate-100 text-sm">Cancel</button>` : ""}
+
+        <!-- 5. Sub-Specialty (Text, Optional) -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">5. Sub-Specialty <span class="text-slate-400 font-normal">(Optional)</span></label>
+          <input id="doc_subSpec" type="text" value="${esc(d.subSpecialty || "")}"
+            placeholder="e.g. Interventional Cardiology" class="input" />
+        </div>
+
+        <!-- 6. Designation (Text, Required) -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">6. Designation <span class="text-rose-600">*</span></label>
+          <input id="doc_desig" type="text" value="${esc(d.currentDesignation || "")}" required
+            placeholder="e.g. Professor / Senior Consultant" class="input" />
+        </div>
+
+        <!-- 7. Institution / Medical College / Hospital (Dropdown, Required) -->
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-xs font-semibold text-slate-700">7. Institution / Medical College / Hospital <span class="text-rose-600">*</span></label>
+            <button type="button" onclick="switchTab('hospitals')" class="text-[11px] text-sky-600 font-semibold hover:underline">+ Manage Hospitals</button>
+          </div>
+          <select id="doc_inst" required class="input bg-white">
+            <option value="">-- Select Institution / Hospital * --</option>
+            ${hasSavedCustomInst ? `<option value="${esc(savedInst)}" selected>${esc(savedInst)}</option>` : ""}
+            ${hospitals.length > 0 ? `
+              <optgroup label="Hospitals & Medical Colleges">
+                ${hospitals.map(h => `<option value="${esc(h.name)}" ${savedInst === h.name ? "selected" : ""}>${esc(h.label)}</option>`).join("")}
+              </optgroup>
+            ` : ""}
+            ${diagnostics.length > 0 ? `
+              <optgroup label="Diagnostic Centers">
+                ${diagnostics.map(dc => `<option value="${esc(dc.name)}" ${savedInst === dc.name ? "selected" : ""}>${esc(dc.label)}</option>`).join("")}
+              </optgroup>
+            ` : ""}
+          </select>
+          ${hospitals.length === 0 && diagnostics.length === 0 ? `<p class="text-[11px] text-amber-700 mt-1">No hospitals added yet. Add hospitals in Tab 4 first.</p>` : ""}
+        </div>
+
+        <div class="md:col-span-2 flex gap-2 pt-2">
+          <button type="submit" class="px-6 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-semibold text-sm shadow-sm transition">
+            ${d.id ? "Update Doctor" : "Save Doctor"}
+          </button>
+          ${d.id ? `<button type="button" onclick="editing={};renderTab()" class="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-sm font-medium">Cancel</button>` : ""}
         </div>
       </form>
     </div>
 
     <div class="space-y-3">
-      ${docs.length === 0 ? `<div class="bg-white p-8 rounded-2xl text-center text-slate-500">No doctors added yet.</div>` : docs.map(([id, item]) => `
-        <div class="bg-white p-4 rounded-2xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div class="font-bold text-slate-900">${esc(item.fullNameBn)} <span class="text-slate-500 font-normal">(${esc(item.fullNameEn)})</span></div>
-            <div class="text-xs text-slate-500">BMDC: ${esc(item.bmdcNumber)} • ${esc(item.currentDesignation)} @ ${esc(item.currentHospital)}</div>
-            <div class="flex gap-2 mt-1">
-              <span class="text-xs px-2 py-0.5 rounded-full ${item.bmdcVerified ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}">${item.bmdcVerified ? "BMDC Verified" : "Unverified"}</span>
-              <span class="text-xs px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">${esc(item.approvalStatus)}</span>
+      ${docs.length === 0 ? `<div class="bg-white p-8 rounded-2xl border border-slate-200 text-center text-slate-500">No doctors added yet.</div>` : docs.map(([id, item]) => {
+        const displayName = item.doctorName || item.fullNameEn || item.fullNameBn || "";
+        const displayQual = item.qualification || item.degree || item.trainings || "";
+        const specObj = dbState.specialties[item.mainSpecialtyId];
+        const specLabel = specObj ? `${specObj.nameEn} (${specObj.nameBn})` : "";
+        return `
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-3 min-w-0">
+            ${item.photoUrl
+              ? `<img src="${esc(item.photoUrl)}" alt="${esc(displayName)}" class="w-12 h-12 rounded-xl object-cover border border-slate-200 flex-shrink-0 bg-slate-50" onerror="this.style.display='none'" />`
+              : `<div class="w-12 h-12 rounded-xl bg-sky-50 text-sky-700 font-bold flex items-center justify-center flex-shrink-0">Dr</div>`
+            }
+            <div class="min-w-0">
+              <div class="font-bold text-slate-900 truncate">${esc(displayName)}</div>
+              ${displayQual ? `<div class="text-xs font-semibold text-teal-700 truncate">${esc(displayQual)}</div>` : ""}
+              <div class="text-xs text-slate-600 truncate">
+                ${esc(item.currentDesignation)}${item.currentHospital ? " • " + esc(item.currentHospital) : ""}
+              </div>
+              <div class="flex flex-wrap gap-1.5 mt-1">
+                ${specLabel ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-sky-50 text-sky-800 font-medium">${esc(specLabel)}</span>` : ""}
+                ${item.subSpecialty ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">${esc(item.subSpecialty)}</span>` : ""}
+              </div>
             </div>
           </div>
           <div class="flex gap-2">
-            <button onclick='editing={doctor:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1.5 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold">Edit</button>
+            <button onclick='editing={doctor:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab();window.scrollTo({top:0,behavior:"smooth"})' class="px-3 py-1.5 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold">Edit</button>
             <button onclick="deleteNode('doctors','${id}')" class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 text-xs font-semibold">Delete</button>
           </div>
         </div>
-      `).join("")}
+      `;
+      }).join("")}
     </div>
   `;
+}
+
+function previewDoctorPhoto(url) {
+  const img = document.getElementById("doc_photo_preview");
+  if (!img) return;
+  if (/^https?:\/\//.test((url || "").trim())) {
+    img.src = url.trim();
+    img.classList.remove("hidden");
+  } else {
+    img.classList.add("hidden");
+  }
 }
 
 async function submitDoctor(e) {
   e.preventDefault();
   const id = document.getElementById("doc_id").value || uid("doc");
   const photo = document.getElementById("doc_photo").value.trim();
-  if (photo && !/^https?:\/\//.test(photo)) return alert("Photo URL must start with http:// or https://");
+  if (!/^https?:\/\//.test(photo)) return alert("Profile Photo URL is required and must start with http:// or https://");
+  const name = document.getElementById("doc_name").value.trim();
+  const qualification = document.getElementById("doc_qual").value.trim();
+  const mainSpecialtyId = document.getElementById("doc_spec").value;
+  const subSpecialty = document.getElementById("doc_subSpec").value.trim();
+  const designation = document.getElementById("doc_desig").value.trim();
+  const institution = document.getElementById("doc_inst").value.trim();
+
+  if (!name || !qualification || !mainSpecialtyId || !designation || !institution) {
+    return alert("Please complete all required fields.");
+  }
+
   const obj = {
-    fullNameBn: document.getElementById("doc_nameBn").value.trim(),
-    fullNameEn: document.getElementById("doc_nameEn").value.trim(),
-    bmdcNumber: document.getElementById("doc_bmdc").value.trim(),
+    doctorName: name,
+    fullNameBn: name,
+    fullNameEn: name,
     photoUrl: photo,
-    mainSpecialtyId: document.getElementById("doc_spec").value,
-    subSpecialty: document.getElementById("doc_subSpec").value.trim(),
-    expertise: document.getElementById("doc_expertise").value.trim(),
-    contactNumber: document.getElementById("doc_phone").value.trim(),
-    currentHospital: document.getElementById("doc_hosp").value.trim(),
-    currentMedicalCollege: document.getElementById("doc_college").value.trim(),
-    currentDepartment: document.getElementById("doc_dept").value.trim(),
-    currentDesignation: document.getElementById("doc_desig").value.trim(),
-    totalExperienceYears: parseInt(document.getElementById("doc_exp").value || "0", 10),
-    teachingExperienceYears: parseInt(document.getElementById("doc_teach").value || "0", 10),
-    gender: document.getElementById("doc_gender").value.trim(),
-    trainings: document.getElementById("doc_trainings").value.trim(),
-    bioBn: document.getElementById("doc_bioBn").value.trim(),
-    bioEn: document.getElementById("doc_bioEn").value.trim(),
-    bmdcVerified: document.getElementById("doc_verified").checked,
-    verificationStatus: document.getElementById("doc_verified").checked ? "VERIFIED" : "PENDING",
-    isFeatured: document.getElementById("doc_featured").checked,
-    isActive: document.getElementById("doc_active").checked,
-    approvalStatus: document.getElementById("doc_approval").value,
+    qualification,
+    mainSpecialtyId,
+    subSpecialty,
+    currentDesignation: designation,
+    currentHospital: institution,
+    isActive: true,
+    approvalStatus: "APPROVED",
+    bmdcVerified: false,
+    isFeatured: false,
     isDemoData: false,
     updatedAt: Date.now()
   };
@@ -484,6 +635,26 @@ function renderChambers() {
   const schedules = Object.entries(dbState.chamber_schedules);
   const c = editing.chamber || {};
   const sb = scheduleBuilder;
+
+  const { hospitals, diagnostics } = getAllAdminFacilities();
+  const allFacNames = [...hospitals.map(h => h.name), ...diagnostics.map(dc => dc.name)];
+  const savedFac = c.facilityName || "";
+  const hasCustomFac = savedFac && !allFacNames.includes(savedFac);
+
+  const distMap = getDistrictUpazilaMap();
+  const districtNames = Object.keys(distMap).sort((a, b) => a.localeCompare(b));
+  const selectedDistrict = chamberFormState.district || c.district || "";
+  if (selectedDistrict && !distMap[selectedDistrict]) {
+    distMap[selectedDistrict] = new Set();
+    districtNames.push(selectedDistrict);
+    districtNames.sort((a, b) => a.localeCompare(b));
+  }
+  const upazilaList = selectedDistrict ? Array.from(distMap[selectedDistrict] || []).sort((a, b) => a.localeCompare(b)) : [];
+  const selectedUpazila = chamberFormState.upazila || c.upazila || "";
+  if (selectedUpazila && selectedDistrict && !upazilaList.includes(selectedUpazila)) {
+    upazilaList.unshift(selectedUpazila);
+  }
+  const activeToggle = c.id ? (chamberFormState.hasOwnProperty("isActive") ? chamberFormState.isActive : c.isActive !== false) : chamberFormState.isActive !== false;
 
   const filteredChambersForSelect = sb.doctorFilter
     ? chambers.filter(([, ch]) => ch.doctorId === sb.doctorFilter)
@@ -501,35 +672,113 @@ function renderChambers() {
 
   return `
     <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 mb-8">
-      <!-- Add / Edit Chamber Location -->
+      <!-- 1. Add / Edit Chamber Location (Exact 9 Fields) -->
       <div class="xl:col-span-5 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div class="flex items-center justify-between mb-3">
           <div>
             <h3 class="font-bold text-sky-800 text-base">${c.id ? "Edit Chamber Location" : "1. Add Chamber Location"}</h3>
-            <p class="text-xs text-slate-500">Each doctor can have multiple independent chambers</p>
+            <p class="text-xs text-slate-500">Each doctor can have multiple independent chambers. Only Active chambers show in the patient app.</p>
           </div>
-          ${c.id ? `<button type="button" onclick="editing={};renderTab()" class="text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600">Cancel</button>` : ""}
+          ${c.id ? `<button type="button" onclick="cancelEditChamber()" class="text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 font-semibold">Cancel</button>` : ""}
         </div>
-        <form onsubmit="submitChamber(event)" class="space-y-2.5">
+
+        <form onsubmit="submitChamber(event)" class="space-y-3">
           <input type="hidden" id="ch_id" value="${esc(c.id || "")}" />
-          <select id="ch_doc" required class="input">
-            <option value="">-- Select Doctor * --</option>
-            ${docs.map(([id, d]) => `<option value="${id}" ${c.doctorId===id?"selected":""}>${esc(d.fullNameEn)} (${esc(d.fullNameBn)})</option>`).join("")}
-          </select>
-          <input id="ch_fac" value="${esc(c.facilityName || "")}" required placeholder="Hospital / Diagnostic Center Name *" class="input" />
-          <div class="grid grid-cols-2 gap-2">
-            <input id="ch_dist" value="${esc(c.district || "Dhaka")}" required placeholder="District *" class="input" />
-            <input id="ch_upz" value="${esc(c.upazila || "")}" placeholder="Upazila / Area" class="input" />
+
+          <!-- SL 1: Select Doctor (Dropdown, Required) -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">1. Select Doctor <span class="text-rose-600">*</span></label>
+            <select id="ch_doc" required class="input bg-white">
+              <option value="">-- Select Doctor * --</option>
+              ${docs.map(([id, d]) => {
+                const dn = d.doctorName || d.fullNameEn || d.fullNameBn;
+                return `<option value="${id}" ${c.doctorId===id?"selected":""}>${esc(dn)}</option>`;
+              }).join("")}
+            </select>
           </div>
-          <input id="ch_addr" value="${esc(c.fullAddress || "")}" required placeholder="Full Address *" class="input" />
-          <input id="ch_phone" value="${esc(c.serialPhone || "")}" placeholder="Serial Booking Phone" class="input" />
-          <input id="ch_maps" value="${esc(c.googleMapsUrl || "")}" placeholder="Google Maps URL (https://...)" class="input" />
-          <input id="ch_inst" value="${esc(c.instructions || "")}" placeholder="Appointment Instructions" class="input" />
-          <label class="flex items-center gap-2 text-sm text-slate-700 pt-1">
-            <input id="ch_active" type="checkbox" ${c.isActive !== false ? "checked" : ""} class="rounded" /> Active Chamber
-          </label>
-          <button type="submit" class="w-full py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-semibold text-sm transition">
-            ${c.id ? "Update Chamber" : "Save Chamber"}
+
+          <!-- SL 2: Hospital / Diagnostic Center (Dropdown managed by Admin, Required) -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-xs font-semibold text-slate-700">2. Hospital / Diagnostic Center <span class="text-rose-600">*</span></label>
+              <button type="button" onclick="switchTab('hospitals')" class="text-[11px] text-sky-600 font-semibold hover:underline">+ Manage List</button>
+            </div>
+            <select id="ch_fac" required class="input bg-white">
+              <option value="">-- Select Hospital / Diagnostic Center * --</option>
+              ${hasCustomFac ? `<option value="${esc(savedFac)}" data-type="${esc(c.facilityType || "HOSPITAL")}" selected>${esc(savedFac)}</option>` : ""}
+              ${hospitals.length > 0 ? `
+                <optgroup label="Hospitals (হাসপাতাল)">
+                  ${hospitals.map(h => `<option value="${esc(h.name)}" data-type="HOSPITAL" ${savedFac === h.name ? "selected" : ""}>${esc(h.label)}</option>`).join("")}
+                </optgroup>
+              ` : ""}
+              ${diagnostics.length > 0 ? `
+                <optgroup label="Diagnostic Centers (ডায়াগনস্টিক সেন্টার)">
+                  ${diagnostics.map(dc => `<option value="${esc(dc.name)}" data-type="DIAGNOSTIC_CENTER" ${savedFac === dc.name ? "selected" : ""}>${esc(dc.label)}</option>`).join("")}
+                </optgroup>
+              ` : ""}
+            </select>
+          </div>
+
+          <!-- SL 3: Chamber Name (Text, Optional) -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">3. Chamber Name <span class="text-slate-400 font-normal">(Optional)</span></label>
+            <input id="ch_name" type="text" value="${esc(c.chamberName || "")}" placeholder="e.g. Room 302, Cardiac Chamber" class="input" />
+          </div>
+
+          <!-- SL 4 & 5: District (Dropdown, Required) & Dependent Upazila / Area (Dropdown, Required) -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">4. District <span class="text-rose-600">*</span></label>
+              <select id="ch_dist" required onchange="onChamberDistrictChange(this.value)" class="input bg-white">
+                <option value="">-- Select District * --</option>
+                ${districtNames.map(dist => `<option value="${esc(dist)}" ${selectedDistrict === dist ? "selected" : ""}>${esc(dist)}</option>`).join("")}
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">5. Upazila / Area <span class="text-rose-600">*</span></label>
+              <select id="ch_upz" required onchange="chamberFormState.upazila=this.value" class="input bg-white" ${!selectedDistrict ? "disabled" : ""}>
+                <option value="">${selectedDistrict ? "-- Select Upazila / Area * --" : "-- Select District First --"}</option>
+                ${upazilaList.map(upz => `<option value="${esc(upz)}" ${selectedUpazila === upz ? "selected" : ""}>${esc(upz)}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+
+          <!-- SL 6: Chamber Address (Textarea, Required) -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">6. Chamber Address <span class="text-rose-600">*</span></label>
+            <textarea id="ch_addr" required rows="2" placeholder="House, Road, Floor, Room number..." class="input">${esc(c.fullAddress || "")}</textarea>
+          </div>
+
+          <!-- SL 7: Google Map Location (URL, Optional) -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">7. Google Map Location <span class="text-slate-400 font-normal">(Optional URL)</span></label>
+            <input id="ch_maps" type="url" value="${esc(c.googleMapsUrl || "")}" placeholder="https://maps.google.com/..." class="input" />
+          </div>
+
+          <!-- SL 8: Chamber Phone (Phone, Optional) -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">8. Chamber Phone <span class="text-slate-400 font-normal">(Optional)</span></label>
+            <input id="ch_phone" type="tel" value="${esc(c.serialPhone || "")}" placeholder="+880 1XXX-XXXXXX" class="input" />
+          </div>
+
+          <!-- SL 9: Active Chamber (Toggle Yes/No, Required) -->
+          <div id="ch_active_box" class="p-3 rounded-xl border ${activeToggle ? "bg-emerald-50/70 border-emerald-200" : "bg-rose-50/70 border-rose-200"} flex items-center justify-between gap-3">
+            <div>
+              <div class="text-xs font-bold text-slate-800">9. Active Chamber <span class="text-rose-600">*</span></div>
+              <div id="ch_active_hint" class="text-[11px] ${activeToggle ? "text-emerald-700" : "text-rose-700"}">
+                ${activeToggle ? "Yes — Visible in patient app" : "No — Hidden from patient app"}
+              </div>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer select-none">
+              <input id="ch_active" type="checkbox" class="sr-only peer" ${activeToggle ? "checked" : ""}
+                onchange="chamberFormState.isActive=this.checked; updateChamberActiveUi(this.checked)" />
+              <div class="w-12 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:bg-emerald-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-6"></div>
+              <span id="ch_active_label" class="ml-2 text-xs font-bold ${activeToggle ? "text-emerald-800" : "text-rose-700"}">${activeToggle ? "Yes" : "No"}</span>
+            </label>
+          </div>
+
+          <button type="submit" class="w-full py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-semibold text-sm shadow-sm transition">
+            ${c.id ? "Update Chamber Location" : "Save Chamber Location"}
           </button>
         </form>
       </div>
@@ -555,7 +804,8 @@ function renderChambers() {
                 <option value="">All Doctors (${docs.length})</option>
                 ${docs.map(([id, d]) => {
                   const chCount = chambers.filter(([, ch]) => ch.doctorId === id).length;
-                  return `<option value="${id}" ${sb.doctorFilter===id?"selected":""}>${esc(d.fullNameBn)} — ${esc(d.fullNameEn)} (${chCount} ch)</option>`;
+                  const dn = d.doctorName || d.fullNameEn || d.fullNameBn;
+                  return `<option value="${id}" ${sb.doctorFilter===id?"selected":""}>${esc(dn)} (${chCount} ch)</option>`;
                 }).join("")}
               </select>
             </div>
@@ -564,8 +814,10 @@ function renderChambers() {
               <select id="sch_ch" required onchange="scheduleBuilder.chamberId=this.value" class="input" ${isEditSlot ? "disabled" : ""}>
                 <option value="">-- Select Chamber * --</option>
                 ${filteredChambersForSelect.map(([id, ch]) => {
-                  const docName = dbState.doctors[ch.doctorId]?.fullNameEn || ch.doctorId;
-                  return `<option value="${id}" ${sb.chamberId===id?"selected":""}>${esc(ch.facilityName)} — ${esc(docName)}</option>`;
+                  const docObj = dbState.doctors[ch.doctorId];
+                  const docName = docObj ? (docObj.doctorName || docObj.fullNameEn || docObj.fullNameBn) : ch.doctorId;
+                  const chLabel = ch.chamberName ? `${ch.facilityName} (${ch.chamberName})` : ch.facilityName;
+                  return `<option value="${id}" ${sb.chamberId===id?"selected":""}>${esc(chLabel)} — ${esc(docName)}</option>`;
                 }).join("")}
               </select>
             </div>
@@ -701,7 +953,7 @@ function renderChambers() {
       </div>
       <select onchange="scheduleBuilder.listDoctorFilter=this.value;renderTab()" class="input max-w-xs bg-white">
         <option value="">Filter List: All Doctors (${docs.length})</option>
-        ${docs.map(([id, d]) => `<option value="${id}" ${sb.listDoctorFilter===id?"selected":""}>${esc(d.fullNameBn)} (${esc(d.fullNameEn)})</option>`).join("")}
+        ${docs.map(([id, d]) => `<option value="${id}" ${sb.listDoctorFilter===id?"selected":""}>${esc(d.doctorName || d.fullNameEn || d.fullNameBn)}</option>`).join("")}
       </select>
     </div>
 
@@ -720,20 +972,21 @@ function renderChambers() {
             <div>
               <div class="flex flex-wrap items-center gap-2">
                 <span class="font-bold text-slate-900 text-base">${esc(ch.facilityName)}</span>
+                ${ch.chamberName ? `<span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">${esc(ch.chamberName)}</span>` : ""}
                 <span class="text-xs px-2.5 py-0.5 rounded-full bg-sky-50 text-sky-800 font-semibold border border-sky-200">
-                  ${esc(doc ? `${doc.fullNameBn} (${doc.fullNameEn})` : ch.doctorId)}
+                  ${esc(doc ? (doc.doctorName || doc.fullNameEn || doc.fullNameBn) : ch.doctorId)}
                 </span>
                 <span class="text-xs px-2 py-0.5 rounded-full ${ch.isActive !== false ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"} font-semibold">
-                  ${ch.isActive !== false ? "Active" : "Closed"} • ${activeDaysCount}/7 days
+                  ${ch.isActive !== false ? "Active (Visible)" : "Inactive (Hidden)"} • ${activeDaysCount}/7 days
                 </span>
               </div>
               <div class="text-xs text-slate-500 mt-1">
-                ${esc(ch.fullAddress)} • ${esc(ch.upazila ? ch.upazila + ", " : "")}${esc(ch.district)} ${ch.serialPhone ? "• Serial: " + esc(ch.serialPhone) : ""}
+                ${esc(ch.fullAddress)} • ${esc(ch.upazila ? ch.upazila + ", " : "")}${esc(ch.district)} ${ch.serialPhone ? "• Phone: " + esc(ch.serialPhone) : ""}
               </div>
             </div>
             <div class="flex flex-wrap gap-2">
               <button onclick="selectChamberForBuilder('${id}','${ch.doctorId}')" class="px-3 py-1.5 rounded-lg bg-teal-50 text-teal-700 border border-teal-200 text-xs font-semibold hover:bg-teal-100">+ Add Slots</button>
-              <button onclick='editing={chamber:${JSON.stringify({...ch, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1.5 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold">Edit Chamber</button>
+              <button onclick="startEditChamber('${id}')" class="px-3 py-1.5 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold">Edit Chamber</button>
               ${chSlots.length > 0 ? `<button onclick="clearChamberSchedule('${id}')" class="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-800 text-xs font-semibold">Clear Slots</button>` : ""}
               <button onclick="deleteChamberWithSlots('${id}')" class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 text-xs font-semibold">Delete</button>
             </div>
@@ -900,23 +1153,90 @@ async function deleteChamberWithSlots(chamberId) {
   }
 }
 
+function onChamberDistrictChange(dist) {
+  chamberFormState.district = dist;
+  chamberFormState.upazila = "";
+  const upzSelect = document.getElementById("ch_upz");
+  if (!upzSelect) return;
+  const distMap = getDistrictUpazilaMap();
+  const list = dist ? Array.from(distMap[dist] || []).sort((a, b) => a.localeCompare(b)) : [];
+  upzSelect.disabled = !dist;
+  upzSelect.innerHTML = `<option value="">${dist ? "-- Select Upazila / Area * --" : "-- Select District First --"}</option>` +
+    list.map(u => `<option value="${esc(u)}">${esc(u)}</option>`).join("");
+}
+
+function updateChamberActiveUi(isOn) {
+  const lbl = document.getElementById("ch_active_label");
+  if (lbl) {
+    lbl.textContent = isOn ? "Yes" : "No";
+    lbl.className = `ml-2 text-xs font-bold ${isOn ? "text-emerald-800" : "text-rose-700"}`;
+  }
+  const box = document.getElementById("ch_active_box");
+  if (box) {
+    box.className = `p-3 rounded-xl border ${isOn ? "bg-emerald-50/70 border-emerald-200" : "bg-rose-50/70 border-rose-200"} flex items-center justify-between gap-3`;
+  }
+  const hint = document.getElementById("ch_active_hint");
+  if (hint) {
+    hint.textContent = isOn ? "Yes — Visible in patient app" : "No — Hidden from patient app";
+    hint.className = `text-[11px] ${isOn ? "text-emerald-700" : "text-rose-700"}`;
+  }
+}
+
+function startEditChamber(chamberId) {
+  const ch = dbState.chambers[chamberId];
+  if (!ch) return;
+  editing = { chamber: { ...ch, id: chamberId } };
+  chamberFormState = {
+    district: ch.district || "",
+    upazila: ch.upazila || "",
+    isActive: ch.isActive !== false
+  };
+  renderTab();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function cancelEditChamber() {
+  editing = {};
+  chamberFormState = { district: "", upazila: "", isActive: true };
+  renderTab();
+}
+
 async function submitChamber(e) {
   e.preventDefault();
   const id = document.getElementById("ch_id").value || uid("ch");
   const doctorId = document.getElementById("ch_doc").value;
+  const facSelect = document.getElementById("ch_fac");
+  const facilityName = facSelect.value.trim();
+  const facilityType = facSelect.selectedOptions?.[0]?.dataset?.type || "HOSPITAL";
+  const chamberName = document.getElementById("ch_name").value.trim();
+  const district = document.getElementById("ch_dist").value.trim();
+  const upazila = document.getElementById("ch_upz").value.trim();
+  const fullAddress = document.getElementById("ch_addr").value.trim();
+  const googleMapsUrl = document.getElementById("ch_maps").value.trim();
+  const serialPhone = document.getElementById("ch_phone").value.trim();
+  const isActive = document.getElementById("ch_active").checked;
+
+  if (!doctorId || !facilityName || !district || !upazila || !fullAddress) {
+    return alert("Please complete all required chamber fields.");
+  }
+  if (googleMapsUrl && !/^https?:\/\//.test(googleMapsUrl)) {
+    return alert("Google Map Location must be a valid URL starting with http:// or https://");
+  }
+
   const obj = {
     doctorId,
-    facilityName: document.getElementById("ch_fac").value.trim(),
-    facilityType: "HOSPITAL",
-    district: document.getElementById("ch_dist").value.trim(),
-    upazila: document.getElementById("ch_upz").value.trim(),
-    fullAddress: document.getElementById("ch_addr").value.trim(),
-    serialPhone: document.getElementById("ch_phone").value.trim(),
-    googleMapsUrl: document.getElementById("ch_maps").value.trim(),
-    instructions: document.getElementById("ch_inst").value.trim(),
-    isActive: document.getElementById("ch_active").checked
+    facilityName,
+    facilityType,
+    chamberName,
+    district,
+    upazila,
+    fullAddress,
+    serialPhone,
+    googleMapsUrl,
+    isActive
   };
   editing = {};
+  chamberFormState = { district: "", upazila: "", isActive: true };
   scheduleBuilder.doctorFilter = doctorId;
   scheduleBuilder.chamberId = id;
   await saveNode("chambers", id, obj);
@@ -1004,87 +1324,6 @@ async function submitFlexibleSchedule(e) {
   );
 }
 
-// --- EDUCATION & EMPLOYMENT ---
-function renderEduEmp() {
-  const docs = Object.entries(dbState.doctors);
-  return `
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-      <div class="bg-white p-5 rounded-2xl border border-slate-200">
-        <h3 class="font-bold text-sky-800 mb-3">Add Doctor Qualification</h3>
-        <form onsubmit="submitEdu(event)" class="space-y-2.5">
-          <select id="edu_doc" required class="input">
-            <option value="">-- Select Doctor * --</option>
-            ${docs.map(([id, d]) => `<option value="${id}">${esc(d.fullNameEn)}</option>`).join("")}
-          </select>
-          <input id="edu_deg" required placeholder="Degree (MBBS, FCPS, MD) *" class="input" />
-          <input id="edu_inst" required placeholder="Institution *" class="input" />
-          <input id="edu_year" placeholder="Passing Year" class="input" />
-          <input id="edu_train" placeholder="Special Training" class="input" />
-          <button type="submit" class="w-full py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Add Qualification</button>
-        </form>
-        <div class="mt-4 space-y-2">
-          ${Object.entries(dbState.education).map(([id, e]) => `
-            <div class="p-2.5 bg-slate-50 rounded-xl flex justify-between items-center text-xs">
-              <div><strong>${esc(e.degreeName)}</strong> (${esc(e.passingYear)}) — ${esc(e.institution)} [${esc(dbState.doctors[e.doctorId]?.fullNameEn || "")}]</div>
-              <button onclick="deleteNode('education','${id}')" class="text-rose-600 font-semibold">Delete</button>
-            </div>
-          `).join("")}
-        </div>
-      </div>
-
-      <div class="bg-white p-5 rounded-2xl border border-slate-200">
-        <h3 class="font-bold text-teal-800 mb-3">Add Previous Employment</h3>
-        <form onsubmit="submitEmp(event)" class="space-y-2.5">
-          <select id="emp_doc" required class="input">
-            <option value="">-- Select Doctor * --</option>
-            ${docs.map(([id, d]) => `<option value="${id}">${esc(d.fullNameEn)}</option>`).join("")}
-          </select>
-          <input id="emp_hosp" required placeholder="Previous Hospital / Medical College *" class="input" />
-          <input id="emp_desig" required placeholder="Designation *" class="input" />
-          <input id="emp_dept" placeholder="Department" class="input" />
-          <div class="grid grid-cols-2 gap-2">
-            <input id="emp_start" placeholder="Start Date" class="input" />
-            <input id="emp_end" placeholder="End Date" class="input" />
-          </div>
-          <input id="emp_desc" placeholder="Job History Description" class="input" />
-          <button type="submit" class="w-full py-2.5 rounded-xl bg-teal-600 text-white font-semibold text-sm">Add Employment</button>
-        </form>
-        <div class="mt-4 space-y-2">
-          ${Object.entries(dbState.employment_history).map(([id, e]) => `
-            <div class="p-2.5 bg-slate-50 rounded-xl flex justify-between items-center text-xs">
-              <div><strong>${esc(e.designation)}</strong> @ ${esc(e.hospitalName)} (${esc(e.startDate)} - ${esc(e.endDate)})</div>
-              <button onclick="deleteNode('employment_history','${id}')" class="text-rose-600 font-semibold">Delete</button>
-            </div>
-          `).join("")}
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-async function submitEdu(e) {
-  e.preventDefault();
-  await saveNode("education", uid("edu"), {
-    doctorId: document.getElementById("edu_doc").value,
-    degreeName: document.getElementById("edu_deg").value.trim(),
-    institution: document.getElementById("edu_inst").value.trim(),
-    passingYear: document.getElementById("edu_year").value.trim(),
-    specialTraining: document.getElementById("edu_train").value.trim()
-  });
-}
-
-async function submitEmp(e) {
-  e.preventDefault();
-  await saveNode("employment_history", uid("emp"), {
-    doctorId: document.getElementById("emp_doc").value,
-    hospitalName: document.getElementById("emp_hosp").value.trim(),
-    designation: document.getElementById("emp_desig").value.trim(),
-    department: document.getElementById("emp_dept").value.trim(),
-    startDate: document.getElementById("emp_start").value.trim(),
-    endDate: document.getElementById("emp_end").value.trim(),
-    description: document.getElementById("emp_desc").value.trim()
-  });
-}
 
 // --- HOSPITALS ---
 function renderHospitals() {
@@ -1288,45 +1527,6 @@ async function submitNotif(e) {
   });
 }
 
-// --- REPORTS & APPOINTMENTS ---
-function renderInbox() {
-  return `
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div>
-        <h3 class="font-bold text-slate-800 mb-3">Reported Incorrect Information</h3>
-        <div class="space-y-2.5">
-          ${Object.entries(dbState.reports).map(([id, r]) => `
-            <div class="bg-white p-4 rounded-xl border border-slate-200">
-              <div class="flex justify-between"><strong class="text-sm">${esc(r.reason)}</strong><span class="text-xs px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">${esc(r.status)}</span></div>
-              <p class="text-xs text-slate-600 mt-1">${esc(r.details)}</p>
-              <div class="flex gap-2 mt-2">
-                <button onclick="saveNode('reports','${id}',{...dbState.reports['${id}'],status:'RESOLVED'})" class="text-xs text-emerald-700 font-semibold">Resolve</button>
-                <button onclick="deleteNode('reports','${id}')" class="text-xs text-rose-600 font-semibold">Delete</button>
-              </div>
-            </div>
-          `).join("") || `<p class="text-sm text-slate-400">No reports.</p>`}
-        </div>
-      </div>
-      <div>
-        <h3 class="font-bold text-slate-800 mb-3">Pending Serial / Appointment Requests</h3>
-        <div class="space-y-2.5">
-          ${Object.entries(dbState.appointments).map(([id, a]) => `
-            <div class="bg-white p-4 rounded-xl border border-slate-200">
-              <div class="flex justify-between"><strong class="text-sm">${esc(a.patientName)} (${esc(a.patientPhone)})</strong><span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">${esc(a.status)}</span></div>
-              <p class="text-xs text-slate-600 mt-1">${esc(a.preferredDay)} • ${esc(a.preferredSlot)}</p>
-              <div class="flex gap-2 mt-2">
-                <button onclick="saveNode('appointments','${id}',{...dbState.appointments['${id}'],status:'CONFIRMED'})" class="text-xs text-emerald-700 font-semibold">Confirm</button>
-                <button onclick="saveNode('appointments','${id}',{...dbState.appointments['${id}'],status:'REJECTED'})" class="text-xs text-amber-700 font-semibold">Reject</button>
-                <button onclick="deleteNode('appointments','${id}')" class="text-xs text-rose-600 font-semibold">Delete</button>
-              </div>
-            </div>
-          `).join("") || `<p class="text-sm text-slate-400">No requests.</p>`}
-        </div>
-      </div>
-    </div>
-  `;
-}
-
 // --- SETTINGS & CSV ---
 function renderSettings() {
   const s = dbState.settings;
@@ -1339,7 +1539,6 @@ function renderSettings() {
         <input id="st_tagEn" value="${esc(s.taglineEn)}" placeholder="Tagline (English)" class="input" />
         <input id="st_email" value="${esc(s.contactEmail)}" placeholder="Contact Email" class="input" />
         <input id="st_phone" value="${esc(s.contactPhone)}" placeholder="Contact Phone" class="input" />
-        <label class="flex items-center gap-2 text-sm"><input id="st_book" type="checkbox" ${s.allowOnlineBooking ? "checked" : ""} /> Allow Online Serial Requests</label>
         <button type="submit" class="px-5 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Save Settings</button>
       </form>
     </div>
@@ -1357,8 +1556,7 @@ async function submitSettings(e) {
     taglineBn: document.getElementById("st_tagBn").value.trim(),
     taglineEn: document.getElementById("st_tagEn").value.trim(),
     contactEmail: document.getElementById("st_email").value.trim(),
-    contactPhone: document.getElementById("st_phone").value.trim(),
-    allowOnlineBooking: document.getElementById("st_book").checked
+    contactPhone: document.getElementById("st_phone").value.trim()
   });
 }
 

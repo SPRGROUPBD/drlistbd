@@ -93,7 +93,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     val searchState by vm.searchState.collectAsStateWithLifecycle()
     val visibleCount by vm.visiblePageCount.collectAsStateWithLifecycle()
     val favoriteIds by vm.favoriteDoctorIds.collectAsStateWithLifecycle()
-    val appointments by vm.appointments.collectAsStateWithLifecycle()
     val notifications by vm.notifications.collectAsStateWithLifecycle()
     val snackbarMsg by vm.snackbar.collectAsStateWithLifecycle()
 
@@ -271,8 +270,8 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             },
                             onToggleFavorite = vm::toggleFavorite,
                             onDoctorClick = { id -> navController.navigate(Routes.doctorProfile(id)) },
-                            onNavigateFindDoctors = { todayOnly, verifiedOnly ->
-                                vm.updateSearch { it.copy(availableTodayOnly = todayOnly, verifiedOnly = verifiedOnly) }
+                            onNavigateFindDoctors = { todayOnly ->
+                                vm.updateSearch { it.copy(availableTodayOnly = todayOnly) }
                                 navController.navigate(Routes.FIND_DOCTORS)
                             },
                             onNavigateFacilitiesTab = { tabIdx ->
@@ -326,7 +325,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             lang = lang,
                             isSyncing = isSyncing,
                             favoriteDoctors = favDocs,
-                            appointments = appointments,
                             notifications = notifications,
                             isRewardedReady = rewardedHelper.isReady,
                             isRewardedLoading = rewardedHelper.isLoading,
@@ -366,13 +364,8 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                         DoctorProfileScreen(
                             profile = profile,
                             lang = lang,
-                            settings = settings,
                             isFavorite = docId in favoriteIds,
                             onToggleFavorite = { vm.toggleFavorite(docId) },
-                            onSubmitReport = { reason, details -> vm.submitReport(docId, reason, details) },
-                            onRequestAppointment = { chId, name, phone, day, slot, notes ->
-                                vm.requestAppointment(name, phone, docId, chId, day, slot, notes)
-                            },
                             onBack = { navController.popBackStack() }
                         )
                     }

@@ -75,12 +75,19 @@ object RtdbSyncService {
             if (root.has("doctors")) {
                 val obj = root.optJSONObject("doctors")
                 val list = if (obj != null) parseMap(obj) { id, o ->
+                    val fallbackName = o.optString("doctorName", "")
+                    val nameBn = o.optString("fullNameBn", "").ifBlank { fallbackName }
+                    val nameEn = o.optString("fullNameEn", "").ifBlank { fallbackName.ifBlank { nameBn } }
+                    val qual = o.optString("qualification", "")
+                        .ifBlank { o.optString("degree", "") }
+                        .ifBlank { o.optString("trainings", "") }
                     DoctorEntity(
                         id = id,
                         userId = o.optString("userId", ""),
-                        fullNameBn = o.optString("fullNameBn", ""),
-                        fullNameEn = o.optString("fullNameEn", ""),
+                        fullNameBn = nameBn,
+                        fullNameEn = nameEn,
                         photoUrl = o.optString("photoUrl", ""),
+                        qualification = qual,
                         bmdcNumber = o.optString("bmdcNumber", ""),
                         bmdcVerified = o.optBoolean("bmdcVerified", false),
                         verificationStatus = o.optString("verificationStatus", "PENDING"),
@@ -158,6 +165,7 @@ object RtdbSyncService {
                         doctorId = o.optString("doctorId", ""),
                         facilityName = o.optString("facilityName", ""),
                         facilityType = o.optString("facilityType", "HOSPITAL"),
+                        chamberName = o.optString("chamberName", ""),
                         district = o.optString("district", ""),
                         upazila = o.optString("upazila", ""),
                         fullAddress = o.optString("fullAddress", ""),

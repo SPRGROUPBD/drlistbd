@@ -24,7 +24,8 @@ data class DoctorEntity(
     val fullNameBn: String,
     val fullNameEn: String,
     val photoUrl: String = "",
-    val bmdcNumber: String,
+    val qualification: String = "",
+    val bmdcNumber: String = "",
     val bmdcVerified: Boolean = false,
     val verificationStatus: String = "PENDING", // VerificationStatus.name
     val approvalStatus: String = "PENDING", // PENDING, APPROVED, REJECTED
@@ -127,6 +128,7 @@ data class ChamberEntity(
     val doctorId: String,
     val facilityName: String,
     val facilityType: String = "HOSPITAL", // HOSPITAL, DIAGNOSTIC_CENTER, PRIVATE
+    val chamberName: String = "",
     val district: String,
     val upazila: String = "",
     val fullAddress: String,

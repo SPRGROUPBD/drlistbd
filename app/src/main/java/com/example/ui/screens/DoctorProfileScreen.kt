@@ -45,19 +45,14 @@ import com.example.ui.theme.*
 fun DoctorProfileScreen(
     profile: DoctorFullProfile?,
     lang: AppLang,
-    settings: SiteSettingsEntity,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
-    onSubmitReport: (reason: String, details: String) -> Unit,
-    onRequestAppointment: (chamberId: String, name: String, phone: String, day: String, slot: String, notes: String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     BackHandler(onBack = onBack)
 
     val context = LocalContext.current
-    var showReportDialog by remember { mutableStateOf(false) }
-    var bookingChamber by remember { mutableStateOf<ChamberWithSchedules?>(null) }
 
     if (profile == null) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -68,6 +63,11 @@ fun DoctorProfileScreen(
 
     val doc = profile.doctor
     val specName = profile.specialty?.let { tr(lang, it.nameBn, it.nameEn) } ?: doc.subSpecialty
+    val displayName = tr(lang, doc.fullNameBn.ifBlank { doc.fullNameEn }, doc.fullNameEn.ifBlank { doc.fullNameBn })
+    val secondaryName = if (doc.fullNameBn.isNotBlank() && doc.fullNameEn.isNotBlank() && doc.fullNameBn != doc.fullNameEn) {
+        tr(lang, doc.fullNameEn, doc.fullNameBn)
+    } else ""
+    val activeChambers = remember(profile.chambers) { profile.chambers.filter { it.chamber.isActive } }
 
     LazyColumn(
         modifier = modifier
@@ -88,61 +88,48 @@ fun DoctorProfileScreen(
                     Row(verticalAlignment = Alignment.Top) {
                         ExternalImageAvatar(
                             imageUrl = doc.photoUrl,
-                            contentDescription = tr(lang, doc.fullNameBn, doc.fullNameEn),
+                            contentDescription = displayName,
                             fallbackIcon = Icons.Rounded.Person,
                             size = 86.dp,
                             shape = RoundedCornerShape(20.dp)
                         )
                         Spacer(Modifier.width(14.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                if (doc.bmdcVerified) {
-                                    StatusPill(
-                                        text = AppStrings.bmdcVerified(lang),
-                                        bgColor = EmeraldSoft,
-                                        textColor = MedicalTealDark,
-                                        icon = Icons.Rounded.Verified
-                                    )
-                                } else {
-                                    StatusPill(
-                                        text = AppStrings.unverified(lang),
-                                        bgColor = SurfaceMuted,
-                                        textColor = TextSecondary
-                                    )
-                                }
-                                if (doc.isDemoData) {
-                                    StatusPill("DEMO", AmberSoft, Color(0xFF92400E))
-                                }
+                            Text(displayName, style = MaterialTheme.typography.titleLarge, color = TextPrimary)
+                            if (secondaryName.isNotBlank()) {
+                                Text(secondaryName, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
                             }
-                            Spacer(Modifier.height(6.dp))
-                            Text(doc.fullNameBn, style = MaterialTheme.typography.titleLarge, color = TextPrimary)
-                            Text(doc.fullNameEn, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                specName,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MedicalBlueDark,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                "BMDC Reg: ${doc.bmdcNumber}",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = TextMuted
-                            )
+                            if (doc.qualification.isNotBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = doc.qualification,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MedicalTealDark,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            if (specName.isNotBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    specName,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MedicalBlueDark,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            if (doc.currentDesignation.isNotBlank()) {
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    doc.currentDesignation,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
                         }
                     }
 
-                    if (doc.bioBn.isNotBlank() || doc.bioEn.isNotBlank()) {
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = tr(lang, doc.bioBn.ifBlank { doc.bioEn }, doc.bioEn.ifBlank { doc.bioBn }),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary
-                        )
-                    }
-
-                    Spacer(Modifier.height(12.dp))
-                    // Action Row: Save, Share, Report
+                    Spacer(Modifier.height(14.dp))
+                    // Action Row: Save & Share
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -164,7 +151,14 @@ fun DoctorProfileScreen(
                         }
                         OutlinedButton(
                             onClick = {
-                                val shareText = "${doc.fullNameBn} (${doc.fullNameEn})\n$specName\nBMDC: ${doc.bmdcNumber}\n${doc.currentHospital}\nShared via Doctor Directory Bangladesh"
+                                val shareText = buildString {
+                                    append(displayName)
+                                    if (doc.qualification.isNotBlank()) append("\n${doc.qualification}")
+                                    if (specName.isNotBlank()) append("\n$specName")
+                                    if (doc.currentDesignation.isNotBlank()) append("\n${doc.currentDesignation}")
+                                    if (doc.currentHospital.isNotBlank()) append("\n${doc.currentHospital}")
+                                    append("\nShared via Doctor List BD")
+                                }
                                 val sendIntent = Intent(Intent.ACTION_SEND).apply {
                                     putExtra(Intent.EXTRA_TEXT, shareText)
                                     type = "text/plain"
@@ -177,78 +171,23 @@ fun DoctorProfileScreen(
                             Spacer(Modifier.width(4.dp))
                             Text(AppStrings.shareProfile(lang), maxLines = 1)
                         }
-                        IconButton(
-                            onClick = { showReportDialog = true },
-                            modifier = Modifier.testTag("profile_report_btn")
-                        ) {
-                            Icon(Icons.Outlined.Flag, contentDescription = AppStrings.reportIncorrect(lang), tint = RoseAlert)
-                        }
                     }
                 }
             }
         }
 
-        // Specialization & Experience
+        // Doctor Profile Summary
         item {
-            ProfileSectionCard(title = tr(lang, "বিশেষজ্ঞতা ও অভিজ্ঞতা", "Specialization & Experience"), icon = Icons.Rounded.MedicalServices) {
-                InfoRow(tr(lang, "মূল বিশেষজ্ঞতা", "Main Specialty"), specName)
-                if (doc.subSpecialty.isNotBlank()) InfoRow(tr(lang, "সাব-স্পেশালিটি", "Sub-specialty"), doc.subSpecialty)
-                if (doc.expertise.isNotBlank()) InfoRow(tr(lang, "চিকিৎসা দক্ষতা", "Treatment Expertise"), doc.expertise)
-                if (doc.totalExperienceYears > 0) InfoRow(tr(lang, "মোট অভিজ্ঞতা", "Total Experience"), "${doc.totalExperienceYears} years")
-                if (doc.teachingExperienceYears > 0) InfoRow(tr(lang, "শিক্ষকতা অভিজ্ঞতা", "Teaching Experience"), "${doc.teachingExperienceYears} years")
-                if (doc.trainings.isNotBlank()) InfoRow(tr(lang, "প্রশিক্ষণ ও সনদ", "Trainings & Certifications"), doc.trainings)
-                if (doc.gender.isNotBlank()) InfoRow(tr(lang, "লিঙ্গ", "Gender"), doc.gender)
-                if (doc.contactNumber.isNotBlank()) InfoRow(tr(lang, "যোগাযোগ", "Contact"), doc.contactNumber)
-            }
-        }
-
-        // Current Employment
-        item {
-            ProfileSectionCard(title = tr(lang, "বর্তমান কর্মস্থল", "Current Employment"), icon = Icons.Rounded.WorkOutline) {
-                if (doc.currentHospital.isNotBlank()) InfoRow(tr(lang, "হাসপাতাল", "Hospital"), doc.currentHospital)
-                if (doc.currentMedicalCollege.isNotBlank()) InfoRow(tr(lang, "মেডিকেল কলেজ", "Medical College"), doc.currentMedicalCollege)
-                if (doc.currentDepartment.isNotBlank()) InfoRow(tr(lang, "বিভাগ", "Department"), doc.currentDepartment)
+            ProfileSectionCard(title = tr(lang, "ডাক্তারের পরিচিতি", "Doctor Details"), icon = Icons.Rounded.MedicalServices) {
+                if (doc.qualification.isNotBlank()) InfoRow(tr(lang, "ডিগ্রি / যোগ্যতা", "Degree / Qualification"), doc.qualification)
+                if (specName.isNotBlank()) InfoRow(tr(lang, "বিশেষজ্ঞতা", "Specialty"), specName)
+                if (doc.subSpecialty.isNotBlank()) InfoRow(tr(lang, "সাব-স্পেশালিটি", "Sub-Specialty"), doc.subSpecialty)
                 if (doc.currentDesignation.isNotBlank()) InfoRow(tr(lang, "পদবি", "Designation"), doc.currentDesignation)
-                if (doc.employmentStartDate.isNotBlank()) InfoRow(tr(lang, "যোগদানের তারিখ", "Start Date"), doc.employmentStartDate)
+                if (doc.currentHospital.isNotBlank()) InfoRow(tr(lang, "প্রতিষ্ঠান / হাসপাতাল", "Institution / Hospital"), doc.currentHospital)
             }
         }
 
-        // Education & Qualifications
-        if (profile.educations.isNotEmpty()) {
-            item {
-                ProfileSectionCard(title = tr(lang, "শিক্ষাগত যোগ্যতা", "Education & Qualifications"), icon = Icons.Rounded.School) {
-                    profile.educations.forEach { edu ->
-                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                            Text("${edu.degreeName} (${edu.passingYear})", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
-                            Text(edu.institution, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                            if (edu.specialTraining.isNotBlank()) {
-                                Text(edu.specialTraining, style = MaterialTheme.typography.bodySmall, color = MedicalTealDark)
-                            }
-                            HorizontalDivider(Modifier.padding(top = 6.dp), color = SurfaceMuted)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Previous Employment History
-        if (profile.employmentHistory.isNotEmpty()) {
-            item {
-                ProfileSectionCard(title = tr(lang, "পূর্ববর্তী কর্মস্থলের ইতিহাস", "Previous Employment History"), icon = Icons.Rounded.History) {
-                    profile.employmentHistory.forEach { emp ->
-                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                            Text("${emp.designation} • ${emp.hospitalName}", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
-                            if (emp.medicalCollege.isNotBlank()) Text(emp.medicalCollege, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                            Text("${emp.department} (${emp.startDate} - ${emp.endDate})", style = MaterialTheme.typography.labelMedium, color = MedicalBlueDark)
-                            if (emp.description.isNotBlank()) Text(emp.description, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                            HorizontalDivider(Modifier.padding(top = 6.dp), color = SurfaceMuted)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Chambers & Weekly Schedules (Separated by Location — NO FEE INFO)
+        // Active Chambers & Weekly Schedules (Only Active Chambers are visible in the patient app)
         item {
             Text(
                 text = tr(lang, "চেম্বার ও সাপ্তাহিক সময়সূচী", "Chambers & Weekly Schedules"),
@@ -259,7 +198,7 @@ fun DoctorProfileScreen(
             )
         }
 
-        if (profile.chambers.isEmpty()) {
+        if (activeChambers.isEmpty()) {
             item {
                 Surface(
                     shape = RoundedCornerShape(16.dp),
@@ -268,14 +207,14 @@ fun DoctorProfileScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        tr(lang, "এখনো কোনো চেম্বার যুক্ত করা হয়নি।", "No chamber locations added yet."),
+                        tr(lang, "বর্তমানে কোনো সক্রিয় চেম্বার নেই।", "No active chamber locations available."),
                         modifier = Modifier.padding(16.dp),
                         color = TextSecondary
                     )
                 }
             }
         } else {
-            items(profile.chambers, key = { it.chamber.id }) { cw ->
+            items(activeChambers, key = { it.chamber.id }) { cw ->
                 val ch = cw.chamber
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -289,24 +228,35 @@ fun DoctorProfileScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                ch.facilityName,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MedicalBlueDark,
-                                modifier = Modifier.weight(1f)
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    ch.facilityName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MedicalBlueDark,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (ch.chamberName.isNotBlank()) {
+                                    Text(
+                                        ch.chamberName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MedicalTealDark,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
                             StatusPill(
-                                text = if (ch.isActive) tr(lang, "সক্রিয়", "Active") else tr(lang, "সাময়িক বন্ধ", "Temp Closed"),
-                                bgColor = if (ch.isActive) EmeraldSoft else RoseSoft,
-                                textColor = if (ch.isActive) Color(0xFF065F46) else RoseAlert
+                                text = tr(lang, "সক্রিয়", "Active"),
+                                bgColor = EmeraldSoft,
+                                textColor = Color(0xFF065F46)
                             )
                         }
                         Spacer(Modifier.height(4.dp))
-                        Text("${ch.fullAddress} (${ch.upazila}, ${ch.district})", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                        if (ch.instructions.isNotBlank()) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(ch.instructions, style = MaterialTheme.typography.bodySmall, color = MedicalTealDark)
-                        }
+                        val locationPart = listOf(ch.upazila, ch.district).filter { it.isNotBlank() }.joinToString(", ")
+                        Text(
+                            text = if (locationPart.isNotBlank()) "${ch.fullAddress} ($locationPart)" else ch.fullAddress,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
 
                         Spacer(Modifier.height(12.dp))
                         ChamberWeeklyCalendar(
@@ -314,48 +264,39 @@ fun DoctorProfileScreen(
                             lang = lang
                         )
 
-                        Spacer(Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (ch.serialPhone.isNotBlank()) {
-                                Button(
-                                    onClick = {
-                                        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${ch.serialPhone}"))
-                                        context.startActivity(intent)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MedicalTeal),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Rounded.Call, null, Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(AppStrings.callForSerial(lang), maxLines = 1)
-                                }
-                            }
-                            if (ch.googleMapsUrl.isNotBlank()) {
-                                OutlinedButton(
-                                    onClick = {
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(ch.googleMapsUrl))
-                                        context.startActivity(intent)
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Rounded.Map, null, Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(AppStrings.openMaps(lang), maxLines = 1)
-                                }
-                            }
-                        }
-                        if (settings.allowOnlineBooking && ch.isActive && cw.schedules.isNotEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            FilledTonalButton(
-                                onClick = { bookingChamber = cw },
-                                modifier = Modifier.fillMaxWidth()
+                        if (ch.serialPhone.isNotBlank() || ch.googleMapsUrl.isNotBlank()) {
+                            Spacer(Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(Icons.Rounded.EventNote, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(AppStrings.requestAppointment(lang))
+                                if (ch.serialPhone.isNotBlank()) {
+                                    Button(
+                                        onClick = {
+                                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${ch.serialPhone}"))
+                                            context.startActivity(intent)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = MedicalTeal),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Rounded.Call, null, Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(AppStrings.callForSerial(lang), maxLines = 1)
+                                    }
+                                }
+                                if (ch.googleMapsUrl.isNotBlank()) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(ch.googleMapsUrl))
+                                            context.startActivity(intent)
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Rounded.Map, null, Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(AppStrings.openMaps(lang), maxLines = 1)
+                                    }
+                                }
                             }
                         }
                     }
@@ -363,124 +304,6 @@ fun DoctorProfileScreen(
             }
         }
         item { Spacer(Modifier.height(20.dp)) }
-    }
-
-    if (showReportDialog) {
-        var reason by remember { mutableStateOf("Wrong Chamber Time") }
-        var details by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showReportDialog = false },
-            title = { Text(AppStrings.reportIncorrect(lang)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = reason,
-                        onValueChange = { reason = it },
-                        label = { Text(tr(lang, "কারণ", "Reason")) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = details,
-                        onValueChange = { details = it },
-                        label = { Text(tr(lang, "বিস্তারিত", "Details")) },
-                        minLines = 3,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    onSubmitReport(reason, details)
-                    showReportDialog = false
-                }) { Text(tr(lang, "জমা দিন", "Submit")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showReportDialog = false }) { Text(tr(lang, "বাতিল", "Cancel")) }
-            }
-        )
-    }
-
-    bookingChamber?.let { cw ->
-        val orderedSchedules = remember(cw.schedules) {
-            cw.schedules.sortedWith(
-                compareBy<ChamberScheduleEntity> { s ->
-                    DayOfWeekBd.entries.indexOfFirst { it.name == s.dayOfWeek }.let { if (it < 0) 99 else it }
-                }.thenBy { it.startMinutesOfDay() }
-            )
-        }
-        var patientName by remember { mutableStateOf("") }
-        var patientPhone by remember { mutableStateOf("") }
-        var selectedSchedule by remember { mutableStateOf(orderedSchedules.firstOrNull()) }
-        var notes by remember { mutableStateOf("") }
-
-        AlertDialog(
-            onDismissRequest = { bookingChamber = null },
-            title = { Text(AppStrings.requestAppointment(lang)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        tr(
-                            lang,
-                            "চেম্বার: ${cw.chamber.facilityName}\nনোট: অনুরোধটি চেম্বার কর্তৃপক্ষ যাচাই করার পর নিশ্চিত হবে।",
-                            "Chamber: ${cw.chamber.facilityName}\nNote: Requests require confirmation by the authorized chamber."
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
-                    OutlinedTextField(
-                        value = patientName,
-                        onValueChange = { patientName = it },
-                        label = { Text(tr(lang, "রোগীর নাম", "Patient Name")) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = patientPhone,
-                        onValueChange = { patientPhone = it },
-                        label = { Text(tr(lang, "মোবাইল নম্বর", "Phone Number")) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    if (orderedSchedules.isNotEmpty()) {
-                        Text(
-                            tr(lang, "পছন্দের বার ও সময় বেছে নিন:", "Choose Preferred Day & Slot:"),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = TextPrimary,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            items(orderedSchedules, key = { it.id }) { slot ->
-                                val dayObj = DayOfWeekBd.entries.firstOrNull { it.name == slot.dayOfWeek }
-                                val dayText = dayObj?.let { tr(lang, it.shortBn, it.shortEn) } ?: slot.dayOfWeek
-                                FilterChip(
-                                    selected = selectedSchedule?.id == slot.id,
-                                    onClick = { selectedSchedule = slot },
-                                    label = { Text("$dayText • ${slot.openTime}–${slot.closeTime}") }
-                                )
-                            }
-                        }
-                    }
-                    OutlinedTextField(
-                        value = notes,
-                        onValueChange = { notes = it },
-                        label = { Text(tr(lang, "নোট (ঐচ্ছিক)", "Notes (optional)")) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    val chosenDay = selectedSchedule?.dayOfWeek ?: DayOfWeekBd.SATURDAY.name
-                    val chosenSlot = selectedSchedule?.let { "${it.openTime} - ${it.closeTime}" } ?: ""
-                    onRequestAppointment(cw.chamber.id, patientName, patientPhone, chosenDay, chosenSlot, notes)
-                    bookingChamber = null
-                }) { Text(tr(lang, "অনুরোধ পাঠান", "Send Request")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { bookingChamber = null }) { Text(tr(lang, "বাতিল", "Cancel")) }
-            }
-        )
     }
 }
 

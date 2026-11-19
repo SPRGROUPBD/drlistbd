@@ -287,7 +287,8 @@ fun DirectoriesScreen(
                                     Text(tr(lang, doc.doctor.fullNameBn, doc.doctor.fullNameEn), style = MaterialTheme.typography.titleMedium)
                                     Text(doc.specialty?.let { tr(lang, it.nameBn, it.nameEn) } ?: "", style = MaterialTheme.typography.bodySmall, color = MedicalBlueDark)
                                     Spacer(Modifier.height(4.dp))
-                                    Text("${ch.facilityName} • ${ch.upazila}, ${ch.district}", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                    val chHeader = if (ch.chamberName.isNotBlank()) "${ch.facilityName} (${ch.chamberName})" else ch.facilityName
+                                    Text("$chHeader • ${ch.upazila}, ${ch.district}", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                                     Spacer(Modifier.height(8.dp))
                                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                         slots.forEach { slot ->

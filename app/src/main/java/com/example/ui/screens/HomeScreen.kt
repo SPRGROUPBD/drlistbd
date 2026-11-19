@@ -61,16 +61,14 @@ fun HomeScreen(
     onSelectDistrict: (String) -> Unit,
     onToggleFavorite: (String) -> Unit,
     onDoctorClick: (String) -> Unit,
-    onNavigateFindDoctors: (availableTodayOnly: Boolean, verifiedOnly: Boolean) -> Unit,
+    onNavigateFindDoctors: (availableTodayOnly: Boolean) -> Unit,
     onNavigateFacilitiesTab: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var quickQuery by remember { mutableStateOf("") }
     val districts = remember(locations) { locations.map { it.district }.distinct() }
     val availableTodayDocs = remember(doctors) { doctors.filter { it.isAvailableToday() }.take(5) }
-    val featuredDocs = remember(doctors) { doctors.filter { it.doctor.isFeatured }.ifEmpty { doctors.take(4) } }
-    val verifiedDocs = remember(doctors) { doctors.filter { it.doctor.bmdcVerified } }
-    val recentDocs = remember(doctors) { doctors.sortedByDescending { it.doctor.updatedAt }.take(4) }
+    val recentDocs = remember(doctors) { doctors.sortedByDescending { it.doctor.updatedAt }.take(6) }
 
     LazyColumn(
         modifier = modifier
@@ -196,7 +194,7 @@ fun HomeScreen(
                         icon = Icons.Rounded.EventAvailable,
                         label = AppStrings.availableToday(lang),
                         tint = EmeraldAvailable,
-                        onClick = { onNavigateFindDoctors(true, false) }
+                        onClick = { onNavigateFindDoctors(true) }
                     )
                 }
                 item {
@@ -300,7 +298,7 @@ fun HomeScreen(
                     SectionHeader(
                         title = AppStrings.availableToday(lang),
                         actionLabel = AppStrings.allLabel(lang),
-                        onAction = { onNavigateFindDoctors(true, false) }
+                        onAction = { onNavigateFindDoctors(true) }
                     )
                 }
                 items(availableTodayDocs, key = { "today_${it.doctor.id}" }) { doc ->
@@ -315,48 +313,24 @@ fun HomeScreen(
                 }
             }
 
-            // Featured Doctors
-            if (featuredDocs.isNotEmpty()) {
-                item {
-                    Spacer(Modifier.height(6.dp))
-                    SectionHeader(
-                        title = AppStrings.featuredDoctors(lang),
-                        actionLabel = AppStrings.allLabel(lang),
-                        onAction = { onNavigateFindDoctors(false, false) }
-                    )
-                }
-                items(featuredDocs, key = { "feat_${it.doctor.id}" }) { doc ->
-                    DoctorCard(
-                        item = doc,
-                        lang = lang,
-                        isFavorite = doc.doctor.id in favoriteIds,
-                        onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
-                        onClick = { onDoctorClick(doc.doctor.id) },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                    )
-                }
+            // Directory Doctors List
+            item {
+                Spacer(Modifier.height(6.dp))
+                SectionHeader(
+                    title = tr(lang, "বিশেষজ্ঞ ডাক্তারবৃন্দ", "Specialist Doctors"),
+                    actionLabel = AppStrings.allLabel(lang),
+                    onAction = { onNavigateFindDoctors(false) }
+                )
             }
-
-            // Verified Doctors Section
-            if (verifiedDocs.isNotEmpty()) {
-                item {
-                    Spacer(Modifier.height(6.dp))
-                    SectionHeader(
-                        title = AppStrings.verifiedDoctors(lang),
-                        actionLabel = AppStrings.allLabel(lang),
-                        onAction = { onNavigateFindDoctors(false, true) }
-                    )
-                }
-                items(verifiedDocs.take(4), key = { "ver_${it.doctor.id}" }) { doc ->
-                    DoctorCard(
-                        item = doc,
-                        lang = lang,
-                        isFavorite = doc.doctor.id in favoriteIds,
-                        onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
-                        onClick = { onDoctorClick(doc.doctor.id) },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                    )
-                }
+            items(doctors.take(6), key = { "dir_${it.doctor.id}" }) { doc ->
+                DoctorCard(
+                    item = doc,
+                    lang = lang,
+                    isFavorite = doc.doctor.id in favoriteIds,
+                    onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
+                    onClick = { onDoctorClick(doc.doctor.id) },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                )
             }
 
             // Recently Updated Doctors

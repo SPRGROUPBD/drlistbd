@@ -76,9 +76,8 @@ fun ChamberScheduleEntity.sessionType(): ChamberSessionType {
 }
 
 enum class SortOption(val bnLabel: String, val enLabel: String) {
-    VERIFIED_FIRST("ভেরিফায়েড আগে", "Verified First"),
-    NAME_AZ("নাম (A-Z)", "Name A-Z"),
-    RECENTLY_UPDATED("সম্প্রতি আপডেটেড", "Recently Updated")
+    RECENTLY_UPDATED("সম্প্রতি আপডেটেড", "Recently Updated"),
+    NAME_AZ("নাম (A-Z)", "Name A-Z")
 }
 
 data class ChamberWithSchedules(
@@ -110,7 +109,6 @@ data class SearchFilterState(
     val weekday: DayOfWeekBd? = null,
     val availableTodayOnly: Boolean = false,
     val workplaceQuery: String = "",
-    val verifiedOnly: Boolean = false,
     val sortOption: SortOption = SortOption.RECENTLY_UPDATED
 )
 

@@ -53,6 +53,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 d.doctor.isActive &&
                     d.doctor.approvalStatus == "APPROVED" &&
                     !d.doctor.isDemoData
+            }.map { d ->
+                // Only Active Chambers are visible in the patient app
+                d.copy(chambers = d.chambers.filter { it.chamber.isActive })
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -77,12 +80,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val matchesQuery = q.isEmpty() ||
                 d.fullNameBn.lowercase().contains(q) ||
                 d.fullNameEn.lowercase().contains(q) ||
+                d.qualification.lowercase().contains(q) ||
                 d.subSpecialty.lowercase().contains(q) ||
+                d.currentDesignation.lowercase().contains(q) ||
                 d.currentHospital.lowercase().contains(q) ||
                 (item.specialty?.nameBn?.lowercase()?.contains(q) == true) ||
                 (item.specialty?.nameEn?.lowercase()?.contains(q) == true) ||
                 item.chambers.any {
                     it.chamber.facilityName.lowercase().contains(q) ||
+                        it.chamber.chamberName.lowercase().contains(q) ||
                         it.chamber.district.lowercase().contains(q) ||
                         it.chamber.upazila.lowercase().contains(q)
                 }
@@ -92,23 +98,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val matchesDiv = divDistricts == null || item.chambers.any { it.chamber.district.lowercase() in divDistricts }
             val matchesDistrict = filter.district == null || item.chambers.any { it.chamber.district.equals(filter.district, true) }
             val matchesUpazila = filter.upazila == null || item.chambers.any { it.chamber.upazila.equals(filter.upazila, true) }
-            val matchesFacility = facQ.isEmpty() || item.chambers.any { it.chamber.facilityName.lowercase().contains(facQ) }
+            val matchesFacility = facQ.isEmpty() || item.chambers.any {
+                it.chamber.facilityName.lowercase().contains(facQ) || it.chamber.chamberName.lowercase().contains(facQ)
+            }
             val matchesDay = filter.weekday == null || item.isAvailableOn(filter.weekday)
             val matchesToday = !filter.availableTodayOnly || item.isAvailableToday()
             val matchesWork = workQ.isEmpty() || d.currentHospital.lowercase().contains(workQ) || d.currentMedicalCollege.lowercase().contains(workQ)
-            val matchesVerified = !filter.verifiedOnly || d.bmdcVerified
 
             matchesQuery && matchesSpec && matchesSub && matchesDiv && matchesDistrict &&
-                matchesUpazila && matchesFacility && matchesDay && matchesToday && matchesWork && matchesVerified
+                matchesUpazila && matchesFacility && matchesDay && matchesToday && matchesWork
         }
 
         when (filter.sortOption) {
             SortOption.NAME_AZ -> filtered.sortedBy { it.doctor.fullNameEn.lowercase() }
             SortOption.RECENTLY_UPDATED -> filtered.sortedByDescending { it.doctor.updatedAt }
-            SortOption.VERIFIED_FIRST -> filtered.sortedWith(
-                compareByDescending<DoctorFullProfile> { it.doctor.bmdcVerified }
-                    .thenByDescending { it.doctor.updatedAt }
-            )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

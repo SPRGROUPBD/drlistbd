@@ -35,7 +35,6 @@ fun PatientPortalScreen(
     lang: AppLang,
     isSyncing: Boolean,
     favoriteDoctors: List<DoctorFullProfile>,
-    appointments: List<AppointmentRequestEntity>,
     notifications: List<NotificationEntity>,
     isRewardedReady: Boolean,
     isRewardedLoading: Boolean = false,
@@ -79,8 +78,8 @@ fun PatientPortalScreen(
                             Text(
                                 tr(
                                     lang,
-                                    "কোনো লগইন ছাড়াই আপনার প্রিয় ডাক্তার ও সিরিয়াল অনুরোধ সংরক্ষিত থাকে।",
-                                    "Favorites & serial requests are saved locally on your device — no login required."
+                                    "কোনো লগইন ছাড়াই আপনার প্রিয় ডাক্তার ও নোটিশ সংরক্ষিত থাকে।",
+                                    "Favorite doctors & alerts are saved locally on your device — no login required."
                                 ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary
@@ -118,7 +117,7 @@ fun PatientPortalScreen(
             )
         }
 
-        // Sub-Tabs: Favorites | Appointments | Notifications
+        // Sub-Tabs: Favorites | Notifications
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
@@ -129,11 +128,6 @@ fun PatientPortalScreen(
                 FilterChip(
                     selected = activeTab == 1,
                     onClick = { activeTab = 1 },
-                    label = { Text(tr(lang, "সিরিয়াল (${appointments.size})", "Requests (${appointments.size})")) }
-                )
-                FilterChip(
-                    selected = activeTab == 2,
-                    onClick = { activeTab = 2 },
                     label = { Text(tr(lang, "নোটিশ (${notifications.size})", "Alerts (${notifications.size})")) }
                 )
             }
@@ -158,46 +152,6 @@ fun PatientPortalScreen(
                             onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
                             onClick = { onDoctorClick(doc.doctor.id) }
                         )
-                    }
-                }
-            }
-
-            1 -> {
-                if (appointments.isEmpty()) {
-                    item {
-                        EmptyStateCard(
-                            icon = Icons.Outlined.EventNote,
-                            title = tr(lang, "কোনো অ্যাপয়েন্টমেন্ট অনুরোধ নেই", "No Appointment Requests"),
-                            subtitle = tr(lang, "ডাক্তারের প্রোফাইল থেকে সিরিয়ালের অনুরোধ পাঠাতে পারেন।", "You can request a serial from a doctor's chamber card.")
-                        )
-                    }
-                } else {
-                    items(appointments, key = { it.id }) { apt ->
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = SurfaceWhite,
-                            border = BorderStroke(1.dp, OutlineSoft),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(apt.patientName, style = MaterialTheme.typography.titleMedium)
-                                    val (bg, fg) = when (apt.status) {
-                                        "CONFIRMED" -> EmeraldSoft to Color(0xFF065F46)
-                                        "REJECTED" -> RoseSoft to RoseAlert
-                                        else -> AmberSoft to Color(0xFF92400E)
-                                    }
-                                    StatusPill(apt.status, bg, fg)
-                                }
-                                Text("${apt.preferredDay} • ${apt.preferredSlot}", style = MaterialTheme.typography.bodySmall, color = MedicalBlueDark)
-                                Text(apt.patientPhone, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                                if (apt.notes.isNotBlank()) Text(apt.notes, style = MaterialTheme.typography.bodySmall, color = TextMuted)
-                            }
-                        }
                     }
                 }
             }
