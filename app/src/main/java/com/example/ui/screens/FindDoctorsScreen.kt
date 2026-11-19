@@ -203,6 +203,9 @@ fun FindDoctorsScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.weight(1f)
             ) {
+                item {
+                    com.example.ui.ads.StartIoNativeBannerCard(lang = lang)
+                }
                 items(pagedDoctors, key = { it.doctor.id }) { doc ->
                     DoctorCard(
                         item = doc,

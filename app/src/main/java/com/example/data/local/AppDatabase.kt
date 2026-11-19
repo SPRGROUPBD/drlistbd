@@ -27,7 +27,7 @@ import androidx.room.RoomDatabase
         HospitalDoctorLinkEntity::class,
         ProfileChangeRequestEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -60,8 +60,9 @@ abstract class AppDatabase : RoomDatabase() {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "doctor_directory_bd.db"
-                ).build().also { INSTANCE = it }
+                    "doctor_list_bd.db"
+                ).fallbackToDestructiveMigration(true)
+                    .build().also { INSTANCE = it }
             }
         }
     }

@@ -51,6 +51,9 @@ interface DoctorDao {
     @Query("DELETE FROM doctors WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    @Query("DELETE FROM doctors")
+    suspend fun deleteAll()
+
     @Query("DELETE FROM doctors WHERE isDemoData = 1")
     suspend fun deleteDemoDoctors()
 }
@@ -68,6 +71,9 @@ interface EducationDao {
 
     @Query("DELETE FROM education WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM education")
+    suspend fun deleteAll()
 }
 
 @Dao
@@ -83,12 +89,18 @@ interface EmploymentDao {
 
     @Query("DELETE FROM employment_history WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM employment_history")
+    suspend fun deleteAll()
 }
 
 @Dao
 interface SpecialtyDao {
     @Query("SELECT * FROM specialties ORDER BY nameEn ASC")
     fun observeAll(): Flow<List<SpecialtyEntity>>
+
+    @Query("SELECT COUNT(*) FROM specialties")
+    suspend fun count(): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(specialty: SpecialtyEntity)
@@ -98,12 +110,18 @@ interface SpecialtyDao {
 
     @Query("DELETE FROM specialties WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM specialties")
+    suspend fun deleteAll()
 }
 
 @Dao
 interface LocationDao {
     @Query("SELECT * FROM locations ORDER BY division ASC, district ASC, upazila ASC")
     fun observeAll(): Flow<List<LocationEntity>>
+
+    @Query("SELECT COUNT(*) FROM locations")
+    suspend fun count(): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(location: LocationEntity)
@@ -113,6 +131,9 @@ interface LocationDao {
 
     @Query("DELETE FROM locations WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM locations")
+    suspend fun deleteAll()
 }
 
 @Dao
@@ -128,6 +149,9 @@ interface HospitalDao {
 
     @Query("DELETE FROM hospitals WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM hospitals")
+    suspend fun deleteAll()
 
     @Query("DELETE FROM hospitals WHERE isDemoData = 1")
     suspend fun deleteDemoHospitals()
@@ -147,6 +171,9 @@ interface DiagnosticCenterDao {
     @Query("DELETE FROM diagnostic_centers WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    @Query("DELETE FROM diagnostic_centers")
+    suspend fun deleteAll()
+
     @Query("DELETE FROM diagnostic_centers WHERE isDemoData = 1")
     suspend fun deleteDemoCenters()
 }
@@ -164,6 +191,9 @@ interface ChamberDao {
 
     @Query("DELETE FROM chambers WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM chambers")
+    suspend fun deleteAll()
 }
 
 @Dao
@@ -179,6 +209,9 @@ interface ChamberScheduleDao {
 
     @Query("DELETE FROM chamber_schedules WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM chamber_schedules")
+    suspend fun deleteAll()
 }
 
 @Dao
@@ -240,6 +273,9 @@ interface NotificationDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(list: List<NotificationEntity>)
 
+    @Query("DELETE FROM notifications")
+    suspend fun deleteAll()
+
     @Query("UPDATE notifications SET isRead = 1 WHERE id = :id")
     suspend fun markRead(id: String)
 }
@@ -248,6 +284,9 @@ interface NotificationDao {
 interface SettingsDao {
     @Query("SELECT * FROM settings WHERE id = 'global' LIMIT 1")
     fun observe(): Flow<SiteSettingsEntity?>
+
+    @Query("SELECT * FROM settings WHERE id = 'global' LIMIT 1")
+    suspend fun getOnce(): SiteSettingsEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun save(settings: SiteSettingsEntity)

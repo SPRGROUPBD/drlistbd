@@ -37,6 +37,8 @@ import com.example.data.model.DoctorFullProfile
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
+import com.example.ui.ads.RewardedAdCard
+import com.example.ui.ads.StartIoNativeBannerCard
 import com.example.ui.components.*
 import com.example.ui.theme.*
 
@@ -44,11 +46,15 @@ import com.example.ui.theme.*
 fun HomeScreen(
     lang: AppLang,
     settings: SiteSettingsEntity,
+    isSyncing: Boolean,
     specialties: List<SpecialtyEntity>,
     locations: List<LocationEntity>,
     doctors: List<DoctorFullProfile>,
     hospitals: List<HospitalEntity>,
     favoriteIds: Set<String>,
+    isRewardedReady: Boolean,
+    onWatchRewardedAd: () -> Unit,
+    onRefreshDirectory: () -> Unit,
     onSearchSubmit: (String) -> Unit,
     onSelectSpecialty: (String) -> Unit,
     onSelectDistrict: (String) -> Unit,
@@ -57,7 +63,6 @@ fun HomeScreen(
     onNavigateFindDoctors: (availableTodayOnly: Boolean, verifiedOnly: Boolean) -> Unit,
     onNavigateFacilitiesTab: (Int) -> Unit,
     onNavigateInfo: (String) -> Unit,
-    onNavigateAuth: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var quickQuery by remember { mutableStateOf("") }
@@ -84,7 +89,7 @@ fun HomeScreen(
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.img_hero_healthcare_1794967702193),
-                    contentDescription = "Healthcare Bangladesh banner",
+                    contentDescription = "Doctor List BD banner",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .matchParentSize()
@@ -104,15 +109,33 @@ fun HomeScreen(
                         )
                 )
                 Column(modifier = Modifier.padding(18.dp)) {
-                    StatusPill(
-                        text = "BANGLADESH HEALTHCARE DIRECTORY",
-                        bgColor = MedicalBlueLight,
-                        textColor = MedicalBlueDark,
-                        icon = Icons.Rounded.VerifiedUser
-                    )
-                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        StatusPill(
+                            text = "BANGLADESH DOCTOR DIRECTORY",
+                            bgColor = MedicalBlueLight,
+                            textColor = MedicalBlueDark,
+                            icon = Icons.Rounded.VerifiedUser
+                        )
+                        IconButton(
+                            onClick = onRefreshDirectory,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .testTag("home_refresh_btn")
+                        ) {
+                            if (isSyncing) {
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Rounded.Refresh, contentDescription = "Sync", tint = MedicalBlueDark)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Text(
-                        text = settings.siteTitle,
+                        text = settings.siteTitle.ifBlank { "Doctor List BD" },
                         style = MaterialTheme.typography.headlineSmall,
                         color = TextPrimary,
                         fontWeight = FontWeight.Bold
@@ -204,6 +227,15 @@ fun HomeScreen(
             Spacer(Modifier.height(12.dp))
         }
 
+        // Start.io Native Banner Ad
+        item {
+            StartIoNativeBannerCard(
+                lang = lang,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+
         // Specialties Strip
         item {
             SectionHeader(
@@ -247,80 +279,134 @@ fun HomeScreen(
             Spacer(Modifier.height(12.dp))
         }
 
-        // Available Today
-        if (availableTodayDocs.isNotEmpty()) {
-            item {
-                SectionHeader(
-                    title = AppStrings.availableToday(lang),
-                    actionLabel = AppStrings.allLabel(lang),
-                    onAction = { onNavigateFindDoctors(true, false) }
-                )
-            }
-            items(availableTodayDocs, key = { "today_${it.doctor.id}" }) { doc ->
-                DoctorCard(
-                    item = doc,
-                    lang = lang,
-                    isFavorite = doc.doctor.id in favoriteIds,
-                    onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
-                    onClick = { onDoctorClick(doc.doctor.id) },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                )
-            }
-        }
-
-        // Featured Doctors
-        if (featuredDocs.isNotEmpty()) {
-            item {
-                Spacer(Modifier.height(6.dp))
-                SectionHeader(
-                    title = AppStrings.featuredDoctors(lang),
-                    actionLabel = AppStrings.allLabel(lang),
-                    onAction = { onNavigateFindDoctors(false, false) }
-                )
-            }
-            items(featuredDocs, key = { "feat_${it.doctor.id}" }) { doc ->
-                DoctorCard(
-                    item = doc,
-                    lang = lang,
-                    isFavorite = doc.doctor.id in favoriteIds,
-                    onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
-                    onClick = { onDoctorClick(doc.doctor.id) },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                )
-            }
-        }
-
-        // Verified Doctors Section
-        item {
-            Spacer(Modifier.height(6.dp))
-            SectionHeader(
-                title = AppStrings.verifiedDoctors(lang),
-                actionLabel = AppStrings.allLabel(lang),
-                onAction = { onNavigateFindDoctors(false, true) }
-            )
-        }
-        if (verifiedDocs.isEmpty()) {
+        if (doctors.isEmpty()) {
             item {
                 EmptyStateCard(
-                    icon = Icons.Outlined.VerifiedUser,
-                    title = tr(lang, "এখনো কোনো ভেরিফায়েড ডাক্তার নেই", "No verified doctors yet"),
+                    icon = Icons.Outlined.MedicalServices,
+                    title = tr(lang, "এখনো কোনো ডাক্তার যুক্ত করা হয়নি", "No Doctors Listed Yet"),
                     subtitle = tr(
                         lang,
-                        "নতুন নিবন্ধিত ডাক্তারদের BMDC নম্বর অ্যাডমিন কর্তৃক যাচাইয়ের পর এখানে প্রদর্শিত হবে।",
-                        "Newly registered doctors will appear here once their BMDC credentials are verified by an administrator."
-                    )
+                        "অ্যাডমিন প্যানেল থেকে ডাক্তার ও চেম্বার যুক্ত করার সাথে সাথে এখানে প্রদর্শিত হবে।",
+                        "Doctors and chamber schedules published by the administrator will appear here automatically."
+                    ),
+                    actionText = tr(lang, "তথ্য রিফ্রেশ করুন", "Refresh Directory"),
+                    onAction = onRefreshDirectory
                 )
             }
         } else {
-            items(verifiedDocs.take(4), key = { "ver_${it.doctor.id}" }) { doc ->
-                DoctorCard(
-                    item = doc,
-                    lang = lang,
-                    isFavorite = doc.doctor.id in favoriteIds,
-                    onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
-                    onClick = { onDoctorClick(doc.doctor.id) },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                )
+            // Available Today
+            if (availableTodayDocs.isNotEmpty()) {
+                item {
+                    SectionHeader(
+                        title = AppStrings.availableToday(lang),
+                        actionLabel = AppStrings.allLabel(lang),
+                        onAction = { onNavigateFindDoctors(true, false) }
+                    )
+                }
+                items(availableTodayDocs, key = { "today_${it.doctor.id}" }) { doc ->
+                    DoctorCard(
+                        item = doc,
+                        lang = lang,
+                        isFavorite = doc.doctor.id in favoriteIds,
+                        onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
+                        onClick = { onDoctorClick(doc.doctor.id) },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                    )
+                }
+            }
+
+            // Featured Doctors
+            if (featuredDocs.isNotEmpty()) {
+                item {
+                    Spacer(Modifier.height(6.dp))
+                    SectionHeader(
+                        title = AppStrings.featuredDoctors(lang),
+                        actionLabel = AppStrings.allLabel(lang),
+                        onAction = { onNavigateFindDoctors(false, false) }
+                    )
+                }
+                items(featuredDocs, key = { "feat_${it.doctor.id}" }) { doc ->
+                    DoctorCard(
+                        item = doc,
+                        lang = lang,
+                        isFavorite = doc.doctor.id in favoriteIds,
+                        onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
+                        onClick = { onDoctorClick(doc.doctor.id) },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                    )
+                }
+            }
+
+            // Verified Doctors Section
+            if (verifiedDocs.isNotEmpty()) {
+                item {
+                    Spacer(Modifier.height(6.dp))
+                    SectionHeader(
+                        title = AppStrings.verifiedDoctors(lang),
+                        actionLabel = AppStrings.allLabel(lang),
+                        onAction = { onNavigateFindDoctors(false, true) }
+                    )
+                }
+                items(verifiedDocs.take(4), key = { "ver_${it.doctor.id}" }) { doc ->
+                    DoctorCard(
+                        item = doc,
+                        lang = lang,
+                        isFavorite = doc.doctor.id in favoriteIds,
+                        onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
+                        onClick = { onDoctorClick(doc.doctor.id) },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                    )
+                }
+            }
+
+            // Recently Updated Doctors
+            if (recentDocs.isNotEmpty()) {
+                item {
+                    Spacer(Modifier.height(10.dp))
+                    SectionHeader(title = AppStrings.recentlyUpdatedDoctors(lang))
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(recentDocs, key = { "rec_${it.doctor.id}" }) { doc ->
+                            Surface(
+                                onClick = { onDoctorClick(doc.doctor.id) },
+                                shape = RoundedCornerShape(16.dp),
+                                color = SurfaceWhite,
+                                border = BorderStroke(1.dp, OutlineSoft),
+                                modifier = Modifier.width(210.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    ExternalImageAvatar(
+                                        imageUrl = doc.doctor.photoUrl,
+                                        contentDescription = tr(lang, doc.doctor.fullNameBn, doc.doctor.fullNameEn),
+                                        fallbackIcon = Icons.Rounded.Person,
+                                        size = 44.dp,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            tr(lang, doc.doctor.fullNameBn, doc.doctor.fullNameEn),
+                                            style = MaterialTheme.typography.titleSmall,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            doc.specialty?.let { tr(lang, it.nameBn, it.nameEn) } ?: "",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MedicalBlueDark,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -385,59 +471,20 @@ fun HomeScreen(
             }
         }
 
-        // Recently Updated Doctors
-        if (recentDocs.isNotEmpty()) {
-            item {
-                Spacer(Modifier.height(10.dp))
-                SectionHeader(title = AppStrings.recentlyUpdatedDoctors(lang))
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(recentDocs, key = { "rec_${it.doctor.id}" }) { doc ->
-                        Surface(
-                            onClick = { onDoctorClick(doc.doctor.id) },
-                            shape = RoundedCornerShape(16.dp),
-                            color = SurfaceWhite,
-                            border = BorderStroke(1.dp, OutlineSoft),
-                            modifier = Modifier.width(210.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ExternalImageAvatar(
-                                    imageUrl = doc.doctor.photoUrl,
-                                    contentDescription = tr(lang, doc.doctor.fullNameBn, doc.doctor.fullNameEn),
-                                    fallbackIcon = Icons.Rounded.Person,
-                                    size = 44.dp,
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                Spacer(Modifier.width(10.dp))
-                                Column {
-                                    Text(
-                                        tr(lang, doc.doctor.fullNameBn, doc.doctor.fullNameEn),
-                                        style = MaterialTheme.typography.titleSmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        doc.specialty?.let { tr(lang, it.nameBn, it.nameEn) } ?: "",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MedicalBlueDark,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        // Rewarded Video Ad Card
+        item {
+            Spacer(Modifier.height(14.dp))
+            RewardedAdCard(
+                lang = lang,
+                isReady = isRewardedReady,
+                onWatchClick = onWatchRewardedAd,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
         }
 
-        // Footer Card (Info, Legal, Doctor Registration, Login — NO Admin link)
+        // Footer Card (Info & Legal ONLY — NO Login / NO Admin link)
         item {
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(14.dp))
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -448,7 +495,7 @@ fun HomeScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        settings.siteTitle,
+                        settings.siteTitle.ifBlank { "Doctor List BD" },
                         style = MaterialTheme.typography.titleMedium,
                         color = MedicalBlueDark,
                         fontWeight = FontWeight.Bold
@@ -458,25 +505,6 @@ fun HomeScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
-                    Spacer(Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = { onNavigateAuth("register_doctor") },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(AppStrings.registerDoctor(lang), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        Button(
-                            onClick = { onNavigateAuth("login") },
-                            colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(AppStrings.login(lang), maxLines = 1)
-                        }
-                    }
                     Spacer(Modifier.height(10.dp))
                     HorizontalDivider(color = SurfaceMuted)
                     Spacer(Modifier.height(8.dp))

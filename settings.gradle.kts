@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Doctor Dir BD"
+rootProject.name = "Doctor List BD"
 
 include(":app")

@@ -1,6 +1,5 @@
 package com.example
 
-import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,7 +12,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -24,8 +22,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.example.data.model.UserRole
+import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
+import com.example.ui.ads.StartIoBannerAd
+import com.example.ui.ads.StartIoConfig
+import com.example.ui.ads.rememberStartIoRewardedHelper
 import com.example.ui.components.MedicalTopBar
 import com.example.ui.screens.*
 import com.example.ui.theme.*
@@ -38,12 +39,6 @@ object Routes {
     const val PORTAL = "portal"
     const val DOCTOR_PROFILE = "doctor_profile/{doctorId}"
     const val INFO = "info/{pageKey}"
-    const val LOGIN = "login"
-    const val REGISTER_DOCTOR = "register_doctor"
-    const val REGISTER_USER = "register_user"
-    const val DOCTOR_DASHBOARD = "doctor_dashboard"
-    const val HOSPITAL_DASHBOARD = "hospital_dashboard"
-    const val ADMIN_PANEL = "admin_panel"
 
     fun doctorProfile(id: String) = "doctor_profile/$id"
     fun info(key: String) = "info/$key"
@@ -60,44 +55,45 @@ private data class BottomTabItem(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        StartIoConfig.init(this)
         enableEdgeToEdge()
         setContent {
             DoctorDirectoryTheme {
-                DoctorDirectoryRootApp()
+                DoctorListBdApp()
             }
         }
     }
 }
 
 @Composable
-fun DoctorDirectoryRootApp(vm: MainViewModel = viewModel()) {
-    val navController = rememberNavController()
-    val context = LocalContext.current
-
+fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     val lang by vm.currentLang.collectAsStateWithLifecycle()
-    val currentUser by vm.currentUser.collectAsStateWithLifecycle()
+    var showSplash by remember { mutableStateOf(true) }
+
+    if (showSplash) {
+        SplashScreen(
+            lang = lang,
+            onFinished = { showSplash = false }
+        )
+        return
+    }
+
+    val navController = rememberNavController()
+    val rewardedHelper = rememberStartIoRewardedHelper()
+
+    val isSyncing by vm.isSyncing.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val specialties by vm.specialties.collectAsStateWithLifecycle()
     val locations by vm.locations.collectAsStateWithLifecycle()
-    val hospitals by vm.visibleHospitals.collectAsStateWithLifecycle()
-    val allHospitals by vm.allHospitals.collectAsStateWithLifecycle()
-    val diagnosticCenters by vm.visibleDiagnosticCenters.collectAsStateWithLifecycle()
-    val allDiagnosticCenters by vm.allDiagnosticCenters.collectAsStateWithLifecycle()
+    val hospitals by vm.hospitals.collectAsStateWithLifecycle()
+    val diagnosticCenters by vm.diagnosticCenters.collectAsStateWithLifecycle()
     val publicDoctors by vm.publicDoctors.collectAsStateWithLifecycle()
-    val allDoctors by vm.allDoctorsFull.collectAsStateWithLifecycle()
     val filteredDoctors by vm.filteredDoctors.collectAsStateWithLifecycle()
     val searchState by vm.searchState.collectAsStateWithLifecycle()
     val visibleCount by vm.visiblePageCount.collectAsStateWithLifecycle()
     val favoriteIds by vm.favoriteDoctorIds.collectAsStateWithLifecycle()
     val appointments by vm.appointments.collectAsStateWithLifecycle()
     val notifications by vm.notifications.collectAsStateWithLifecycle()
-    val users by vm.visibleUsers.collectAsStateWithLifecycle()
-    val verificationRequests by vm.verificationRequests.collectAsStateWithLifecycle()
-    val profileChangeRequests by vm.profileChangeRequests.collectAsStateWithLifecycle()
-    val hospitalDoctorLinks by vm.hospitalDoctorLinks.collectAsStateWithLifecycle()
-    val reports by vm.reports.collectAsStateWithLifecycle()
-    val auditLogs by vm.auditLogs.collectAsStateWithLifecycle()
-    val adminStats by vm.adminStats.collectAsStateWithLifecycle()
     val snackbarMsg by vm.snackbar.collectAsStateWithLifecycle()
 
     var facilitiesTab by remember { mutableIntStateOf(0) }
@@ -110,6 +106,24 @@ fun DoctorDirectoryRootApp(vm: MainViewModel = viewModel()) {
         }
     }
 
+    val triggerRewardedAd: () -> Unit = {
+        rewardedHelper.show(
+            onRewarded = {
+                vm.refreshDirectory()
+                vm.showMessage(
+                    if (lang == AppLang.BN) "ধন্যবাদ! রিওয়ার্ড সম্পন্ন এবং ডিরেক্টরি আপডেট হয়েছে।"
+                    else "Thank you! Reward earned & directory refreshed."
+                )
+            },
+            onUnavailable = {
+                vm.showMessage(
+                    if (lang == AppLang.BN) "ভিডিও বিজ্ঞাপন লোড হচ্ছে, অনুগ্রহ করে একটু পর আবার চেষ্টা করুন।"
+                    else "Rewarded video is loading — please tap again in a moment."
+                )
+            }
+        )
+    }
+
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: Routes.HOME
 
@@ -117,11 +131,10 @@ fun DoctorDirectoryRootApp(vm: MainViewModel = viewModel()) {
         BottomTabItem(Routes.HOME, AppStrings.navHome(lang), Icons.Rounded.Home, Icons.Outlined.Home, "nav_home"),
         BottomTabItem(Routes.FIND_DOCTORS, AppStrings.navDoctors(lang), Icons.Rounded.MedicalServices, Icons.Outlined.MedicalServices, "nav_doctors"),
         BottomTabItem(Routes.FACILITIES, AppStrings.navFacilities(lang), Icons.Rounded.LocalHospital, Icons.Outlined.LocalHospital, "nav_facilities"),
-        BottomTabItem(Routes.PORTAL, AppStrings.navPortal(lang), Icons.Rounded.Person, Icons.Outlined.Person, "nav_portal")
+        BottomTabItem(Routes.PORTAL, AppStrings.navPortal(lang), Icons.Rounded.Favorite, Icons.Outlined.FavoriteBorder, "nav_portal")
     )
 
     val showMainChrome = currentRoute in mainTabs.map { it.route }
-    val showAdminChrome = currentRoute == Routes.ADMIN_PANEL
     val unreadCount = notifications.count { !it.isRead }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -131,58 +144,62 @@ fun DoctorDirectoryRootApp(vm: MainViewModel = viewModel()) {
             contentWindowInsets = WindowInsets.safeDrawing,
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
-                if (!showAdminChrome) {
-                    val topTitle = when {
-                        currentRoute == Routes.HOME -> AppStrings.appTitle(lang)
-                        currentRoute == Routes.FIND_DOCTORS -> AppStrings.navDoctors(lang)
-                        currentRoute == Routes.FACILITIES -> AppStrings.navFacilities(lang)
-                        currentRoute == Routes.PORTAL -> AppStrings.navPortal(lang)
-                        else -> AppStrings.appTitle(lang)
-                    }
-                    MedicalTopBar(
-                        title = topTitle,
-                        lang = lang,
-                        unreadNotifications = unreadCount,
-                        onToggleLang = { vm.toggleLanguage() },
-                        onNotificationsClick = {
-                            navController.navigate(Routes.PORTAL) { launchSingleTop = true }
-                        },
-                        onBackClick = if (showMainChrome) null else ({ navController.popBackStack() })
-                    )
+                val topTitle = when (currentRoute) {
+                    Routes.HOME -> AppStrings.appTitle(lang)
+                    Routes.FIND_DOCTORS -> AppStrings.navDoctors(lang)
+                    Routes.FACILITIES -> AppStrings.navFacilities(lang)
+                    Routes.PORTAL -> AppStrings.navPortal(lang)
+                    else -> AppStrings.appTitle(lang)
                 }
+                MedicalTopBar(
+                    title = topTitle,
+                    lang = lang,
+                    unreadNotifications = unreadCount,
+                    onToggleLang = { vm.toggleLanguage() },
+                    onNotificationsClick = {
+                        navController.navigate(Routes.PORTAL) { launchSingleTop = true }
+                    },
+                    onBackClick = if (showMainChrome) null else ({ navController.popBackStack() })
+                )
             },
             bottomBar = {
-                if (showMainChrome && !isWideScreen) {
-                    NavigationBar(
-                        containerColor = SurfaceWhite,
-                        modifier = Modifier.navigationBarsPadding()
-                    ) {
-                        mainTabs.forEach { tab ->
-                            val selected = currentRoute == tab.route
-                            NavigationBarItem(
-                                selected = selected,
-                                onClick = {
-                                    navController.navigate(tab.route) {
-                                        popUpTo(Routes.HOME) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                        contentDescription = tab.label
-                                    )
-                                },
-                                label = { Text(tab.label, maxLines = 1) },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MedicalBlueDark,
-                                    selectedTextColor = MedicalBlueDark,
-                                    indicatorColor = MedicalBlueLight
-                                ),
-                                modifier = Modifier.testTag(tab.tag)
-                            )
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Persistent Start.io Banner Ad across all screens
+                    StartIoBannerAd()
+                    if (showMainChrome && !isWideScreen) {
+                        NavigationBar(
+                            containerColor = SurfaceWhite,
+                            modifier = Modifier.navigationBarsPadding()
+                        ) {
+                            mainTabs.forEach { tab ->
+                                val selected = currentRoute == tab.route
+                                NavigationBarItem(
+                                    selected = selected,
+                                    onClick = {
+                                        navController.navigate(tab.route) {
+                                            popUpTo(Routes.HOME) { saveState = true }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    },
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                            contentDescription = tab.label
+                                        )
+                                    },
+                                    label = { Text(tab.label, maxLines = 1) },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = MedicalBlueDark,
+                                        selectedTextColor = MedicalBlueDark,
+                                        indicatorColor = MedicalBlueLight
+                                    ),
+                                    modifier = Modifier.testTag(tab.tag)
+                                )
+                            }
                         }
+                    } else {
+                        Spacer(modifier = Modifier.navigationBarsPadding())
                     }
                 }
             }
@@ -227,11 +244,15 @@ fun DoctorDirectoryRootApp(vm: MainViewModel = viewModel()) {
                         HomeScreen(
                             lang = lang,
                             settings = settings,
+                            isSyncing = isSyncing,
                             specialties = specialties,
                             locations = locations,
                             doctors = publicDoctors,
                             hospitals = hospitals,
                             favoriteIds = favoriteIds,
+                            isRewardedReady = rewardedHelper.isReady,
+                            onWatchRewardedAd = triggerRewardedAd,
+                            onRefreshDirectory = vm::refreshDirectory,
                             onSearchSubmit = { query ->
                                 vm.updateSearch { it.copy(query = query) }
                                 navController.navigate(Routes.FIND_DOCTORS)
@@ -254,8 +275,7 @@ fun DoctorDirectoryRootApp(vm: MainViewModel = viewModel()) {
                                 facilitiesTab = tabIdx
                                 navController.navigate(Routes.FACILITIES)
                             },
-                            onNavigateInfo = { key -> navController.navigate(Routes.info(key)) },
-                            onNavigateAuth = { route -> navController.navigate(route) }
+                            onNavigateInfo = { key -> navController.navigate(Routes.info(key)) }
                         )
                     }
 
@@ -301,25 +321,17 @@ fun DoctorDirectoryRootApp(vm: MainViewModel = viewModel()) {
                         val favDocs = publicDoctors.filter { it.doctor.id in favoriteIds }
                         PatientPortalScreen(
                             lang = lang,
-                            currentUser = currentUser,
+                            isSyncing = isSyncing,
                             favoriteDoctors = favDocs,
                             appointments = appointments,
                             notifications = notifications,
+                            isRewardedReady = rewardedHelper.isReady,
+                            onWatchRewardedAd = triggerRewardedAd,
+                            onRefreshDirectory = vm::refreshDirectory,
                             onToggleFavorite = vm::toggleFavorite,
                             onDoctorClick = { id -> navController.navigate(Routes.doctorProfile(id)) },
-                            onGoLogin = { navController.navigate(Routes.LOGIN) },
-                            onGoRegisterDoctor = { navController.navigate(Routes.REGISTER_DOCTOR) },
-                            onGoRegisterUser = { navController.navigate(Routes.REGISTER_USER) },
-                            onOpenRoleDashboard = { role ->
-                                when (role) {
-                                    UserRole.DOCTOR -> navController.navigate(Routes.DOCTOR_DASHBOARD)
-                                    UserRole.HOSPITAL_MANAGER -> navController.navigate(Routes.HOSPITAL_DASHBOARD)
-                                    UserRole.SUPER_ADMIN, UserRole.ADMIN -> navController.navigate(Routes.ADMIN_PANEL)
-                                    else -> {}
-                                }
-                            },
-                            onLogout = { vm.logout() },
-                            onMarkNotificationRead = vm::markNotificationRead
+                            onMarkNotificationRead = vm::markNotificationRead,
+                            onNavigateInfo = { key -> navController.navigate(Routes.info(key)) }
                         )
                     }
 
@@ -329,7 +341,6 @@ fun DoctorDirectoryRootApp(vm: MainViewModel = viewModel()) {
                     ) { backStack ->
                         val docId = backStack.arguments?.getString("doctorId").orEmpty()
                         val profile = publicDoctors.firstOrNull { it.doctor.id == docId }
-                            ?: allDoctors.firstOrNull { it.doctor.id == docId }
                         DoctorProfileScreen(
                             profile = profile,
                             lang = lang,
@@ -354,193 +365,6 @@ fun DoctorDirectoryRootApp(vm: MainViewModel = viewModel()) {
                             settings = settings,
                             onBack = { navController.popBackStack() }
                         )
-                    }
-
-                    composable(Routes.LOGIN) {
-                        LoginScreen(
-                            lang = lang,
-                            onLogin = { email, pass ->
-                                vm.login(email, pass) { user ->
-                                    when (user.role) {
-                                        UserRole.SUPER_ADMIN.name, UserRole.ADMIN.name -> {
-                                            navController.navigate(Routes.ADMIN_PANEL) {
-                                                popUpTo(Routes.HOME)
-                                            }
-                                        }
-                                        UserRole.DOCTOR.name -> {
-                                            navController.navigate(Routes.DOCTOR_DASHBOARD) {
-                                                popUpTo(Routes.HOME)
-                                            }
-                                        }
-                                        UserRole.HOSPITAL_MANAGER.name -> {
-                                            navController.navigate(Routes.HOSPITAL_DASHBOARD) {
-                                                popUpTo(Routes.HOME)
-                                            }
-                                        }
-                                        else -> {
-                                            navController.navigate(Routes.PORTAL) {
-                                                popUpTo(Routes.HOME)
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            onResetPassword = vm::resetPassword,
-                            onGoRegisterDoctor = { navController.navigate(Routes.REGISTER_DOCTOR) },
-                            onGoRegisterUser = { navController.navigate(Routes.REGISTER_USER) },
-                            onBack = { navController.popBackStack() }
-                        )
-                    }
-
-                    composable(Routes.REGISTER_DOCTOR) {
-                        DoctorRegistrationScreen(
-                            lang = lang,
-                            specialties = specialties,
-                            onRegisterDoctor = { nBn, nEn, em, pw, ph, bmdc, sp, hosp, desig ->
-                                vm.registerDoctor(nBn, nEn, em, pw, ph, bmdc, sp, hosp, desig) {
-                                    navController.navigate(Routes.DOCTOR_DASHBOARD) {
-                                        popUpTo(Routes.HOME)
-                                    }
-                                }
-                            },
-                            onBack = { navController.popBackStack() }
-                        )
-                    }
-
-                    composable(Routes.REGISTER_USER) {
-                        UserRegistrationScreen(
-                            lang = lang,
-                            onRegister = { name, em, pw, ph, dist, role ->
-                                vm.registerUser(name, em, pw, ph, dist, role) {
-                                    val target = if (role == UserRole.HOSPITAL_MANAGER) Routes.HOSPITAL_DASHBOARD else Routes.PORTAL
-                                    navController.navigate(target) {
-                                        popUpTo(Routes.HOME)
-                                    }
-                                }
-                            },
-                            onBack = { navController.popBackStack() }
-                        )
-                    }
-
-                    composable(Routes.DOCTOR_DASHBOARD) {
-                        val user = currentUser
-                        if (user == null || user.role != UserRole.DOCTOR.name) {
-                            LaunchedEffect(Unit) { navController.navigate(Routes.LOGIN) { popUpTo(Routes.HOME) } }
-                        } else {
-                            val myDoc = allDoctors.firstOrNull { it.doctor.userId == user.id || it.doctor.id == "doc_${user.id}" }
-                            DoctorDashboardScreen(
-                                lang = lang,
-                                currentUser = user,
-                                doctorProfile = myDoc,
-                                specialties = specialties,
-                                appointments = appointments,
-                                onSaveProfile = { vm.saveDoctor(it, isAdminAction = false) },
-                                onAddEducation = vm::addEducation,
-                                onDeleteEducation = vm::deleteEducation,
-                                onAddEmployment = vm::addEmployment,
-                                onDeleteEmployment = vm::deleteEmployment,
-                                onSaveChamber = vm::saveChamber,
-                                onDeleteChamber = vm::deleteChamber,
-                                onAddSchedule = vm::addSchedule,
-                                onDeleteSchedule = vm::deleteSchedule,
-                                onSubmitVerification = vm::submitVerificationRequest,
-                                onSubmitChangeRequest = vm::submitProfileChangeRequest,
-                                onUpdateAppointment = vm::updateAppointmentStatus,
-                                onBack = { navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) } }
-                            )
-                        }
-                    }
-
-                    composable(Routes.HOSPITAL_DASHBOARD) {
-                        val user = currentUser
-                        if (user == null || user.role != UserRole.HOSPITAL_MANAGER.name) {
-                            LaunchedEffect(Unit) { navController.navigate(Routes.LOGIN) { popUpTo(Routes.HOME) } }
-                        } else {
-                            HospitalDashboardScreen(
-                                lang = lang,
-                                currentUser = user,
-                                hospitals = allHospitals,
-                                doctors = publicDoctors,
-                                links = hospitalDoctorLinks,
-                                onSaveHospital = vm::saveHospital,
-                                onRequestDoctorLink = vm::requestHospitalDoctorLink,
-                                onAddDoctorChamber = vm::saveChamber,
-                                onAddSchedule = vm::addSchedule,
-                                onBack = { navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) } }
-                            )
-                        }
-                    }
-
-                    composable(Routes.ADMIN_PANEL) {
-                        val user = currentUser
-                        val isAuthorized = user != null && (user.role == UserRole.SUPER_ADMIN.name || user.role == UserRole.ADMIN.name)
-                        if (!isAuthorized) {
-                            LaunchedEffect(Unit) { navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) } }
-                        } else {
-                            AdminPanelScreen(
-                                lang = lang,
-                                currentUser = user!!,
-                                stats = adminStats,
-                                doctors = allDoctors,
-                                hospitals = allHospitals,
-                                diagnosticCenters = allDiagnosticCenters,
-                                specialties = specialties,
-                                locations = locations,
-                                users = users,
-                                verificationRequests = verificationRequests,
-                                profileChangeRequests = profileChangeRequests,
-                                hospitalDoctorLinks = hospitalDoctorLinks,
-                                reports = reports,
-                                notifications = notifications,
-                                auditLogs = auditLogs,
-                                settings = settings,
-                                onSaveDoctor = { vm.saveDoctor(it, isAdminAction = true) },
-                                onDeleteDoctor = vm::deleteDoctor,
-                                onSetDoctorApproval = vm::setDoctorApproval,
-                                onSetDoctorActive = vm::setDoctorActive,
-                                onVerifyBmdc = vm::verifyDoctorBmdc,
-                                onReviewVerificationReq = vm::reviewVerificationRequest,
-                                onReviewProfileChangeReq = vm::reviewProfileChangeRequest,
-                                onUpdateLinkStatus = vm::updateHospitalDoctorLinkStatus,
-                                onSaveHospital = vm::saveHospital,
-                                onDeleteHospital = vm::deleteHospital,
-                                onSaveDiagnostic = vm::saveDiagnosticCenter,
-                                onDeleteDiagnostic = vm::deleteDiagnosticCenter,
-                                onSaveSpecialty = vm::saveSpecialty,
-                                onDeleteSpecialty = vm::deleteSpecialty,
-                                onSaveLocation = vm::saveLocation,
-                                onDeleteLocation = vm::deleteLocation,
-                                onUpdateUserRole = vm::updateUserRole,
-                                onResolveReport = vm::resolveReport,
-                                onSendNotification = vm::sendNotification,
-                                onSaveSettings = vm::saveSettings,
-                                onClearDemoData = vm::clearAllDemoData,
-                                onExportDoctorsCsv = {
-                                    val csv = vm.repo.buildDoctorsCsv(allDoctors)
-                                    val intent = Intent(Intent.ACTION_SEND).apply {
-                                        putExtra(Intent.EXTRA_TEXT, csv)
-                                        putExtra(Intent.EXTRA_SUBJECT, "doctors_directory_bd.csv")
-                                        type = "text/csv"
-                                    }
-                                    context.startActivity(Intent.createChooser(intent, "Export Doctors CSV"))
-                                },
-                                onExportHospitalsCsv = {
-                                    val csv = vm.repo.buildHospitalsCsv(allHospitals)
-                                    val intent = Intent(Intent.ACTION_SEND).apply {
-                                        putExtra(Intent.EXTRA_TEXT, csv)
-                                        putExtra(Intent.EXTRA_SUBJECT, "hospitals_directory_bd.csv")
-                                        type = "text/csv"
-                                    }
-                                    context.startActivity(Intent.createChooser(intent, "Export Hospitals CSV"))
-                                },
-                                onLogout = {
-                                    vm.logout {
-                                        navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) }
-                                    }
-                                },
-                                onBack = { navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) } }
-                            )
-                        }
                     }
                 }
             }

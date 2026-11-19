@@ -19,12 +19,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.local.AppointmentRequestEntity
 import com.example.data.local.NotificationEntity
-import com.example.data.local.UserEntity
 import com.example.data.model.DoctorFullProfile
-import com.example.data.model.UserRole
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
+import com.example.ui.ads.RewardedAdCard
+import com.example.ui.ads.StartIoNativeBannerCard
 import com.example.ui.components.DoctorCard
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.StatusPill
@@ -33,25 +33,20 @@ import com.example.ui.theme.*
 @Composable
 fun PatientPortalScreen(
     lang: AppLang,
-    currentUser: UserEntity?,
+    isSyncing: Boolean,
     favoriteDoctors: List<DoctorFullProfile>,
     appointments: List<AppointmentRequestEntity>,
     notifications: List<NotificationEntity>,
+    isRewardedReady: Boolean,
+    onWatchRewardedAd: () -> Unit,
+    onRefreshDirectory: () -> Unit,
     onToggleFavorite: (String) -> Unit,
     onDoctorClick: (String) -> Unit,
-    onGoLogin: () -> Unit,
-    onGoRegisterDoctor: () -> Unit,
-    onGoRegisterUser: () -> Unit,
-    onOpenRoleDashboard: (UserRole) -> Unit,
-    onLogout: () -> Unit,
     onMarkNotificationRead: (String) -> Unit,
+    onNavigateInfo: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var activeTab by remember { mutableIntStateOf(0) }
-    val myAppointments = remember(appointments, currentUser) {
-        val uid = currentUser?.id ?: "guest"
-        appointments.filter { it.patientUserId == uid || (currentUser == null && it.patientUserId == "guest") }
-    }
 
     LazyColumn(
         modifier = modifier
@@ -60,7 +55,7 @@ fun PatientPortalScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Account / Portal Header Card
+        // Directory Sync & Offline Storage Card (Zero Login Required)
         item {
             Surface(
                 shape = RoundedCornerShape(22.dp),
@@ -69,89 +64,56 @@ fun PatientPortalScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    if (currentUser == null) {
-                        Text(
-                            tr(lang, "আপনার অ্যাকাউন্ট ও পোর্টাল", "Account & Portals"),
-                            style = MaterialTheme.typography.titleLarge,
-                            color = TextPrimary
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            tr(
-                                lang,
-                                "সেভ করা ডাক্তার ও সিরিয়াল অনুরোধ সিঙ্ক রাখতে লগইন বা নিবন্ধন করুন।",
-                                "Sign in or register as a Patient, Doctor, or Hospital Manager."
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = onGoLogin,
-                                colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("portal_login_btn")
-                            ) {
-                                Text(AppStrings.login(lang))
-                            }
-                            OutlinedButton(
-                                onClick = onGoRegisterDoctor,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(AppStrings.registerDoctor(lang), maxLines = 1)
-                            }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                tr(lang, "আমার সেভড তালিকা", "My Saved Directory"),
+                                style = MaterialTheme.typography.titleLarge,
+                                color = TextPrimary
+                            )
+                            Text(
+                                tr(
+                                    lang,
+                                    "কোনো লগইন ছাড়াই আপনার প্রিয় ডাক্তার ও সিরিয়াল অনুরোধ সংরক্ষিত থাকে।",
+                                    "Favorites & serial requests are saved locally on your device — no login required."
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
                         }
-                        Spacer(Modifier.height(6.dp))
-                        TextButton(onClick = onGoRegisterUser, modifier = Modifier.fillMaxWidth()) {
-                            Text(tr(lang, "রোগী বা হাসপাতাল ম্যানেজার নিবন্ধন", "Register as Patient or Hospital Manager"))
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = onRefreshDirectory,
+                        enabled = !isSyncing,
+                        colors = ButtonDefaults.buttonColors(containerColor = MedicalTeal),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("sync_directory_btn")
+                    ) {
+                        if (isSyncing) {
+                            CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Rounded.Sync, null, Modifier.size(18.dp))
                         }
-                    } else {
-                        val roleEnum = UserRole.entries.firstOrNull { it.name == currentUser.role } ?: UserRole.PATIENT
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(currentUser.name, style = MaterialTheme.typography.titleLarge)
-                                Text(currentUser.email, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                                Spacer(Modifier.height(4.dp))
-                                StatusPill(
-                                    text = tr(lang, roleEnum.bnLabel, roleEnum.enLabel),
-                                    bgColor = MedicalBlueLight,
-                                    textColor = MedicalBlueDark
-                                )
-                            }
-                            IconButton(onClick = onLogout) {
-                                Icon(Icons.Rounded.Logout, contentDescription = AppStrings.logout(lang), tint = RoseAlert)
-                            }
-                        }
-
-                        if (roleEnum != UserRole.PATIENT) {
-                            Spacer(Modifier.height(12.dp))
-                            Button(
-                                onClick = { onOpenRoleDashboard(roleEnum) },
-                                colors = ButtonDefaults.buttonColors(containerColor = MedicalTeal),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("open_role_dashboard_btn")
-                            ) {
-                                Icon(Icons.Rounded.Dashboard, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    when (roleEnum) {
-                                        UserRole.DOCTOR -> tr(lang, "ডাক্তার ড্যাশবোর্ড খুলুন", "Open Doctor Dashboard")
-                                        UserRole.HOSPITAL_MANAGER -> tr(lang, "হাসপাতাল ড্যাশবোর্ড খুলুন", "Open Hospital Dashboard")
-                                        else -> tr(lang, "অ্যাডমিন প্যানেল খুলুন", "Open Admin Panel")
-                                    }
-                                )
-                            }
-                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(tr(lang, "সর্বশেষ ডিরেক্টরি আপডেট করুন", "Sync Latest Directory"))
                     }
                 }
             }
+        }
+
+        // Start.io Rewarded Ad Support Card
+        item {
+            RewardedAdCard(
+                lang = lang,
+                isReady = isRewardedReady,
+                onWatchClick = onWatchRewardedAd
+            )
         }
 
         // Sub-Tabs: Favorites | Appointments | Notifications
@@ -165,7 +127,7 @@ fun PatientPortalScreen(
                 FilterChip(
                     selected = activeTab == 1,
                     onClick = { activeTab = 1 },
-                    label = { Text(tr(lang, "সিরিয়াল (${myAppointments.size})", "Requests (${myAppointments.size})")) }
+                    label = { Text(tr(lang, "সিরিয়াল (${appointments.size})", "Requests (${appointments.size})")) }
                 )
                 FilterChip(
                     selected = activeTab == 2,
@@ -199,7 +161,7 @@ fun PatientPortalScreen(
             }
 
             1 -> {
-                if (myAppointments.isEmpty()) {
+                if (appointments.isEmpty()) {
                     item {
                         EmptyStateCard(
                             icon = Icons.Outlined.EventNote,
@@ -208,7 +170,7 @@ fun PatientPortalScreen(
                         )
                     }
                 } else {
-                    items(myAppointments, key = { it.id }) { apt ->
+                    items(appointments, key = { it.id }) { apt ->
                         Surface(
                             shape = RoundedCornerShape(16.dp),
                             color = SurfaceWhite,
@@ -239,19 +201,55 @@ fun PatientPortalScreen(
             }
 
             else -> {
-                items(notifications, key = { it.id }) { n ->
-                    Surface(
-                        onClick = { onMarkNotificationRead(n.id) },
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (n.isRead) SurfaceWhite else MedicalBlueLight.copy(alpha = 0.45f),
-                        border = BorderStroke(1.dp, OutlineSoft),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Text(tr(lang, n.titleBn, n.titleEn), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.height(4.dp))
-                            Text(tr(lang, n.messageBn, n.messageEn), style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                if (notifications.isEmpty()) {
+                    item {
+                        EmptyStateCard(
+                            icon = Icons.Outlined.NotificationsNone,
+                            title = tr(lang, "কোনো নোটিশ নেই", "No Notifications"),
+                            subtitle = tr(lang, "নতুন কোনো আপডেট বা ঘোষণা এলে এখানে দেখা যাবে।", "Directory notices and updates will appear here.")
+                        )
+                    }
+                } else {
+                    items(notifications, key = { it.id }) { n ->
+                        Surface(
+                            onClick = { onMarkNotificationRead(n.id) },
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (n.isRead) SurfaceWhite else MedicalBlueLight.copy(alpha = 0.45f),
+                            border = BorderStroke(1.dp, OutlineSoft),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Text(tr(lang, n.titleBn, n.titleEn), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(4.dp))
+                                Text(tr(lang, n.messageBn, n.messageEn), style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                            }
                         }
+                    }
+                }
+            }
+        }
+
+        // Start.io Native Banner Ad
+        item {
+            StartIoNativeBannerCard(lang = lang)
+        }
+
+        // Information Links
+        item {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = SurfaceWhite,
+                border = BorderStroke(1.dp, OutlineSoft),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        TextButton(onClick = { onNavigateInfo("about") }) { Text(AppStrings.aboutUs(lang)) }
+                        TextButton(onClick = { onNavigateInfo("contact") }) { Text(AppStrings.contactUs(lang)) }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        TextButton(onClick = { onNavigateInfo("privacy") }) { Text(AppStrings.privacyPolicy(lang)) }
+                        TextButton(onClick = { onNavigateInfo("terms") }) { Text(AppStrings.termsConditions(lang)) }
                     }
                 }
             }

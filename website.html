@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Doctor List BD — Admin Panel</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Noto Sans Bengali', 'Plus Jakarta Sans', sans-serif; background: #F5F9FC; color: #0F172A; }
+    .nav-item.active { background: #E0F2FE; color: #0369A1; font-weight: 600; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- ADMIN LOGIN SCREEN (admin / admin only) -->
+  <div id="loginView" class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-sky-700 via-sky-600 to-teal-600">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-12 h-12 rounded-2xl bg-sky-600 text-white flex items-center justify-center text-2xl font-bold">+</div>
+        <div>
+          <h1 class="text-xl font-bold text-slate-900">Doctor List BD</h1>
+          <p class="text-xs text-slate-500">Super Admin Control Panel</p>
+        </div>
+      </div>
+      <form id="loginForm" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Admin ID</label>
+          <input id="adminId" type="text" required placeholder="Enter admin ID"
+            class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Password</label>
+          <input id="adminPass" type="password" required placeholder="Enter password"
+            class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500" />
+        </div>
+        <p id="loginError" class="text-sm text-rose-600 hidden">Invalid Admin ID or Password.</p>
+        <button type="submit"
+          class="w-full py-3 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-semibold transition">
+          Sign In as Admin
+        </button>
+      </form>
+      <p class="text-xs text-slate-400 mt-6 text-center">
+        Connected RTDB: octor-aad88 (Syncs directly with Doctor List BD Android App)
+      </p>
+    </div>
+  </div>
+
+  <!-- ADMIN DASHBOARD APP -->
+  <div id="adminApp" class="hidden min-h-screen flex flex-col lg:flex-row">
+    <!-- Sidebar -->
+    <aside class="w-full lg:w-64 bg-white border-b lg:border-b-0 lg:border-r border-slate-200 flex-shrink-0">
+      <div class="p-5 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <div class="text-lg font-bold text-sky-700">Doctor List BD</div>
+          <div class="text-xs text-teal-600 font-medium">Admin Control Panel</div>
+        </div>
+        <button onclick="logout()" class="text-xs px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 font-semibold hover:bg-rose-100">Logout</button>
+      </div>
+      <nav id="sidebarNav" class="p-3 flex lg:flex-col gap-1 overflow-x-auto">
+        <button data-tab="dashboard" class="nav-item active text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">1. Dashboard</button>
+        <button data-tab="doctors" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">2. Doctors</button>
+        <button data-tab="chambers" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">3. Chambers & Schedules</button>
+        <button data-tab="eduemp" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">4. Education & Jobs</button>
+        <button data-tab="hospitals" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">5. Hospitals</button>
+        <button data-tab="diagnostics" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">6. Diagnostic Centers</button>
+        <button data-tab="specialties" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">7. Specialties</button>
+        <button data-tab="locations" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">8. Locations</button>
+        <button data-tab="notifications" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">9. Notifications</button>
+        <button data-tab="inbox" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">10. Reports & Serials</button>
+        <button data-tab="settings" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">11. Settings & CSV</button>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 p-4 lg:p-8 max-w-6xl w-full mx-auto">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div>
+          <h2 id="pageTitle" class="text-2xl font-bold text-slate-900">Dashboard</h2>
+          <p id="syncStatus" class="text-xs text-slate-500">Syncing with Firebase Realtime Database...</p>
+        </div>
+        <button onclick="loadAllData()" class="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold">
+          Refresh Cloud Data
+        </button>
+      </div>
+
+      <div id="toast" class="hidden fixed bottom-5 right-5 z-50 px-5 py-3 rounded-xl bg-slate-900 text-white text-sm shadow-xl"></div>
+      <div id="tabContent"></div>
+    </main>
+  </div>
+
+<script>
+const RTDB_BASE = "https://octor-aad88-default-rtdb.europe-west1.firebasedatabase.app/directory";
+const DAYS = ["SATURDAY", "SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+
+let dbState = {
+  doctors: {},
+  education: {},
+  employment_history: {},
+  chambers: {},
+  chamber_schedules: {},
+  hospitals: {},
+  diagnostic_centers: {},
+  specialties: {},
+  locations: {},
+  notifications: {},
+  reports: {},
+  appointments: {},
+  settings: {
+    siteTitle: "Doctor List BD",
+    taglineBn: "ডাক্তার কোথায় বসেন, কখন বসেন — সব তথ্য এক জায়গায়।",
+    taglineEn: "Where doctors sit & when they sit — all verified chamber info in one place.",
+    contactEmail: "support@doctorlistbd.org",
+    contactPhone: "+880 1700-000000",
+    allowOnlineBooking: true
+  }
+};
+
+let activeTab = "dashboard";
+let editing = {};
+
+// Auth (admin / admin only)
+document.getElementById("loginForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const id = document.getElementById("adminId").value.trim();
+  const pass = document.getElementById("adminPass").value;
+  if (id === "admin" && pass === "admin") {
+    sessionStorage.setItem("dlbd_admin_auth", "1");
+    showAdmin();
+  } else {
+    document.getElementById("loginError").classList.remove("hidden");
+  }
+});
+
+function logout() {
+  sessionStorage.removeItem("dlbd_admin_auth");
+  location.reload();
+}
+
+function showAdmin() {
+  document.getElementById("loginView").classList.add("hidden");
+  document.getElementById("adminApp").classList.remove("hidden");
+  loadAllData();
+}
+
+if (sessionStorage.getItem("dlbd_admin_auth") === "1") {
+  showAdmin();
+}
+
+document.querySelectorAll("#sidebarNav button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#sidebarNav button").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    activeTab = btn.dataset.tab;
+    editing = {};
+    renderTab();
+  });
+});
+
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.remove("hidden");
+  setTimeout(() => el.classList.add("hidden"), 2800);
+}
+
+function uid(prefix) {
+  return prefix + "_" + Math.random().toString(36).slice(2, 10);
+}
+
+function esc(v) {
+  return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+async function loadAllData() {
+  document.getElementById("syncStatus").textContent = "Loading from RTDB...";
+  try {
+    const res = await fetch(`${RTDB_BASE}.json`);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    if (data) {
+      for (const k of Object.keys(dbState)) {
+        if (k === "settings") {
+          if (data.settings) dbState.settings = { ...dbState.settings, ...data.settings };
+        } else {
+          dbState[k] = data[k] || {};
+        }
+      }
+    }
+    document.getElementById("syncStatus").textContent = "Synced live with octor-aad88 RTDB (" + new Date().toLocaleTimeString() + ")";
+    renderTab();
+  } catch (err) {
+    document.getElementById("syncStatus").textContent = "RTDB Error: " + err.message + " (Check RTDB Rules allow read/write on /directory)";
+    renderTab();
+  }
+}
+
+async function saveNode(collection, id, obj) {
+  const url = id ? `${RTDB_BASE}/${collection}/${id}.json` : `${RTDB_BASE}/${collection}.json`;
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(obj)
+  });
+  if (!res.ok) throw new Error("Save failed: HTTP " + res.status);
+  if (id) dbState[collection][id] = obj;
+  else dbState[collection] = obj;
+  toast("Saved successfully!");
+  renderTab();
+}
+
+async function deleteNode(collection, id) {
+  if (!confirm("Are you sure you want to delete this item?")) return;
+  const res = await fetch(`${RTDB_BASE}/${collection}/${id}.json`, { method: "DELETE" });
+  if (!res.ok) { toast("Delete failed"); return; }
+  delete dbState[collection][id];
+  toast("Deleted successfully!");
+  renderTab();
+}
+
+function renderTab() {
+  const titles = {
+    dashboard: "Dashboard Overview",
+    doctors: "Doctor Management (No Fees)",
+    chambers: "Chambers & Weekly Schedules",
+    eduemp: "Education & Previous Employment",
+    hospitals: "Hospital Management",
+    diagnostics: "Diagnostic Center Management",
+    specialties: "Medical Specialties",
+    locations: "Bangladesh Locations",
+    notifications: "App Notifications",
+    inbox: "Patient Reports & Serial Requests",
+    settings: "App Settings & CSV Export"
+  };
+  document.getElementById("pageTitle").textContent = titles[activeTab] || "Admin";
+  const el = document.getElementById("tabContent");
+  if (activeTab === "dashboard") el.innerHTML = renderDashboard();
+  else if (activeTab === "doctors") el.innerHTML = renderDoctors();
+  else if (activeTab === "chambers") el.innerHTML = renderChambers();
+  else if (activeTab === "eduemp") el.innerHTML = renderEduEmp();
+  else if (activeTab === "hospitals") el.innerHTML = renderHospitals();
+  else if (activeTab === "diagnostics") el.innerHTML = renderDiagnostics();
+  else if (activeTab === "specialties") el.innerHTML = renderSpecialties();
+  else if (activeTab === "locations") el.innerHTML = renderLocations();
+  else if (activeTab === "notifications") el.innerHTML = renderNotifications();
+  else if (activeTab === "inbox") el.innerHTML = renderInbox();
+  else if (activeTab === "settings") el.innerHTML = renderSettings();
+}
+
+function renderDashboard() {
+  const docs = Object.values(dbState.doctors);
+  const stats = [
+    ["Total Doctors", docs.length, "text-sky-700"],
+    ["BMDC Verified", docs.filter(d => d.bmdcVerified).length, "text-emerald-600"],
+    ["Pending Doctors", docs.filter(d => d.approvalStatus === "PENDING").length, "text-amber-600"],
+    ["Hospitals", Object.keys(dbState.hospitals).length, "text-teal-700"],
+    ["Diagnostic Centers", Object.keys(dbState.diagnostic_centers).length, "text-sky-600"],
+    ["Chambers", Object.keys(dbState.chambers).length, "text-indigo-600"],
+    ["Specialties", Object.keys(dbState.specialties).length, "text-slate-800"],
+    ["Open Reports", Object.values(dbState.reports).filter(r => r.status === "OPEN").length, "text-rose-600"],
+    ["Serial Requests", Object.values(dbState.appointments).filter(a => a.status === "PENDING").length, "text-amber-700"]
+  ];
+  return `
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+      ${stats.map(([label, count, cls]) => `
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <div class="text-3xl font-bold ${cls}">${count}</div>
+          <div class="text-xs text-slate-500 mt-1 font-medium">${label}</div>
+        </div>
+      `).join("")}
+    </div>
+    <div class="bg-white p-6 rounded-2xl border border-slate-200">
+      <h3 class="font-bold text-slate-800 mb-2">Quick Guide</h3>
+      <p class="text-sm text-slate-600 leading-relaxed">
+        Everything you add, edit, or delete here is saved directly to your Firebase Realtime Database
+        (<code>octor-aad88</code>) and automatically synced into the <strong>Doctor List BD</strong> Android app's Room local database.
+        Zero demo data is preloaded — only the real doctors, hospitals, diagnostic centers, and chamber schedules you publish here appear in the app.
+      </p>
+    </div>
+  `;
+}
+
+// --- DOCTORS ---
+function renderDoctors() {
+  const d = editing.doctor || {};
+  const specs = Object.entries(dbState.specialties);
+  const docs = Object.entries(dbState.doctors);
+
+  return `
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 mb-6">
+      <h3 class="font-bold text-lg text-sky-800 mb-4">${d.id ? "Edit Doctor" : "Add New Doctor"}</h3>
+      <form onsubmit="submitDoctor(event)" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <input type="hidden" id="doc_id" value="${esc(d.id || "")}" />
+        <input id="doc_nameBn" value="${esc(d.fullNameBn || "")}" required placeholder="Full Name (Bangla) *" class="input" />
+        <input id="doc_nameEn" value="${esc(d.fullNameEn || "")}" required placeholder="Full Name (English) *" class="input" />
+        <input id="doc_bmdc" value="${esc(d.bmdcNumber || "")}" required placeholder="BMDC Registration Number *" class="input" />
+        <input id="doc_photo" value="${esc(d.photoUrl || "")}" placeholder="External Photo URL (https://...)" class="input" />
+        <select id="doc_spec" class="input">
+          <option value="">-- Select Specialty --</option>
+          ${specs.map(([id, s]) => `<option value="${esc(id)}" ${d.mainSpecialtyId === id ? "selected" : ""}>${esc(s.nameBn)} (${esc(s.nameEn)})</option>`).join("")}
+        </select>
+        <input id="doc_subSpec" value="${esc(d.subSpecialty || "")}" placeholder="Sub-specialty" class="input" />
+        <input id="doc_expertise" value="${esc(d.expertise || "")}" placeholder="Treatment Expertise" class="input" />
+        <input id="doc_phone" value="${esc(d.contactNumber || "")}" placeholder="Contact Phone" class="input" />
+        <input id="doc_hosp" value="${esc(d.currentHospital || "")}" placeholder="Current Hospital" class="input" />
+        <input id="doc_college" value="${esc(d.currentMedicalCollege || "")}" placeholder="Medical College" class="input" />
+        <input id="doc_dept" value="${esc(d.currentDepartment || "")}" placeholder="Department" class="input" />
+        <input id="doc_desig" value="${esc(d.currentDesignation || "")}" placeholder="Designation (e.g. Professor)" class="input" />
+        <input id="doc_exp" type="number" value="${esc(d.totalExperienceYears || 0)}" placeholder="Total Experience (Years)" class="input" />
+        <input id="doc_teach" type="number" value="${esc(d.teachingExperienceYears || 0)}" placeholder="Teaching Experience (Years)" class="input" />
+        <input id="doc_gender" value="${esc(d.gender || "")}" placeholder="Gender (optional)" class="input" />
+        <input id="doc_trainings" value="${esc(d.trainings || "")}" placeholder="Trainings & Certifications" class="input" />
+        <textarea id="doc_bioBn" placeholder="Biography (Bangla)" class="input md:col-span-2" rows="2">${esc(d.bioBn || "")}</textarea>
+        <textarea id="doc_bioEn" placeholder="Biography (English)" class="input md:col-span-2" rows="2">${esc(d.bioEn || "")}</textarea>
+        <div class="md:col-span-2 flex flex-wrap gap-5 items-center py-2">
+          <label class="flex items-center gap-2 text-sm"><input id="doc_verified" type="checkbox" ${d.bmdcVerified ? "checked" : ""} /> BMDC Verified</label>
+          <label class="flex items-center gap-2 text-sm"><input id="doc_featured" type="checkbox" ${d.isFeatured ? "checked" : ""} /> Featured</label>
+          <label class="flex items-center gap-2 text-sm"><input id="doc_active" type="checkbox" ${d.isActive !== false ? "checked" : ""} /> Active</label>
+          <select id="doc_approval" class="border rounded-lg px-3 py-1.5 text-sm">
+            <option value="APPROVED" ${d.approvalStatus === "APPROVED" ? "selected" : ""}>APPROVED</option>
+            <option value="PENDING" ${d.approvalStatus === "PENDING" ? "selected" : ""}>PENDING</option>
+            <option value="REJECTED" ${d.approvalStatus === "REJECTED" ? "selected" : ""}>REJECTED</option>
+          </select>
+        </div>
+        <div class="md:col-span-2 flex gap-2">
+          <button type="submit" class="px-5 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Save Doctor</button>
+          ${d.id ? `<button type="button" onclick="editing={};renderTab()" class="px-4 py-2.5 rounded-xl bg-slate-100 text-sm">Cancel</button>` : ""}
+        </div>
+      </form>
+    </div>
+
+    <div class="space-y-3">
+      ${docs.length === 0 ? `<div class="bg-white p-8 rounded-2xl text-center text-slate-500">No doctors added yet.</div>` : docs.map(([id, item]) => `
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div class="font-bold text-slate-900">${esc(item.fullNameBn)} <span class="text-slate-500 font-normal">(${esc(item.fullNameEn)})</span></div>
+            <div class="text-xs text-slate-500">BMDC: ${esc(item.bmdcNumber)} • ${esc(item.currentDesignation)} @ ${esc(item.currentHospital)}</div>
+            <div class="flex gap-2 mt-1">
+              <span class="text-xs px-2 py-0.5 rounded-full ${item.bmdcVerified ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}">${item.bmdcVerified ? "BMDC Verified" : "Unverified"}</span>
+              <span class="text-xs px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">${esc(item.approvalStatus)}</span>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button onclick='editing={doctor:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1.5 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold">Edit</button>
+            <button onclick="deleteNode('doctors','${id}')" class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 text-xs font-semibold">Delete</button>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function submitDoctor(e) {
+  e.preventDefault();
+  const id = document.getElementById("doc_id").value || uid("doc");
+  const photo = document.getElementById("doc_photo").value.trim();
+  if (photo && !/^https?:\/\//.test(photo)) return alert("Photo URL must start with http:// or https://");
+  const obj = {
+    fullNameBn: document.getElementById("doc_nameBn").value.trim(),
+    fullNameEn: document.getElementById("doc_nameEn").value.trim(),
+    bmdcNumber: document.getElementById("doc_bmdc").value.trim(),
+    photoUrl: photo,
+    mainSpecialtyId: document.getElementById("doc_spec").value,
+    subSpecialty: document.getElementById("doc_subSpec").value.trim(),
+    expertise: document.getElementById("doc_expertise").value.trim(),
+    contactNumber: document.getElementById("doc_phone").value.trim(),
+    currentHospital: document.getElementById("doc_hosp").value.trim(),
+    currentMedicalCollege: document.getElementById("doc_college").value.trim(),
+    currentDepartment: document.getElementById("doc_dept").value.trim(),
+    currentDesignation: document.getElementById("doc_desig").value.trim(),
+    totalExperienceYears: parseInt(document.getElementById("doc_exp").value || "0", 10),
+    teachingExperienceYears: parseInt(document.getElementById("doc_teach").value || "0", 10),
+    gender: document.getElementById("doc_gender").value.trim(),
+    trainings: document.getElementById("doc_trainings").value.trim(),
+    bioBn: document.getElementById("doc_bioBn").value.trim(),
+    bioEn: document.getElementById("doc_bioEn").value.trim(),
+    bmdcVerified: document.getElementById("doc_verified").checked,
+    verificationStatus: document.getElementById("doc_verified").checked ? "VERIFIED" : "PENDING",
+    isFeatured: document.getElementById("doc_featured").checked,
+    isActive: document.getElementById("doc_active").checked,
+    approvalStatus: document.getElementById("doc_approval").value,
+    isDemoData: false,
+    updatedAt: Date.now()
+  };
+  editing = {};
+  await saveNode("doctors", id, obj);
+}
+
+// --- CHAMBERS & SCHEDULES ---
+function renderChambers() {
+  const docs = Object.entries(dbState.doctors);
+  const chambers = Object.entries(dbState.chambers);
+  const schedules = Object.entries(dbState.chamber_schedules);
+  const c = editing.chamber || {};
+
+  return `
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="bg-white p-5 rounded-2xl border border-slate-200">
+        <h3 class="font-bold text-sky-800 mb-3">${c.id ? "Edit Chamber" : "Add Chamber Location"}</h3>
+        <form onsubmit="submitChamber(event)" class="space-y-2.5">
+          <input type="hidden" id="ch_id" value="${esc(c.id || "")}" />
+          <select id="ch_doc" required class="input">
+            <option value="">-- Select Doctor * --</option>
+            ${docs.map(([id, d]) => `<option value="${id}" ${c.doctorId===id?"selected":""}>${esc(d.fullNameEn)} (${esc(d.fullNameBn)})</option>`).join("")}
+          </select>
+          <input id="ch_fac" value="${esc(c.facilityName || "")}" required placeholder="Hospital / Diagnostic Center Name *" class="input" />
+          <div class="grid grid-cols-2 gap-2">
+            <input id="ch_dist" value="${esc(c.district || "Dhaka")}" required placeholder="District *" class="input" />
+            <input id="ch_upz" value="${esc(c.upazila || "")}" placeholder="Upazila / Area" class="input" />
+          </div>
+          <input id="ch_addr" value="${esc(c.fullAddress || "")}" required placeholder="Full Address *" class="input" />
+          <input id="ch_phone" value="${esc(c.serialPhone || "")}" placeholder="Serial Booking Phone" class="input" />
+          <input id="ch_maps" value="${esc(c.googleMapsUrl || "")}" placeholder="Google Maps URL (https://...)" class="input" />
+          <input id="ch_inst" value="${esc(c.instructions || "")}" placeholder="Appointment Instructions" class="input" />
+          <label class="flex items-center gap-2 text-sm"><input id="ch_active" type="checkbox" ${c.isActive !== false ? "checked" : ""} /> Active Chamber</label>
+          <button type="submit" class="w-full py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Save Chamber</button>
+        </form>
+      </div>
+
+      <div class="bg-white p-5 rounded-2xl border border-slate-200">
+        <h3 class="font-bold text-teal-800 mb-3">Add Weekly Time Slot</h3>
+        <form onsubmit="submitSchedule(event)" class="space-y-2.5">
+          <select id="sch_ch" required class="input">
+            <option value="">-- Select Chamber * --</option>
+            ${chambers.map(([id, ch]) => `<option value="${id}">${esc(ch.facilityName)} (${esc(dbState.doctors[ch.doctorId]?.fullNameEn || ch.doctorId)})</option>`).join("")}
+          </select>
+          <select id="sch_day" class="input">
+            ${DAYS.map(day => `<option value="${day}">${day}</option>`).join("")}
+          </select>
+          <div class="grid grid-cols-2 gap-2">
+            <input id="sch_open" value="05:00 PM" required placeholder="Opening Time" class="input" />
+            <input id="sch_close" value="08:30 PM" required placeholder="Closing Time" class="input" />
+          </div>
+          <input id="sch_label" placeholder="Slot Label (Morning / Evening)" class="input" />
+          <button type="submit" class="w-full py-2.5 rounded-xl bg-teal-600 text-white font-semibold text-sm">Add Weekly Slot</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="space-y-3">
+      ${chambers.map(([id, ch]) => {
+        const chSlots = schedules.filter(([, s]) => s.chamberId === id);
+        return `
+        <div class="bg-white p-4 rounded-2xl border border-slate-200">
+          <div class="flex justify-between items-start gap-3">
+            <div>
+              <div class="font-bold text-slate-900">${esc(ch.facilityName)} <span class="text-xs text-sky-700">(${esc(dbState.doctors[ch.doctorId]?.fullNameEn || "")})</span></div>
+              <div class="text-xs text-slate-500">${esc(ch.fullAddress)} • ${esc(ch.district)} • Serial: ${esc(ch.serialPhone)}</div>
+            </div>
+            <div class="flex gap-2">
+              <button onclick='editing={chamber:${JSON.stringify({...ch, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs">Edit</button>
+              <button onclick="deleteNode('chambers','${id}')" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs">Delete</button>
+            </div>
+          </div>
+          <div class="mt-2 flex flex-wrap gap-2">
+            ${chSlots.map(([sid, s]) => `
+              <span class="inline-flex items-center gap-1.5 text-xs bg-slate-100 px-2.5 py-1 rounded-lg">
+                <strong>${s.dayOfWeek}</strong>: ${esc(s.openTime)} - ${esc(s.closeTime)}
+                <button onclick="deleteNode('chamber_schedules','${sid}')" class="text-rose-600 font-bold ml-1">&times;</button>
+              </span>
+            `).join("")}
+          </div>
+        </div>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+async function submitChamber(e) {
+  e.preventDefault();
+  const id = document.getElementById("ch_id").value || uid("ch");
+  const obj = {
+    doctorId: document.getElementById("ch_doc").value,
+    facilityName: document.getElementById("ch_fac").value.trim(),
+    facilityType: "HOSPITAL",
+    district: document.getElementById("ch_dist").value.trim(),
+    upazila: document.getElementById("ch_upz").value.trim(),
+    fullAddress: document.getElementById("ch_addr").value.trim(),
+    serialPhone: document.getElementById("ch_phone").value.trim(),
+    googleMapsUrl: document.getElementById("ch_maps").value.trim(),
+    instructions: document.getElementById("ch_inst").value.trim(),
+    isActive: document.getElementById("ch_active").checked
+  };
+  editing = {};
+  await saveNode("chambers", id, obj);
+}
+
+async function submitSchedule(e) {
+  e.preventDefault();
+  const chId = document.getElementById("sch_ch").value;
+  const ch = dbState.chambers[chId];
+  if (!ch) return;
+  const id = uid("sch");
+  await saveNode("chamber_schedules", id, {
+    chamberId: chId,
+    doctorId: ch.doctorId,
+    dayOfWeek: document.getElementById("sch_day").value,
+    openTime: document.getElementById("sch_open").value.trim(),
+    closeTime: document.getElementById("sch_close").value.trim(),
+    slotLabel: document.getElementById("sch_label").value.trim()
+  });
+}
+
+// --- EDUCATION & EMPLOYMENT ---
+function renderEduEmp() {
+  const docs = Object.entries(dbState.doctors);
+  return `
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="bg-white p-5 rounded-2xl border border-slate-200">
+        <h3 class="font-bold text-sky-800 mb-3">Add Doctor Qualification</h3>
+        <form onsubmit="submitEdu(event)" class="space-y-2.5">
+          <select id="edu_doc" required class="input">
+            <option value="">-- Select Doctor * --</option>
+            ${docs.map(([id, d]) => `<option value="${id}">${esc(d.fullNameEn)}</option>`).join("")}
+          </select>
+          <input id="edu_deg" required placeholder="Degree (MBBS, FCPS, MD) *" class="input" />
+          <input id="edu_inst" required placeholder="Institution *" class="input" />
+          <input id="edu_year" placeholder="Passing Year" class="input" />
+          <input id="edu_train" placeholder="Special Training" class="input" />
+          <button type="submit" class="w-full py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Add Qualification</button>
+        </form>
+        <div class="mt-4 space-y-2">
+          ${Object.entries(dbState.education).map(([id, e]) => `
+            <div class="p-2.5 bg-slate-50 rounded-xl flex justify-between items-center text-xs">
+              <div><strong>${esc(e.degreeName)}</strong> (${esc(e.passingYear)}) — ${esc(e.institution)} [${esc(dbState.doctors[e.doctorId]?.fullNameEn || "")}]</div>
+              <button onclick="deleteNode('education','${id}')" class="text-rose-600 font-semibold">Delete</button>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+
+      <div class="bg-white p-5 rounded-2xl border border-slate-200">
+        <h3 class="font-bold text-teal-800 mb-3">Add Previous Employment</h3>
+        <form onsubmit="submitEmp(event)" class="space-y-2.5">
+          <select id="emp_doc" required class="input">
+            <option value="">-- Select Doctor * --</option>
+            ${docs.map(([id, d]) => `<option value="${id}">${esc(d.fullNameEn)}</option>`).join("")}
+          </select>
+          <input id="emp_hosp" required placeholder="Previous Hospital / Medical College *" class="input" />
+          <input id="emp_desig" required placeholder="Designation *" class="input" />
+          <input id="emp_dept" placeholder="Department" class="input" />
+          <div class="grid grid-cols-2 gap-2">
+            <input id="emp_start" placeholder="Start Date" class="input" />
+            <input id="emp_end" placeholder="End Date" class="input" />
+          </div>
+          <input id="emp_desc" placeholder="Job History Description" class="input" />
+          <button type="submit" class="w-full py-2.5 rounded-xl bg-teal-600 text-white font-semibold text-sm">Add Employment</button>
+        </form>
+        <div class="mt-4 space-y-2">
+          ${Object.entries(dbState.employment_history).map(([id, e]) => `
+            <div class="p-2.5 bg-slate-50 rounded-xl flex justify-between items-center text-xs">
+              <div><strong>${esc(e.designation)}</strong> @ ${esc(e.hospitalName)} (${esc(e.startDate)} - ${esc(e.endDate)})</div>
+              <button onclick="deleteNode('employment_history','${id}')" class="text-rose-600 font-semibold">Delete</button>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function submitEdu(e) {
+  e.preventDefault();
+  await saveNode("education", uid("edu"), {
+    doctorId: document.getElementById("edu_doc").value,
+    degreeName: document.getElementById("edu_deg").value.trim(),
+    institution: document.getElementById("edu_inst").value.trim(),
+    passingYear: document.getElementById("edu_year").value.trim(),
+    specialTraining: document.getElementById("edu_train").value.trim()
+  });
+}
+
+async function submitEmp(e) {
+  e.preventDefault();
+  await saveNode("employment_history", uid("emp"), {
+    doctorId: document.getElementById("emp_doc").value,
+    hospitalName: document.getElementById("emp_hosp").value.trim(),
+    designation: document.getElementById("emp_desig").value.trim(),
+    department: document.getElementById("emp_dept").value.trim(),
+    startDate: document.getElementById("emp_start").value.trim(),
+    endDate: document.getElementById("emp_end").value.trim(),
+    description: document.getElementById("emp_desc").value.trim()
+  });
+}
+
+// --- HOSPITALS ---
+function renderHospitals() {
+  const h = editing.hospital || {};
+  return `
+    <div class="bg-white p-5 rounded-2xl border border-slate-200 mb-6">
+      <h3 class="font-bold text-sky-800 mb-3">${h.id ? "Edit Hospital" : "Add Hospital"}</h3>
+      <form onsubmit="submitFacility(event, 'hospitals')" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <input type="hidden" id="fac_id" value="${esc(h.id || "")}" />
+        <input id="fac_nameBn" value="${esc(h.nameBn || "")}" required placeholder="Hospital Name (Bangla) *" class="input" />
+        <input id="fac_nameEn" value="${esc(h.nameEn || "")}" required placeholder="Hospital Name (English) *" class="input" />
+        <input id="fac_dist" value="${esc(h.district || "Dhaka")}" required placeholder="District *" class="input" />
+        <input id="fac_upz" value="${esc(h.upazila || "")}" placeholder="Upazila" class="input" />
+        <input id="fac_addr" value="${esc(h.address || "")}" required placeholder="Address *" class="input" />
+        <input id="fac_phone" value="${esc(h.contactNumber || "")}" placeholder="Contact Phone" class="input" />
+        <input id="fac_img" value="${esc(h.imageUrl || "")}" placeholder="External Image URL (https://...)" class="input md:col-span-2" />
+        <div class="md:col-span-2 flex gap-2">
+          <button type="submit" class="px-5 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Save Hospital</button>
+          ${h.id ? `<button type="button" onclick="editing={};renderTab()" class="px-4 py-2.5 rounded-xl bg-slate-100 text-sm">Cancel</button>` : ""}
+        </div>
+      </form>
+    </div>
+    <div class="space-y-2.5">
+      ${Object.entries(dbState.hospitals).map(([id, item]) => `
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center">
+          <div>
+            <div class="font-bold">${esc(item.nameBn)} (${esc(item.nameEn)})</div>
+            <div class="text-xs text-slate-500">${esc(item.address)}, ${esc(item.district)} • ${esc(item.contactNumber)}</div>
+          </div>
+          <div class="flex gap-2">
+            <button onclick='editing={hospital:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs">Edit</button>
+            <button onclick="deleteNode('hospitals','${id}')" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs">Delete</button>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+// --- DIAGNOSTIC CENTERS ---
+function renderDiagnostics() {
+  const dc = editing.diag || {};
+  return `
+    <div class="bg-white p-5 rounded-2xl border border-slate-200 mb-6">
+      <h3 class="font-bold text-teal-800 mb-3">${dc.id ? "Edit Diagnostic Center" : "Add Diagnostic Center"}</h3>
+      <form onsubmit="submitFacility(event, 'diagnostic_centers')" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <input type="hidden" id="fac_id" value="${esc(dc.id || "")}" />
+        <input id="fac_nameBn" value="${esc(dc.nameBn || "")}" required placeholder="Name (Bangla) *" class="input" />
+        <input id="fac_nameEn" value="${esc(dc.nameEn || "")}" required placeholder="Name (English) *" class="input" />
+        <input id="fac_dist" value="${esc(dc.district || "Dhaka")}" required placeholder="District *" class="input" />
+        <input id="fac_upz" value="${esc(dc.upazila || "")}" placeholder="Upazila" class="input" />
+        <input id="fac_addr" value="${esc(dc.address || "")}" required placeholder="Address *" class="input" />
+        <input id="fac_phone" value="${esc(dc.contactNumber || "")}" placeholder="Contact Phone" class="input" />
+        <input id="fac_img" value="${esc(dc.imageUrl || "")}" placeholder="External Image URL (https://...)" class="input md:col-span-2" />
+        <div class="md:col-span-2 flex gap-2">
+          <button type="submit" class="px-5 py-2.5 rounded-xl bg-teal-600 text-white font-semibold text-sm">Save Diagnostic Center</button>
+          ${dc.id ? `<button type="button" onclick="editing={};renderTab()" class="px-4 py-2.5 rounded-xl bg-slate-100 text-sm">Cancel</button>` : ""}
+        </div>
+      </form>
+    </div>
+    <div class="space-y-2.5">
+      ${Object.entries(dbState.diagnostic_centers).map(([id, item]) => `
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center">
+          <div>
+            <div class="font-bold">${esc(item.nameBn)} (${esc(item.nameEn)})</div>
+            <div class="text-xs text-slate-500">${esc(item.address)}, ${esc(item.district)} • ${esc(item.contactNumber)}</div>
+          </div>
+          <div class="flex gap-2">
+            <button onclick='editing={diag:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs">Edit</button>
+            <button onclick="deleteNode('diagnostic_centers','${id}')" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs">Delete</button>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function submitFacility(e, col) {
+  e.preventDefault();
+  const id = document.getElementById("fac_id").value || uid(col === "hospitals" ? "hosp" : "diag");
+  editing = {};
+  await saveNode(col, id, {
+    nameBn: document.getElementById("fac_nameBn").value.trim(),
+    nameEn: document.getElementById("fac_nameEn").value.trim(),
+    district: document.getElementById("fac_dist").value.trim(),
+    upazila: document.getElementById("fac_upz").value.trim(),
+    address: document.getElementById("fac_addr").value.trim(),
+    contactNumber: document.getElementById("fac_phone").value.trim(),
+    imageUrl: document.getElementById("fac_img").value.trim(),
+    status: "ACTIVE",
+    isDemoData: false
+  });
+}
+
+// --- SPECIALTIES ---
+function renderSpecialties() {
+  const s = editing.spec || {};
+  return `
+    <div class="bg-white p-5 rounded-2xl border border-slate-200 mb-6">
+      <h3 class="font-bold text-sky-800 mb-3">${s.id ? "Edit Specialty" : "Add Medical Specialty"}</h3>
+      <form onsubmit="submitSpecialty(event)" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <input type="hidden" id="sp_id" value="${esc(s.id || "")}" />
+        <input id="sp_bn" value="${esc(s.nameBn || "")}" required placeholder="Bangla Name *" class="input" />
+        <input id="sp_en" value="${esc(s.nameEn || "")}" required placeholder="English Name *" class="input" />
+        <input id="sp_icon" value="${esc(s.iconKey || "medical")}" placeholder="Icon (heart, brain, eye, child...)" class="input" />
+        <button type="submit" class="md:col-span-3 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Save Specialty</button>
+      </form>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      ${Object.entries(dbState.specialties).map(([id, item]) => `
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center">
+          <div><div class="font-bold">${esc(item.nameBn)}</div><div class="text-xs text-slate-500">${esc(item.nameEn)} (${esc(item.iconKey)})</div></div>
+          <div class="flex gap-2">
+            <button onclick='editing={spec:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs">Edit</button>
+            <button onclick="deleteNode('specialties','${id}')" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs">Delete</button>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function submitSpecialty(e) {
+  e.preventDefault();
+  const id = document.getElementById("sp_id").value || uid("sp");
+  editing = {};
+  await saveNode("specialties", id, {
+    nameBn: document.getElementById("sp_bn").value.trim(),
+    nameEn: document.getElementById("sp_en").value.trim(),
+    iconKey: document.getElementById("sp_icon").value.trim() || "medical"
+  });
+}
+
+// --- LOCATIONS ---
+function renderLocations() {
+  return `
+    <div class="bg-white p-5 rounded-2xl border border-slate-200 mb-6">
+      <h3 class="font-bold text-sky-800 mb-3">Add Bangladesh Location</h3>
+      <form onsubmit="submitLocation(event)" class="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <input id="loc_div" required placeholder="Division *" class="input" />
+        <input id="loc_dist" required placeholder="District *" class="input" />
+        <input id="loc_upz" required placeholder="Upazila *" class="input" />
+        <input id="loc_area" placeholder="Area" class="input" />
+        <button type="submit" class="md:col-span-4 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Add Location</button>
+      </form>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+      ${Object.entries(dbState.locations).map(([id, l]) => `
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200 flex justify-between items-center text-sm">
+          <span>${esc(l.division)} &rsaquo; <strong>${esc(l.district)}</strong> &rsaquo; ${esc(l.upazila)}</span>
+          <button onclick="deleteNode('locations','${id}')" class="text-rose-600 text-xs font-semibold">Delete</button>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function submitLocation(e) {
+  e.preventDefault();
+  await saveNode("locations", uid("loc"), {
+    division: document.getElementById("loc_div").value.trim(),
+    district: document.getElementById("loc_dist").value.trim(),
+    upazila: document.getElementById("loc_upz").value.trim(),
+    area: document.getElementById("loc_area").value.trim()
+  });
+}
+
+// --- NOTIFICATIONS ---
+function renderNotifications() {
+  return `
+    <div class="bg-white p-5 rounded-2xl border border-slate-200 mb-6">
+      <h3 class="font-bold text-sky-800 mb-3">Send Notification to App Users</h3>
+      <form onsubmit="submitNotif(event)" class="space-y-2.5">
+        <input id="n_tBn" required placeholder="Title (Bangla) *" class="input" />
+        <input id="n_tEn" required placeholder="Title (English) *" class="input" />
+        <textarea id="n_mBn" required placeholder="Message (Bangla) *" class="input" rows="2"></textarea>
+        <textarea id="n_mEn" required placeholder="Message (English) *" class="input" rows="2"></textarea>
+        <button type="submit" class="px-5 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Publish Notification</button>
+      </form>
+    </div>
+    <div class="space-y-2.5">
+      ${Object.entries(dbState.notifications).map(([id, n]) => `
+        <div class="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-start">
+          <div><div class="font-bold">${esc(n.titleBn)} / ${esc(n.titleEn)}</div><div class="text-xs text-slate-600 mt-1">${esc(n.messageBn)}</div></div>
+          <button onclick="deleteNode('notifications','${id}')" class="text-rose-600 text-xs font-semibold">Delete</button>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function submitNotif(e) {
+  e.preventDefault();
+  await saveNode("notifications", uid("ntf"), {
+    titleBn: document.getElementById("n_tBn").value.trim(),
+    titleEn: document.getElementById("n_tEn").value.trim(),
+    messageBn: document.getElementById("n_mBn").value.trim(),
+    messageEn: document.getElementById("n_mEn").value.trim(),
+    targetRole: "ALL",
+    createdAt: Date.now()
+  });
+}
+
+// --- REPORTS & APPOINTMENTS ---
+function renderInbox() {
+  return `
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div>
+        <h3 class="font-bold text-slate-800 mb-3">Reported Incorrect Information</h3>
+        <div class="space-y-2.5">
+          ${Object.entries(dbState.reports).map(([id, r]) => `
+            <div class="bg-white p-4 rounded-xl border border-slate-200">
+              <div class="flex justify-between"><strong class="text-sm">${esc(r.reason)}</strong><span class="text-xs px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">${esc(r.status)}</span></div>
+              <p class="text-xs text-slate-600 mt-1">${esc(r.details)}</p>
+              <div class="flex gap-2 mt-2">
+                <button onclick="saveNode('reports','${id}',{...dbState.reports['${id}'],status:'RESOLVED'})" class="text-xs text-emerald-700 font-semibold">Resolve</button>
+                <button onclick="deleteNode('reports','${id}')" class="text-xs text-rose-600 font-semibold">Delete</button>
+              </div>
+            </div>
+          `).join("") || `<p class="text-sm text-slate-400">No reports.</p>`}
+        </div>
+      </div>
+      <div>
+        <h3 class="font-bold text-slate-800 mb-3">Pending Serial / Appointment Requests</h3>
+        <div class="space-y-2.5">
+          ${Object.entries(dbState.appointments).map(([id, a]) => `
+            <div class="bg-white p-4 rounded-xl border border-slate-200">
+              <div class="flex justify-between"><strong class="text-sm">${esc(a.patientName)} (${esc(a.patientPhone)})</strong><span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">${esc(a.status)}</span></div>
+              <p class="text-xs text-slate-600 mt-1">${esc(a.preferredDay)} • ${esc(a.preferredSlot)}</p>
+              <div class="flex gap-2 mt-2">
+                <button onclick="saveNode('appointments','${id}',{...dbState.appointments['${id}'],status:'CONFIRMED'})" class="text-xs text-emerald-700 font-semibold">Confirm</button>
+                <button onclick="saveNode('appointments','${id}',{...dbState.appointments['${id}'],status:'REJECTED'})" class="text-xs text-amber-700 font-semibold">Reject</button>
+                <button onclick="deleteNode('appointments','${id}')" class="text-xs text-rose-600 font-semibold">Delete</button>
+              </div>
+            </div>
+          `).join("") || `<p class="text-sm text-slate-400">No requests.</p>`}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// --- SETTINGS & CSV ---
+function renderSettings() {
+  const s = dbState.settings;
+  return `
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 mb-6">
+      <h3 class="font-bold text-sky-800 mb-3">App & Directory Settings</h3>
+      <form onsubmit="submitSettings(event)" class="space-y-3">
+        <input id="st_title" value="${esc(s.siteTitle)}" placeholder="App / Site Title" class="input" />
+        <input id="st_tagBn" value="${esc(s.taglineBn)}" placeholder="Tagline (Bangla)" class="input" />
+        <input id="st_tagEn" value="${esc(s.taglineEn)}" placeholder="Tagline (English)" class="input" />
+        <input id="st_email" value="${esc(s.contactEmail)}" placeholder="Contact Email" class="input" />
+        <input id="st_phone" value="${esc(s.contactPhone)}" placeholder="Contact Phone" class="input" />
+        <label class="flex items-center gap-2 text-sm"><input id="st_book" type="checkbox" ${s.allowOnlineBooking ? "checked" : ""} /> Allow Online Serial Requests</label>
+        <button type="submit" class="px-5 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Save Settings</button>
+      </form>
+    </div>
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 flex flex-wrap gap-3">
+      <button onclick="exportCsv('doctors')" class="px-4 py-2.5 rounded-xl bg-teal-600 text-white text-sm font-semibold">Export Doctors CSV</button>
+      <button onclick="exportCsv('hospitals')" class="px-4 py-2.5 rounded-xl bg-sky-600 text-white text-sm font-semibold">Export Hospitals CSV</button>
+    </div>
+  `;
+}
+
+async function submitSettings(e) {
+  e.preventDefault();
+  await saveNode("settings", null, {
+    siteTitle: document.getElementById("st_title").value.trim(),
+    taglineBn: document.getElementById("st_tagBn").value.trim(),
+    taglineEn: document.getElementById("st_tagEn").value.trim(),
+    contactEmail: document.getElementById("st_email").value.trim(),
+    contactPhone: document.getElementById("st_phone").value.trim(),
+    allowOnlineBooking: document.getElementById("st_book").checked
+  });
+}
+
+function exportCsv(type) {
+  const rows = Object.entries(dbState[type]);
+  if (!rows.length) return toast("No data to export.");
+  const keys = Object.keys(rows[0][1]);
+  const csv = [ ["id", ...keys].join(","), ...rows.map(([id, obj]) => [id, ...keys.map(k => `"${String(obj[k]??"").replace(/"/g,'""')}"`)].join(",")) ].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `doctor_list_bd_${type}.csv`;
+  a.click();
+}
+
+// Style utility for inputs
+const style = document.createElement("style");
+style.textContent = `.input { width:100%; padding:10px 14px; border:1px solid #CBD5E1; border-radius:12px; font-size:14px; outline:none; } .input:focus { border-color:#0284C7; }`;
+document.head.appendChild(style);
+</script>
+</body>
+</html>

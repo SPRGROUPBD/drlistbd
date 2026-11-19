@@ -5,7 +5,7 @@ enum class AppLang { BN, EN }
 fun tr(lang: AppLang, bn: String, en: String): String = if (lang == AppLang.BN) bn else en
 
 object AppStrings {
-    fun appTitle(lang: AppLang) = "Doctor Directory Bangladesh"
+    fun appTitle(lang: AppLang) = "Doctor List BD"
     fun tagline(lang: AppLang) = tr(
         lang,
         "ডাক্তার কোথায় বসেন, কখন বসেন — সব তথ্য এক জায়গায়।",
@@ -15,7 +15,7 @@ object AppStrings {
     fun navHome(lang: AppLang) = tr(lang, "হোম", "Home")
     fun navDoctors(lang: AppLang) = tr(lang, "ডাক্তার", "Doctors")
     fun navFacilities(lang: AppLang) = tr(lang, "হাসপাতাল", "Facilities")
-    fun navPortal(lang: AppLang) = tr(lang, "পোর্টাল", "Portal")
+    fun navPortal(lang: AppLang) = tr(lang, "সেভড", "Saved")
 
     fun searchHint(lang: AppLang) = tr(
         lang,
