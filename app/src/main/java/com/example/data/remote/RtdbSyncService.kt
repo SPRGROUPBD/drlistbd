@@ -1,7 +1,10 @@
 package com.example.data.remote
 
+import android.content.Context
 import android.util.Log
 import com.example.data.local.*
+import com.example.ui.ads.SponsorCampaignSelector
+import com.example.ui.ads.SponsorOfflineCacheManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -10,14 +13,14 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Syncs live directory data managed via admin-website.html from the user's
+ * Syncs live directory data managed via index.html Admin Portal from the
  * Firebase Realtime Database REST endpoint directly into the local Room database.
  */
 object RtdbSyncService {
     private const val BASE_URL = "https://octor-aad88-default-rtdb.europe-west1.firebasedatabase.app"
     private const val TAG = "RtdbSyncService"
 
-    suspend fun pullDirectoryIntoRoom(db: AppDatabase): Result<Int> = withContext(Dispatchers.IO) {
+    suspend fun pullDirectoryIntoRoom(db: AppDatabase, context: Context? = null): Result<Int> = withContext(Dispatchers.IO) {
         try {
             val conn = (URL("$BASE_URL/directory.json").openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
@@ -275,7 +278,7 @@ object RtdbSyncService {
                 )
             }
 
-            // Admin Ad Network Configuration (Unity Ads + Start.io)
+            // Admin Ad Network & Hybrid Sponsor Configuration (Unity Ads + Start.io + Direct Sponsors; ZERO AdMob)
             root.optJSONObject("ad_config")?.let { a ->
                 db.adConfigDao().save(
                     AdConfigEntity(
@@ -287,7 +290,7 @@ object RtdbSyncService {
                         appOpenEnabled = a.optBoolean("appOpenEnabled", true),
                         nativeBannerEnabled = a.optBoolean("nativeBannerEnabled", true),
                         rewardedEnabled = a.optBoolean("rewardedEnabled", true),
-                        nativeAdInterval = a.optInt("nativeAdInterval", 3).coerceIn(1, 12),
+                        nativeAdInterval = a.optInt("nativeAdInterval", 5).coerceIn(1, 12),
                         appOpenCooldownSeconds = a.optInt("appOpenCooldownSeconds", 120).coerceIn(15, 3600),
                         unityGameId = a.optString("unityGameId", "").trim(),
                         unityBannerPlacement = a.optString("unityBannerPlacement", "Banner_Android").ifBlank { "Banner_Android" },
@@ -295,9 +298,60 @@ object RtdbSyncService {
                         unityNativeBannerPlacement = a.optString("unityNativeBannerPlacement", "Banner_Android").ifBlank { "Banner_Android" },
                         unityRewardedPlacement = a.optString("unityRewardedPlacement", "Rewarded_Android").ifBlank { "Rewarded_Android" },
                         startIoAppId = a.optString("startIoAppId", "210630916").ifBlank { "210630916" },
+                        sponsorBannerEnabled = a.optBoolean("sponsorBannerEnabled", true),
+                        appOpenPopupEnabled = a.optBoolean("appOpenPopupEnabled", true),
+                        appOpenPopupFrequency = a.optString("appOpenPopupFrequency", SponsorCampaignSelector.FREQ_EVERY_LAUNCH)
+                            .ifBlank { SponsorCampaignSelector.FREQ_EVERY_LAUNCH },
+                        appOpenPopupSponsorId = a.optString("appOpenPopupSponsorId", "").trim(),
+                        nativeSponsorEnabled = a.optBoolean("nativeSponsorEnabled", true),
+                        nativeSponsorInterval = a.optInt("nativeSponsorInterval", 5).coerceIn(4, 6),
                         updatedAt = a.optLong("updatedAt", System.currentTimeMillis())
                     )
                 )
+            }
+
+            // Direct Sponsor Campaigns (Preserves local cached image paths & never wipes valid cache when offline)
+            if (root.has("sponsors")) {
+                val obj = root.optJSONObject("sponsors")
+                val existingMap = db.sponsorDao().getAllOnce().associateBy { it.id }
+                val list = if (obj != null) parseMap(obj) { id, o ->
+                    val prev = existingMap[id]
+                    val startDate = o.optString("startDate", "").trim()
+                    val endDate = o.optString("endDate", "").trim()
+                    val (startTs, endTs) = SponsorCampaignSelector.parseCampaignBounds(startDate, endDate)
+                    val logoUrl = o.optString("logoUrl", "").trim()
+                    val bannerUrl = o.optString("bannerImageUrl", "").trim()
+                    SponsorEntity(
+                        id = id,
+                        name = o.optString("name", o.optString("sponsorName", "")).trim(),
+                        logoUrl = logoUrl,
+                        bannerImageUrl = bannerUrl,
+                        localLogoPath = if (prev != null && prev.logoUrl == logoUrl) prev.localLogoPath else "",
+                        localBannerPath = if (prev != null && prev.bannerImageUrl == bannerUrl) prev.localBannerPath else "",
+                        promoTitle = o.optString("promoTitle", "").trim(),
+                        description = o.optString("description", "").trim(),
+                        websiteUrl = o.optString("websiteUrl", "").trim(),
+                        contactNumber = o.optString("contactNumber", "").trim(),
+                        startDate = startDate,
+                        endDate = endDate,
+                        startTimestamp = startTs,
+                        endTimestamp = endTs,
+                        targetPages = o.optString("targetPages", SponsorCampaignSelector.PAGE_ALL).ifBlank { SponsorCampaignSelector.PAGE_ALL },
+                        displayPriority = o.optInt("displayPriority", 10).coerceIn(1, 100),
+                        displayFrequency = o.optInt("displayFrequency", 1).coerceIn(1, 10),
+                        isActive = o.optBoolean("isActive", true),
+                        cachedAt = prev?.cachedAt ?: 0L,
+                        updatedAt = o.optLong("updatedAt", System.currentTimeMillis())
+                    )
+                } else emptyList()
+
+                db.sponsorDao().deleteAll()
+                if (list.isNotEmpty()) {
+                    db.sponsorDao().insertAll(list)
+                }
+                if (context != null) {
+                    SponsorOfflineCacheManager.syncSponsorAssets(context, db)
+                }
             }
 
             Result.success(syncedDoctors)

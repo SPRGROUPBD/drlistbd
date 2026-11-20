@@ -26,9 +26,10 @@ import androidx.room.RoomDatabase
         AuditLogEntity::class,
         HospitalDoctorLinkEntity::class,
         ProfileChangeRequestEntity::class,
-        AdConfigEntity::class
+        AdConfigEntity::class,
+        SponsorEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -52,6 +53,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun hospitalDoctorLinkDao(): HospitalDoctorLinkDao
     abstract fun profileChangeRequestDao(): ProfileChangeRequestDao
     abstract fun adConfigDao(): AdConfigDao
+    abstract fun sponsorDao(): SponsorDao
 
     companion object {
         @Volatile

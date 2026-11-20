@@ -15,10 +15,12 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * Lightweight, real-time Ad Telemetry tracker for Doctor List BD.
- * Reports ONLY real SDK impression, click, and completed-reward callbacks from
- * Start.io & Unity Ads to Firebase Realtime Database using atomic server increments
- * so the Admin Panel displays accurate live Start.io & Unity Ads performance & revenue.
+ * Production Hybrid Ad Telemetry tracker for Doctor List BD.
+ * - Reports ONLY legitimate online SDK callbacks (requests, loads, errors, impressions, clicks, completed)
+ *   for Unity Ads & Start.io.
+ * - Tracks online Direct Sponsor performance (impressions, clicks, banner downloads) per Sponsor ID.
+ * - Tracks offline local displays & offline sessions SEPARATELY under `offline_local` so offline displays
+ *   are NEVER counted as verified advertising network impressions or artificial clicks.
  */
 object AdRevenueTracker {
     private const val TAG = "AdRevenueTracker"
@@ -35,37 +37,95 @@ object AdRevenueTracker {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private fun todayUtcKey(): String {
+    private fun todayDhakaKey(): String {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         sdf.timeZone = TimeZone.getTimeZone("Asia/Dhaka")
         return sdf.format(Date())
     }
 
+    // --- Ad Network SDK Callbacks (Online Only) ---
+    fun recordRequest(network: String, format: String) {
+        if (!ConnectivityMonitor.isOnline.value) return
+        incrementPath("$network/$format", "requests", 1)
+    }
+
+    fun recordLoadSuccess(network: String, format: String) {
+        if (!ConnectivityMonitor.isOnline.value) return
+        incrementPath("$network/$format", "loads", 1)
+    }
+
+    fun recordNetworkError(network: String, format: String) {
+        if (!ConnectivityMonitor.isOnline.value) return
+        incrementPath("$network/$format", "errors", 1)
+    }
+
     fun recordImpression(network: String, format: String) {
-        incrementField(network, format, "impressions")
+        if (!ConnectivityMonitor.isOnline.value) return
+        incrementPath("$network/$format", "impressions", 1)
     }
 
     fun recordClick(network: String, format: String) {
-        incrementField(network, format, "clicks")
+        if (!ConnectivityMonitor.isOnline.value) return
+        incrementPath("$network/$format", "clicks", 1)
     }
 
     fun recordCompleted(network: String, format: String) {
-        incrementField(network, format, "completed")
+        if (!ConnectivityMonitor.isOnline.value) return
+        incrementPath("$network/$format", "completed", 1)
     }
 
-    private fun incrementField(network: String, format: String, field: String) {
+    // --- Direct Sponsor Telemetry (Online Only) ---
+    fun recordSponsorOnlineDisplay(sponsorId: String) {
+        if (!ConnectivityMonitor.isOnline.value || sponsorId.isBlank()) return
+        incrementPath("sponsors/${sanitizeKey(sponsorId)}", "onlineImpressions", 1)
+    }
+
+    fun recordSponsorOnlineClick(sponsorId: String) {
+        if (!ConnectivityMonitor.isOnline.value || sponsorId.isBlank()) return
+        incrementPath("sponsors/${sanitizeKey(sponsorId)}", "onlineClicks", 1)
+    }
+
+    fun recordSponsorDownload(sponsorId: String) {
+        if (sponsorId.isBlank()) return
+        incrementPath("sponsors/${sanitizeKey(sponsorId)}", "downloads", 1)
+    }
+
+    // --- Session & Strictly Separated Local Offline Counters ---
+    fun recordOnlineSession() {
+        if (!ConnectivityMonitor.isOnline.value) return
+        incrementPath("sessions", "onlineSessions", 1)
+    }
+
+    /**
+     * Flushes locally recorded offline events once connectivity resumes,
+     * stored strictly under `offline_local` (never merged with verified network impressions).
+     */
+    fun syncSeparatedOfflineStats(offlineSponsorDisplays: Int, offlineSessions: Int) {
+        if (!ConnectivityMonitor.isOnline.value) return
+        if (offlineSponsorDisplays > 0) {
+            incrementPath("offline_local", "offlineSponsorDisplays", offlineSponsorDisplays)
+        }
+        if (offlineSessions > 0) {
+            incrementPath("offline_local", "offlineSessions", offlineSessions)
+        }
+    }
+
+    private fun sanitizeKey(raw: String): String =
+        raw.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(48)
+
+    private fun incrementPath(subPath: String, field: String, delta: Int) {
+        if (delta <= 0) return
         scope.launch {
             try {
-                val dateKey = todayUtcKey()
-                val endpoint = "$RTDB_METRICS_BASE/$dateKey/$network/$format.json"
-                val incrementObj = JSONObject().put(".sv", JSONObject().put("increment", 1))
+                val dateKey = todayDhakaKey()
+                val endpoint = "$RTDB_METRICS_BASE/$dateKey/$subPath.json"
+                val incrementObj = JSONObject().put(".sv", JSONObject().put("increment", delta))
                 val payload = JSONObject()
                     .put(field, incrementObj)
                     .put("updatedAt", System.currentTimeMillis())
                     .toString()
 
                 val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-                    // Use POST + X-HTTP-Method-Override: PATCH for full Android HttpURLConnection compatibility
                     requestMethod = "POST"
                     setRequestProperty("X-HTTP-Method-Override", "PATCH")
                     setRequestProperty("Content-Type", "application/json; charset=UTF-8")
@@ -80,10 +140,10 @@ object AdRevenueTracker {
                 val code = conn.responseCode
                 conn.disconnect()
                 if (code !in 200..299) {
-                    Log.w(TAG, "Metric sync returned HTTP $code for $network/$format/$field")
+                    Log.w(TAG, "Metric sync returned HTTP $code for $subPath/$field")
                 }
             } catch (e: Exception) {
-                Log.d(TAG, "Offline metric skipped ($network/$format/$field): ${e.message}")
+                Log.d(TAG, "Offline metric skipped ($subPath/$field): ${e.message}")
             }
         }
     }

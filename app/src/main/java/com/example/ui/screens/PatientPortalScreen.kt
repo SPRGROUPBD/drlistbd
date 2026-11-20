@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -20,12 +21,15 @@ import androidx.compose.ui.unit.dp
 import com.example.data.local.AdConfigEntity
 import com.example.data.local.AppointmentRequestEntity
 import com.example.data.local.NotificationEntity
+import com.example.data.local.SponsorEntity
 import com.example.data.model.DoctorFullProfile
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
 import com.example.ui.ads.ManagedNativeBannerAd
+import com.example.ui.ads.NativeSponsorAdCard
 import com.example.ui.ads.RewardedAdCard
+import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.DoctorCard
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.StatusPill
@@ -35,6 +39,10 @@ import com.example.ui.theme.*
 fun PatientPortalScreen(
     lang: AppLang,
     adConfig: AdConfigEntity,
+    sponsors: List<SponsorEntity> = emptyList(),
+    isOnline: Boolean = true,
+    onSponsorDisplayed: (String, Boolean) -> Unit = { _, _ -> },
+    onSponsorClicked: (String, Boolean) -> Unit = { _, _ -> },
     isSyncing: Boolean,
     favoriteDoctors: List<DoctorFullProfile>,
     notifications: List<NotificationEntity>,
@@ -109,8 +117,8 @@ fun PatientPortalScreen(
             }
         }
 
-        // Rewarded Ad Support Card
-        if (adConfig.adsEnabled && adConfig.rewardedEnabled) {
+        // Rewarded Ad Support Card (Online Only)
+        if (isOnline && adConfig.adsEnabled && adConfig.rewardedEnabled) {
             item {
                 RewardedAdCard(
                     lang = lang,
@@ -148,7 +156,7 @@ fun PatientPortalScreen(
                         )
                     }
                 } else {
-                    items(favoriteDoctors, key = { it.doctor.id }) { doc ->
+                    itemsIndexed(favoriteDoctors, key = { _, it -> it.doctor.id }) { idx, doc ->
                         DoctorCard(
                             item = doc,
                             lang = lang,
@@ -156,6 +164,19 @@ fun PatientPortalScreen(
                             onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
                             onClick = { onDoctorClick(doc.doctor.id) }
                         )
+                        if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(idx, adConfig.nativeSponsorInterval)) {
+                            Spacer(Modifier.height(10.dp))
+                            NativeSponsorAdCard(
+                                sponsors = sponsors,
+                                adConfig = adConfig,
+                                pageKey = SponsorCampaignSelector.PAGE_PORTAL,
+                                slotIndex = idx / adConfig.nativeSponsorInterval.coerceIn(4, 6),
+                                isOnline = isOnline,
+                                lang = lang,
+                                onSponsorDisplayed = onSponsorDisplayed,
+                                onSponsorClicked = onSponsorClicked
+                            )
+                        }
                     }
                 }
             }
@@ -189,8 +210,19 @@ fun PatientPortalScreen(
             }
         }
 
-        // Managed Native Banner Ad
+        // Native Sponsor Card (Online + Offline Cached) & Network Native Banner (Online Only)
         item {
+            NativeSponsorAdCard(
+                sponsors = sponsors,
+                adConfig = adConfig,
+                pageKey = SponsorCampaignSelector.PAGE_PORTAL,
+                slotIndex = 0,
+                isOnline = isOnline,
+                lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked
+            )
+            Spacer(Modifier.height(8.dp))
             ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
         }
 

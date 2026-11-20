@@ -266,7 +266,7 @@ data class AdConfigEntity(
     val appOpenEnabled: Boolean = true,
     val nativeBannerEnabled: Boolean = true,
     val rewardedEnabled: Boolean = true,
-    val nativeAdInterval: Int = 3,
+    val nativeAdInterval: Int = 5,
     val appOpenCooldownSeconds: Int = 120,
     val unityGameId: String = "",
     val unityBannerPlacement: String = "Banner_Android",
@@ -274,5 +274,40 @@ data class AdConfigEntity(
     val unityNativeBannerPlacement: String = "Banner_Android",
     val unityRewardedPlacement: String = "Rewarded_Android",
     val startIoAppId: String = "210630916",
+    // Hybrid Direct Sponsor Advertisement settings
+    val sponsorBannerEnabled: Boolean = true,
+    val appOpenPopupEnabled: Boolean = true,
+    // EVERY_LAUNCH | ONCE_DAILY
+    val appOpenPopupFrequency: String = "EVERY_LAUNCH",
+    // Empty = AUTO_PRIORITY (highest priority active valid sponsor)
+    val appOpenPopupSponsorId: String = "",
+    val nativeSponsorEnabled: Boolean = true,
+    // Configurable 4, 5, or 6 cards (default 5)
+    val nativeSponsorInterval: Int = 5,
     val updatedAt: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "sponsors")
+data class SponsorEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val logoUrl: String = "",
+    val bannerImageUrl: String = "",
+    val localLogoPath: String = "",
+    val localBannerPath: String = "",
+    val promoTitle: String = "",
+    val description: String = "",
+    val websiteUrl: String = "",
+    val contactNumber: String = "",
+    val startDate: String = "", // yyyy-MM-dd
+    val endDate: String = "",   // yyyy-MM-dd
+    val startTimestamp: Long = 0L,
+    val endTimestamp: Long = Long.MAX_VALUE,
+    val targetPages: String = "ALL", // ALL or comma-separated page keys
+    val displayPriority: Int = 10,
+    val displayFrequency: Int = 1,
+    val isActive: Boolean = true,
+    val cachedAt: Long = 0L,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+

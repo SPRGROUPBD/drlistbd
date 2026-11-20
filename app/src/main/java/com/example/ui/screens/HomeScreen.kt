@@ -35,13 +35,16 @@ import com.example.data.local.HospitalEntity
 import com.example.data.local.LocationEntity
 import com.example.data.local.SiteSettingsEntity
 import com.example.data.local.SpecialtyEntity
+import com.example.data.local.SponsorEntity
 import com.example.data.model.DoctorFullProfile
 import com.example.data.seed.SeedData
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
 import com.example.ui.ads.ManagedNativeBannerAd
+import com.example.ui.ads.NativeSponsorAdCard
 import com.example.ui.ads.RewardedAdCard
+import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.*
 import com.example.ui.theme.*
 
@@ -50,6 +53,10 @@ fun HomeScreen(
     lang: AppLang,
     settings: SiteSettingsEntity,
     adConfig: AdConfigEntity,
+    sponsors: List<SponsorEntity> = emptyList(),
+    isOnline: Boolean = true,
+    onSponsorDisplayed: (String, Boolean) -> Unit = { _, _ -> },
+    onSponsorClicked: (String, Boolean) -> Unit = { _, _ -> },
     isSyncing: Boolean,
     specialties: List<SpecialtyEntity>,
     locations: List<LocationEntity>,
@@ -391,7 +398,20 @@ fun HomeScreen(
                         onClick = { onDoctorClick(doc.doctor.id) },
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                     )
-                    if ((index + 1) % nativeInterval == 0) {
+                    if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(index, adConfig.nativeSponsorInterval)) {
+                        val slot = index / adConfig.nativeSponsorInterval.coerceIn(4, 6)
+                        NativeSponsorAdCard(
+                            sponsors = sponsors,
+                            adConfig = adConfig,
+                            pageKey = SponsorCampaignSelector.PAGE_HOME,
+                            slotIndex = slot,
+                            isOnline = isOnline,
+                            lang = lang,
+                            onSponsorDisplayed = onSponsorDisplayed,
+                            onSponsorClicked = onSponsorClicked,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                        )
+                    } else if ((index + 1) % nativeInterval == 0) {
                         ManagedNativeBannerAd(
                             adConfig = adConfig,
                             lang = lang,
@@ -401,7 +421,7 @@ fun HomeScreen(
                 }
             }
 
-            // Directory Doctors List with periodic Native Banner Ads
+            // Directory Doctors List with periodic Native Sponsor Cards & Network Native Ads
             item {
                 Spacer(Modifier.height(6.dp))
                 SectionHeader(
@@ -410,7 +430,7 @@ fun HomeScreen(
                     onAction = { onNavigateFindDoctors(false) }
                 )
             }
-            val featuredSlice = doctors.take(6)
+            val featuredSlice = doctors.take(10)
             itemsIndexed(featuredSlice, key = { _, it -> "dir_${it.doctor.id}" }) { index, doc ->
                 DoctorCard(
                     item = doc,
@@ -420,7 +440,20 @@ fun HomeScreen(
                     onClick = { onDoctorClick(doc.doctor.id) },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                 )
-                if ((index + 1) % nativeInterval == 0) {
+                if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(index, adConfig.nativeSponsorInterval)) {
+                    val slot = 1 + (index / adConfig.nativeSponsorInterval.coerceIn(4, 6))
+                    NativeSponsorAdCard(
+                        sponsors = sponsors,
+                        adConfig = adConfig,
+                        pageKey = SponsorCampaignSelector.PAGE_HOME,
+                        slotIndex = slot,
+                        isOnline = isOnline,
+                        lang = lang,
+                        onSponsorDisplayed = onSponsorDisplayed,
+                        onSponsorClicked = onSponsorClicked,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                    )
+                } else if ((index + 1) % nativeInterval == 0) {
                     ManagedNativeBannerAd(
                         adConfig = adConfig,
                         lang = lang,
@@ -541,9 +574,21 @@ fun HomeScreen(
             }
         }
 
-        // Bottom Periodic Native Banner Ad
+        // Bottom Native Sponsor Card (Online + Offline Cached) & Network Native Banner (Online Only)
         item {
             Spacer(Modifier.height(10.dp))
+            NativeSponsorAdCard(
+                sponsors = sponsors,
+                adConfig = adConfig,
+                pageKey = SponsorCampaignSelector.PAGE_HOME,
+                slotIndex = if (doctors.isEmpty()) 0 else 2,
+                isOnline = isOnline,
+                lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+            Spacer(Modifier.height(8.dp))
             ManagedNativeBannerAd(
                 adConfig = adConfig,
                 lang = lang,
@@ -551,8 +596,8 @@ fun HomeScreen(
             )
         }
 
-        // Rewarded Video Ad Card (shown when Rewarded format is enabled by Admin)
-        if (adConfig.adsEnabled && adConfig.rewardedEnabled) {
+        // Rewarded Video Ad Card (Online Only)
+        if (isOnline && adConfig.adsEnabled && adConfig.rewardedEnabled) {
             item {
                 Spacer(Modifier.height(12.dp))
                 RewardedAdCard(

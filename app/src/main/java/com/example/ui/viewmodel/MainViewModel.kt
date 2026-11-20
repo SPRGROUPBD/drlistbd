@@ -7,6 +7,9 @@ import com.example.data.local.*
 import com.example.data.model.*
 import com.example.data.repository.DirectoryRepository
 import com.example.i18n.AppLang
+import com.example.ui.ads.AdRevenueTracker
+import com.example.ui.ads.ConnectivityMonitor
+import com.example.ui.ads.SponsorCampaignSelector
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -35,6 +38,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val adConfig: StateFlow<AdConfigEntity> = repo.adConfig
         .stateIn(viewModelScope, SharingStarted.Eagerly, AdConfigEntity())
+
+    val sponsors: StateFlow<List<SponsorEntity>> = repo.sponsors
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val isOnline: StateFlow<Boolean> = ConnectivityMonitor.isOnline
+
+    val lastAppOpenPopupDate: StateFlow<String> = repo.prefs.lastAppOpenPopupDate
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     val specialties: StateFlow<List<SpecialtyEntity>> = repo.specialties
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -128,10 +139,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
+        ConnectivityMonitor.start(application) {
+            // Automatically re-sync sponsors, ad config, and pending directory data upon internet reconnection
+            viewModelScope.launch {
+                _isSyncing.value = true
+                repo.syncFromAdminCloud()
+                flushPendingOfflineStatsIfOnline()
+                _isSyncing.value = false
+            }
+        }
         viewModelScope.launch {
             _isSyncing.value = true
             repo.initializeAndSync()
+            if (ConnectivityMonitor.isOnline.value) {
+                AdRevenueTracker.recordOnlineSession()
+                flushPendingOfflineStatsIfOnline()
+            } else {
+                repo.prefs.recordLocalOfflineSession()
+            }
             _isSyncing.value = false
+        }
+    }
+
+    private suspend fun flushPendingOfflineStatsIfOnline() {
+        if (!ConnectivityMonitor.isOnline.value) return
+        val (offlineDisplays, offlineSessions) = repo.prefs.consumePendingOfflineStats()
+        if (offlineDisplays > 0 || offlineSessions > 0) {
+            AdRevenueTracker.syncSeparatedOfflineStats(offlineDisplays, offlineSessions)
+        }
+    }
+
+    fun markAppOpenPopupShown() {
+        viewModelScope.launch {
+            repo.prefs.setLastAppOpenPopupDate(SponsorCampaignSelector.todayDateKey())
+        }
+    }
+
+    fun recordSponsorDisplay(sponsorId: String, onlineNow: Boolean) {
+        if (onlineNow) {
+            AdRevenueTracker.recordSponsorOnlineDisplay(sponsorId)
+        } else {
+            // Strictly record offline displays locally — never as verified ad network impressions
+            viewModelScope.launch {
+                repo.prefs.recordLocalOfflineSponsorDisplay()
+            }
+        }
+    }
+
+    fun recordSponsorClick(sponsorId: String, onlineNow: Boolean) {
+        if (onlineNow) {
+            AdRevenueTracker.recordSponsorOnlineClick(sponsorId)
         }
     }
 

@@ -76,6 +76,10 @@ object UnityAdsManager {
         config.unityGameId.trim().isNotEmpty()
 
     fun init(context: Context, gameId: String, testMode: Boolean = false) {
+        if (!ConnectivityMonitor.isOnline.value) {
+            Log.d(TAG, "Offline mode active — skipping Unity Ads SDK initialization")
+            return
+        }
         val cleanId = gameId.trim()
         if (cleanId.isEmpty()) {
             Log.d(TAG, "Unity Game ID not set yet in Admin Panel; skipping Unity SDK init.")
@@ -135,13 +139,15 @@ object UnityAdsManager {
         onFailed: () -> Unit = {}
     ) {
         val cleanPlacement = placementId.trim().ifBlank { "Interstitial_Android" }
-        if (!UnityAds.isInitialized) {
+        if (!ConnectivityMonitor.isOnline.value || !UnityAds.isInitialized) {
             unityMainHandler.post { onFailed() }
             return
         }
         try {
+            AdRevenueTracker.recordRequest(AdRevenueTracker.NETWORK_UNITY, AdRevenueTracker.FORMAT_APP_OPEN)
             UnityAds.load(cleanPlacement, object : IUnityAdsLoadListener {
                 override fun onUnityAdsAdLoaded(id: String?) {
+                    AdRevenueTracker.recordLoadSuccess(AdRevenueTracker.NETWORK_UNITY, AdRevenueTracker.FORMAT_APP_OPEN)
                     unityMainHandler.post {
                         UnityAds.show(
                             activity,
@@ -154,6 +160,7 @@ object UnityAdsManager {
                                     message: String?
                                 ) {
                                     Log.w(TAG, "Unity show failure ($cleanPlacement): $error $message")
+                                    AdRevenueTracker.recordNetworkError(AdRevenueTracker.NETWORK_UNITY, AdRevenueTracker.FORMAT_APP_OPEN)
                                     unityMainHandler.post { onFailed() }
                                 }
 
@@ -193,11 +200,13 @@ object UnityAdsManager {
                     message: String?
                 ) {
                     Log.w(TAG, "Unity load failure ($cleanPlacement): $error $message")
+                    AdRevenueTracker.recordNetworkError(AdRevenueTracker.NETWORK_UNITY, AdRevenueTracker.FORMAT_APP_OPEN)
                     unityMainHandler.post { onFailed() }
                 }
             })
         } catch (e: Exception) {
             Log.e(TAG, "Unity loadAndShowInterstitial exception: ${e.message}")
+            AdRevenueTracker.recordNetworkError(AdRevenueTracker.NETWORK_UNITY, AdRevenueTracker.FORMAT_APP_OPEN)
             unityMainHandler.post { onFailed() }
         }
     }
@@ -213,13 +222,15 @@ object UnityAdsManager {
         onFailed: () -> Unit
     ) {
         val cleanPlacement = placementId.trim().ifBlank { "Rewarded_Android" }
-        if (!UnityAds.isInitialized) {
+        if (!ConnectivityMonitor.isOnline.value || !UnityAds.isInitialized) {
             unityMainHandler.post { onFailed() }
             return
         }
         try {
+            AdRevenueTracker.recordRequest(AdRevenueTracker.NETWORK_UNITY, AdRevenueTracker.FORMAT_REWARDED)
             UnityAds.load(cleanPlacement, object : IUnityAdsLoadListener {
                 override fun onUnityAdsAdLoaded(id: String?) {
+                    AdRevenueTracker.recordLoadSuccess(AdRevenueTracker.NETWORK_UNITY, AdRevenueTracker.FORMAT_REWARDED)
                     unityMainHandler.post {
                         UnityAds.show(
                             activity,
@@ -231,6 +242,7 @@ object UnityAdsManager {
                                     error: UnityAds.UnityAdsShowError?,
                                     message: String?
                                 ) {
+                                    AdRevenueTracker.recordNetworkError(AdRevenueTracker.NETWORK_UNITY, AdRevenueTracker.FORMAT_REWARDED)
                                     unityMainHandler.post { onFailed() }
                                 }
 
@@ -275,11 +287,13 @@ object UnityAdsManager {
                     message: String?
                 ) {
                     Log.w(TAG, "Unity rewarded load failed ($cleanPlacement): $error $message")
+                    AdRevenueTracker.recordNetworkError(AdRevenueTracker.NETWORK_UNITY, AdRevenueTracker.FORMAT_REWARDED)
                     unityMainHandler.post { onFailed() }
                 }
             })
         } catch (e: Exception) {
             Log.e(TAG, "Unity rewarded exception: ${e.message}")
+            AdRevenueTracker.recordNetworkError(AdRevenueTracker.NETWORK_UNITY, AdRevenueTracker.FORMAT_REWARDED)
             unityMainHandler.post { onFailed() }
         }
     }
@@ -291,14 +305,17 @@ object UnityAdsManager {
 @Composable
 fun AdSdkInitializerEffect(adConfig: AdConfigEntity) {
     val context = LocalContext.current
+    val isOnline by ConnectivityMonitor.isOnline.collectAsStateWithLifecycle()
     LaunchedEffect(
+        isOnline,
         adConfig.adsEnabled,
         adConfig.activeNetwork,
         adConfig.testMode,
         adConfig.unityGameId,
         adConfig.startIoAppId
     ) {
-        if (!adConfig.adsEnabled) return@LaunchedEffect
+        // Strictly skip all network SDK initialization when offline; auto-resume on reconnection
+        if (!isOnline || !adConfig.adsEnabled) return@LaunchedEffect
         val useUnity = adConfig.activeNetwork != "STARTIO"
         val useStartIo = adConfig.activeNetwork != "UNITY"
         if (useUnity && adConfig.unityGameId.isNotBlank()) {
@@ -324,16 +341,18 @@ fun UnityBannerAdView(
     onFailed: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val isOnline by ConnectivityMonitor.isOnline.collectAsStateWithLifecycle()
     val unityReady by UnityAdsManager.isInitialized.collectAsStateWithLifecycle()
     val unityInitFailed by UnityAdsManager.initFailed.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = remember(context) { context.findActivityCtx() }
 
-    var isLoaded by remember(placementId, widthDp, heightDp) { mutableStateOf(false) }
-    var hasFailed by remember(placementId, widthDp, heightDp) { mutableStateOf(false) }
+    var isLoaded by remember(placementId, widthDp, heightDp, isOnline) { mutableStateOf(false) }
+    var hasFailed by remember(placementId, widthDp, heightDp, isOnline) { mutableStateOf(false) }
 
-    // If Unity SDK init fails or does not fill within 6 seconds, notify caller to fall back cleanly
-    LaunchedEffect(unityInitFailed, unityReady, isLoaded, hasFailed) {
+    // If Unity SDK init fails or does not fill within 6 seconds while online, notify caller to fall back cleanly
+    LaunchedEffect(isOnline, unityInitFailed, unityReady, isLoaded, hasFailed) {
+        if (!isOnline) return@LaunchedEffect
         if (unityInitFailed && !hasFailed) {
             hasFailed = true
             onFailed()
@@ -348,13 +367,15 @@ fun UnityBannerAdView(
         }
     }
 
-    if (!unityReady || activity == null || hasFailed) return
+    if (!isOnline || !unityReady || activity == null || hasFailed) return
 
     val bannerView = remember(activity, placementId, widthDp, heightDp) {
+        AdRevenueTracker.recordRequest(AdRevenueTracker.NETWORK_UNITY, metricsFormat)
         BannerView(activity, placementId, UnityBannerSize(widthDp, heightDp)).apply {
             listener = object : BannerView.IListener {
                 override fun onBannerLoaded(bannerAdView: BannerView?) {
                     Log.d("UnityAdsManager", "Unity Banner loaded ($placementId ${widthDp}x${heightDp})")
+                    AdRevenueTracker.recordLoadSuccess(AdRevenueTracker.NETWORK_UNITY, metricsFormat)
                     unityMainHandler.post {
                         isLoaded = true
                         onLoaded()
@@ -372,6 +393,7 @@ fun UnityBannerAdView(
 
                 override fun onBannerFailedToLoad(bannerAdView: BannerView?, errorInfo: BannerErrorInfo?) {
                     Log.w("UnityAdsManager", "Unity Banner failed ($placementId): ${errorInfo?.errorMessage}")
+                    AdRevenueTracker.recordNetworkError(AdRevenueTracker.NETWORK_UNITY, metricsFormat)
                     unityMainHandler.post {
                         if (!hasFailed) {
                             hasFailed = true
@@ -429,13 +451,15 @@ fun ManagedBannerAd(
     adConfig: AdConfigEntity,
     modifier: Modifier = Modifier
 ) {
-    if (!adConfig.adsEnabled || !adConfig.bannerEnabled) return
+    val isOnline by ConnectivityMonitor.isOnline.collectAsStateWithLifecycle()
+    // Offline mode: strictly disable Unity Ads & Start.io Banner requests
+    if (!isOnline || !adConfig.adsEnabled || !adConfig.bannerEnabled) return
 
     val unityConfigured = UnityAdsManager.isConfigured(adConfig)
-    var unityFailed by remember(adConfig.unityGameId, adConfig.unityBannerPlacement, adConfig.activeNetwork) {
+    var unityFailed by remember(adConfig.unityGameId, adConfig.unityBannerPlacement, adConfig.activeNetwork, isOnline) {
         mutableStateOf(false)
     }
-    var startIoFailed by remember(adConfig.startIoAppId, adConfig.activeNetwork) {
+    var startIoFailed by remember(adConfig.startIoAppId, adConfig.activeNetwork, isOnline) {
         mutableStateOf(false)
     }
 
@@ -490,10 +514,12 @@ fun ManagedNativeBannerAd(
     lang: AppLang,
     modifier: Modifier = Modifier
 ) {
-    if (!adConfig.adsEnabled || !adConfig.nativeBannerEnabled) return
+    val isOnline by ConnectivityMonitor.isOnline.collectAsStateWithLifecycle()
+    // Offline mode: strictly disable Unity Ads & Start.io Native Banner requests
+    if (!isOnline || !adConfig.adsEnabled || !adConfig.nativeBannerEnabled) return
 
     val unityConfigured = UnityAdsManager.isConfigured(adConfig)
-    var unityFailed by remember(adConfig.unityGameId, adConfig.unityNativeBannerPlacement, adConfig.activeNetwork) {
+    var unityFailed by remember(adConfig.unityGameId, adConfig.unityNativeBannerPlacement, adConfig.activeNetwork, isOnline) {
         mutableStateOf(false)
     }
 
@@ -575,6 +601,7 @@ fun AppOpenAdController(
     adConfig: AdConfigEntity,
     isReadyToShow: Boolean
 ) {
+    val isOnline by ConnectivityMonitor.isOnline.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = remember(context) { context.findActivityCtx() }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -586,7 +613,7 @@ fun AppOpenAdController(
     var coldLaunchAttempted by remember { mutableStateOf(false) }
 
     fun attemptShowAppOpen(act: Activity) {
-        if (!adConfig.adsEnabled || !adConfig.appOpenEnabled || isShowing) return
+        if (!isOnline || !adConfig.adsEnabled || !adConfig.appOpenEnabled || isShowing) return
         val now = System.currentTimeMillis()
         val cooldownMs = adConfig.appOpenCooldownSeconds.coerceAtLeast(15) * 1000L
         if (lastShownAtMs > 0L && (now - lastShownAtMs) < cooldownMs) return
@@ -700,7 +727,7 @@ class UnifiedRewardedAdHelper(
         onUnavailable: () -> Unit
     ) {
         val cfg = adConfigProvider()
-        if (!cfg.adsEnabled || !cfg.rewardedEnabled) {
+        if (!ConnectivityMonitor.isOnline.value || !cfg.adsEnabled || !cfg.rewardedEnabled) {
             onUnavailable()
             return
         }

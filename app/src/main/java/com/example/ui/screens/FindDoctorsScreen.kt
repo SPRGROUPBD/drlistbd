@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.example.data.local.AdConfigEntity
 import com.example.data.local.LocationEntity
 import com.example.data.local.SpecialtyEntity
+import com.example.data.local.SponsorEntity
 import com.example.data.model.DayOfWeekBd
 import com.example.data.model.DoctorFullProfile
 import com.example.data.model.SearchFilterState
@@ -29,6 +30,8 @@ import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
 import com.example.ui.ads.ManagedNativeBannerAd
+import com.example.ui.ads.NativeSponsorAdCard
+import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.DoctorCard
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.SpecialtyStrip
@@ -39,6 +42,10 @@ import com.example.ui.theme.*
 fun FindDoctorsScreen(
     lang: AppLang,
     adConfig: AdConfigEntity,
+    sponsors: List<SponsorEntity> = emptyList(),
+    isOnline: Boolean = true,
+    onSponsorDisplayed: (String, Boolean) -> Unit = { _, _ -> },
+    onSponsorClicked: (String, Boolean) -> Unit = { _, _ -> },
     searchState: SearchFilterState,
     specialties: List<SpecialtyEntity>,
     locations: List<LocationEntity>,
@@ -222,8 +229,21 @@ fun FindDoctorsScreen(
                         onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
                         onClick = { onDoctorClick(doc.doctor.id) }
                     )
-                    // Periodic inline Native Banner Ad every N cards
-                    if ((index + 1) % nativeInterval == 0) {
+                    // Native Sponsor Ad Card every configured 4/5/6 cards (works Online + Offline)
+                    if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(index, adConfig.nativeSponsorInterval)) {
+                        val slot = index / adConfig.nativeSponsorInterval.coerceIn(4, 6)
+                        Spacer(Modifier.height(10.dp))
+                        NativeSponsorAdCard(
+                            sponsors = sponsors,
+                            adConfig = adConfig,
+                            pageKey = SponsorCampaignSelector.PAGE_FIND_DOCTORS,
+                            slotIndex = slot,
+                            isOnline = isOnline,
+                            lang = lang,
+                            onSponsorDisplayed = onSponsorDisplayed,
+                            onSponsorClicked = onSponsorClicked
+                        )
+                    } else if ((index + 1) % nativeInterval == 0) {
                         Spacer(Modifier.height(10.dp))
                         ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
                     }

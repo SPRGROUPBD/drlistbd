@@ -336,3 +336,34 @@ interface AdConfigDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun save(config: AdConfigEntity)
 }
+
+@Dao
+interface SponsorDao {
+    @Query("SELECT * FROM sponsors ORDER BY displayPriority DESC, updatedAt DESC")
+    fun observeAll(): Flow<List<SponsorEntity>>
+
+    @Query("SELECT * FROM sponsors ORDER BY displayPriority DESC, updatedAt DESC")
+    suspend fun getAllOnce(): List<SponsorEntity>
+
+    @Query("SELECT * FROM sponsors WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): SponsorEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(sponsor: SponsorEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(sponsors: List<SponsorEntity>)
+
+    @Query("UPDATE sponsors SET localLogoPath = :logoPath, localBannerPath = :bannerPath, cachedAt = :cachedAt WHERE id = :id")
+    suspend fun updateLocalCachePaths(id: String, logoPath: String, bannerPath: String, cachedAt: Long)
+
+    @Query("DELETE FROM sponsors WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM sponsors WHERE endTimestamp > 0 AND endTimestamp < :cutoffTimestamp")
+    suspend fun deleteExpiredBefore(cutoffTimestamp: Long)
+
+    @Query("DELETE FROM sponsors")
+    suspend fun deleteAll()
+}
+

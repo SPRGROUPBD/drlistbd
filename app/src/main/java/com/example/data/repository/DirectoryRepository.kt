@@ -9,16 +9,17 @@ import kotlinx.coroutines.flow.*
 import java.util.UUID
 
 class DirectoryRepository(context: Context) {
-    private val db = AppDatabase.getInstance(context)
-    val prefs = SessionPreferences(context)
+    private val appContext = context.applicationContext ?: context
+    private val db = AppDatabase.getInstance(appContext)
+    val prefs = SessionPreferences(appContext)
 
     suspend fun initializeAndSync(): Result<Int> {
         SeedData.ensureCleanBootstrap(db)
-        return RtdbSyncService.pullDirectoryIntoRoom(db)
+        return RtdbSyncService.pullDirectoryIntoRoom(db, appContext)
     }
 
     suspend fun syncFromAdminCloud(): Result<Int> {
-        return RtdbSyncService.pullDirectoryIntoRoom(db)
+        return RtdbSyncService.pullDirectoryIntoRoom(db, appContext)
     }
 
     val specialties: Flow<List<SpecialtyEntity>> = db.specialtyDao().observeAll()
@@ -33,6 +34,7 @@ class DirectoryRepository(context: Context) {
     val adConfig: Flow<AdConfigEntity> = db.adConfigDao().observe().map {
         it ?: AdConfigEntity()
     }
+    val sponsors: Flow<List<SponsorEntity>> = db.sponsorDao().observeAll()
 
     val doctorsFull: Flow<List<DoctorFullProfile>> = combine(
         db.doctorDao().observeAll(),

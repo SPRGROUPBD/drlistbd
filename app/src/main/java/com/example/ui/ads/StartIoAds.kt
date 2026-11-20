@@ -116,6 +116,10 @@ object StartIoConfig {
         appId: String = DEFAULT_APP_ID,
         testMode: Boolean = false
     ) {
+        if (!ConnectivityMonitor.isOnline.value) {
+            Log.d(TAG, "Offline mode active — skipping Start.io SDK initialization")
+            return
+        }
         val appCtx = context.applicationContext ?: context
         val resolvedAppId = appId.trim().ifBlank { DEFAULT_APP_ID }
         val effectiveTestMode = AdEnvironment.resolveTestMode(testMode)
@@ -178,10 +182,16 @@ object StartIoConfig {
         onDismissed: () -> Unit = {},
         onFailed: () -> Unit = {}
     ) {
+        if (!ConnectivityMonitor.isOnline.value) {
+            mainHandler.post { onFailed() }
+            return
+        }
         try {
+            AdRevenueTracker.recordRequest(AdRevenueTracker.NETWORK_STARTIO, AdRevenueTracker.FORMAT_APP_OPEN)
             val ad = StartAppAd(activity)
             ad.loadAd(StartAppAd.AdMode.AUTOMATIC, object : AdEventListener {
                 override fun onReceiveAd(receivedAd: Ad) {
+                    AdRevenueTracker.recordLoadSuccess(AdRevenueTracker.NETWORK_STARTIO, AdRevenueTracker.FORMAT_APP_OPEN)
                     mainHandler.post {
                         val displayed = ad.showAd(object : AdDisplayListener {
                             override fun adHidden(p0: Ad?) {
@@ -201,6 +211,7 @@ object StartIoConfig {
                                 )
                             }
                             override fun adNotDisplayed(p0: Ad?) {
+                                AdRevenueTracker.recordNetworkError(AdRevenueTracker.NETWORK_STARTIO, AdRevenueTracker.FORMAT_APP_OPEN)
                                 mainHandler.post { onFailed() }
                             }
                         })
@@ -210,11 +221,13 @@ object StartIoConfig {
 
                 override fun onFailedToReceiveAd(failedAd: Ad?) {
                     Log.w(TAG, "Start.io App Open no-fill: ${failedAd?.errorMessage}")
+                    AdRevenueTracker.recordNetworkError(AdRevenueTracker.NETWORK_STARTIO, AdRevenueTracker.FORMAT_APP_OPEN)
                     mainHandler.post { onFailed() }
                 }
             })
         } catch (e: Exception) {
             Log.e(TAG, "Start.io App Open exception: ${e.message}")
+            AdRevenueTracker.recordNetworkError(AdRevenueTracker.NETWORK_STARTIO, AdRevenueTracker.FORMAT_APP_OPEN)
             mainHandler.post { onFailed() }
         }
     }
@@ -245,6 +258,7 @@ object StartIoNativeAdPool {
     fun nextSlotIndex(): Int = slotCounter.getAndIncrement()
 
     fun preload(context: Context, force: Boolean = false) {
+        if (!ConnectivityMonitor.isOnline.value) return
         if (isFetching) return
         if (!force && _ads.value.isNotEmpty()) return
         val now = System.currentTimeMillis()
@@ -256,6 +270,7 @@ object StartIoNativeAdPool {
         val appCtx = context.applicationContext ?: context
         mainHandler.post {
             try {
+                AdRevenueTracker.recordRequest(AdRevenueTracker.NETWORK_STARTIO, AdRevenueTracker.FORMAT_NATIVE)
                 val nativeAd = StartAppNativeAd(appCtx)
                 retainedHolder = nativeAd
                 val prefs = NativeAdPreferences()
@@ -268,6 +283,9 @@ object StartIoNativeAdPool {
                     override fun onReceiveAd(ad: Ad) {
                         val list = nativeAd.nativeAds?.filterNotNull().orEmpty()
                         Log.d(TAG, "Preloaded ${list.size} real Start.io Native Ads")
+                        if (list.isNotEmpty()) {
+                            AdRevenueTracker.recordLoadSuccess(AdRevenueTracker.NETWORK_STARTIO, AdRevenueTracker.FORMAT_NATIVE)
+                        }
                         mainHandler.post {
                             isFetching = false
                             if (list.isNotEmpty()) {
@@ -283,6 +301,7 @@ object StartIoNativeAdPool {
 
                     override fun onFailedToReceiveAd(ad: Ad?) {
                         Log.w(TAG, "Start.io Native pool no-fill: ${ad?.errorMessage}")
+                        AdRevenueTracker.recordNetworkError(AdRevenueTracker.NETWORK_STARTIO, AdRevenueTracker.FORMAT_NATIVE)
                         mainHandler.post {
                             isFetching = false
                             lastFailedAtMs = System.currentTimeMillis()
@@ -292,6 +311,7 @@ object StartIoNativeAdPool {
                 })
             } catch (e: Exception) {
                 Log.e(TAG, "Start.io Native pool exception: ${e.message}")
+                AdRevenueTracker.recordNetworkError(AdRevenueTracker.NETWORK_STARTIO, AdRevenueTracker.FORMAT_NATIVE)
                 isFetching = false
                 lastFailedAtMs = System.currentTimeMillis()
                 _exhausted.value = true
@@ -311,12 +331,13 @@ fun StartIoBannerAd(
     metricsFormat: String = AdRevenueTracker.FORMAT_BANNER,
     onFailed: (() -> Unit)? = null
 ) {
+    val isOnline by ConnectivityMonitor.isOnline.collectAsStateWithLifecycle()
     val sdkReady by StartIoConfig.isInitialized.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
-    var failed by remember { mutableStateOf(false) }
+    var failed by remember(isOnline) { mutableStateOf(false) }
 
-    if (!sdkReady || activity == null || failed) return
+    if (!isOnline || !sdkReady || activity == null || failed) return
 
     Surface(
         color = SurfaceWhite,
@@ -345,13 +366,16 @@ fun StartIoBannerAd(
                         )
                     }
 
+                    AdRevenueTracker.recordRequest(AdRevenueTracker.NETWORK_STARTIO, metricsFormat)
                     val banner = Banner(hostActivity, object : BannerListener {
                         override fun onReceiveAd(view: View?) {
                             Log.d("StartIoAds", "Direct Start.io Banner received & visible")
+                            AdRevenueTracker.recordLoadSuccess(AdRevenueTracker.NETWORK_STARTIO, metricsFormat)
                         }
 
                         override fun onFailedToReceiveAd(view: View?) {
                             Log.w("StartIoAds", "Direct Start.io Banner failed to fill")
+                            AdRevenueTracker.recordNetworkError(AdRevenueTracker.NETWORK_STARTIO, metricsFormat)
                             mainHandler.post {
                                 failed = true
                                 onFailed?.invoke()
@@ -512,6 +536,7 @@ fun StartIoNativeBannerCard(
     lang: AppLang,
     modifier: Modifier = Modifier
 ) {
+    val isOnline by ConnectivityMonitor.isOnline.collectAsStateWithLifecycle()
     val sdkReady by StartIoConfig.isInitialized.collectAsStateWithLifecycle()
     val poolAds by StartIoNativeAdPool.ads.collectAsStateWithLifecycle()
     val poolExhausted by StartIoNativeAdPool.exhausted.collectAsStateWithLifecycle()
@@ -520,8 +545,10 @@ fun StartIoNativeBannerCard(
     val slotIdx = remember { StartIoNativeAdPool.nextSlotIndex() }
     var waitTimedOut by remember { mutableStateOf(false) }
 
-    LaunchedEffect(sdkReady) {
-        if (sdkReady) {
+    if (!isOnline) return
+
+    LaunchedEffect(sdkReady, isOnline) {
+        if (sdkReady && isOnline) {
             StartIoNativeAdPool.preload(context)
             delay(3000L)
             waitTimedOut = true
@@ -661,6 +688,16 @@ class StartIoRewardedHelper(private val activity: Activity?) {
         tryFallbackAutomatic: Boolean = false
     ) {
         val act = activity ?: return
+        if (!ConnectivityMonitor.isOnline.value) {
+            if (pendingOnUnavailable != null) {
+                val failCb = pendingOnUnavailable
+                pendingOnRewarded = null
+                pendingOnDismissedWithoutReward = null
+                pendingOnUnavailable = null
+                mainHandler.post { failCb?.invoke() }
+            }
+            return
+        }
         if (isLoading && !showImmediatelyWhenLoaded && !tryFallbackAutomatic) return
         isLoading = true
 
@@ -670,10 +707,12 @@ class StartIoRewardedHelper(private val activity: Activity?) {
             StartAppAd.AdMode.REWARDED_VIDEO
         }
         try {
+            AdRevenueTracker.recordRequest(AdRevenueTracker.NETWORK_STARTIO, AdRevenueTracker.FORMAT_REWARDED)
             val ad = StartAppAd(act)
             ad.loadAd(mode, object : AdEventListener {
                 override fun onReceiveAd(receivedAd: Ad) {
                     Log.d("StartIoAds", "Rewarded/Full ad received (mode=$mode)")
+                    AdRevenueTracker.recordLoadSuccess(AdRevenueTracker.NETWORK_STARTIO, AdRevenueTracker.FORMAT_REWARDED)
                     mainHandler.post {
                         rewardedAd = ad
                         loadedIsRewardedVideo = !tryFallbackAutomatic
@@ -701,6 +740,7 @@ class StartIoRewardedHelper(private val activity: Activity?) {
 
                 override fun onFailedToReceiveAd(failedAd: Ad?) {
                     Log.w("StartIoAds", "Ad no-fill (mode=$mode): ${failedAd?.errorMessage}")
+                    AdRevenueTracker.recordNetworkError(AdRevenueTracker.NETWORK_STARTIO, AdRevenueTracker.FORMAT_REWARDED)
                     mainHandler.post {
                         isLoading = false
                         isReady = false
@@ -833,13 +873,14 @@ class StartIoRewardedHelper(private val activity: Activity?) {
 
 @Composable
 fun rememberStartIoRewardedHelper(): StartIoRewardedHelper {
+    val isOnline by ConnectivityMonitor.isOnline.collectAsStateWithLifecycle()
     val sdkReady by StartIoConfig.isInitialized.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val helper = remember(activity) { StartIoRewardedHelper(activity) }
 
-    LaunchedEffect(sdkReady, helper) {
-        if (sdkReady) {
+    LaunchedEffect(isOnline, sdkReady, helper) {
+        if (isOnline && sdkReady) {
             // Stagger Rewarded background preload so it doesn't collide with Banner & App Open at startup
             delay(2500L)
             helper.preload(showImmediatelyWhenLoaded = false, tryFallbackAutomatic = false)

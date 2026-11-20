@@ -1,13 +1,17 @@
 package com.example
 
 import android.app.Application
+import com.example.ui.ads.ConnectivityMonitor
 import com.example.ui.ads.StartIoConfig
 
 class DoctorListApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        // Initialize Start.io SDK at Application startup so config & Advertising ID
-        // finish resolving during SplashScreen before the first ad request fires.
-        StartIoConfig.init(this)
+        // Start real internet reachability monitoring before initializing online ad SDKs
+        ConnectivityMonitor.start(this)
+        if (ConnectivityMonitor.isOnline.value) {
+            // Initialize Start.io SDK at Application startup only when connectivity is present
+            StartIoConfig.init(this)
+        }
     }
 }

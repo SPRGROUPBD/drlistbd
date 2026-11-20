@@ -26,7 +26,11 @@ import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.ui.ads.AdSdkInitializerEffect
 import com.example.ui.ads.AppOpenAdController
+import com.example.ui.ads.AppOpenSponsorPopupDialog
+import com.example.ui.ads.ConnectivityMonitor
 import com.example.ui.ads.ManagedBannerAd
+import com.example.ui.ads.SponsorBannerView
+import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.ads.StartIoConfig
 import com.example.ui.ads.rememberUnifiedRewardedHelper
 import com.example.ui.components.MedicalTopBar
@@ -73,12 +77,50 @@ class MainActivity : ComponentActivity() {
 fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     val lang by vm.currentLang.collectAsStateWithLifecycle()
     val adConfig by vm.adConfig.collectAsStateWithLifecycle()
+    val sponsors by vm.sponsors.collectAsStateWithLifecycle()
+    val isOnline by vm.isOnline.collectAsStateWithLifecycle()
+    val lastPopupDate by vm.lastAppOpenPopupDate.collectAsStateWithLifecycle()
     var showSplash by remember { mutableStateOf(true) }
 
-    // Initialize Unity Ads & Start.io SDKs live from Admin Panel AdConfig (even while Splash is visible)
+    // App Open Direct Sponsor Popup state (works both Online & Offline from persisted cache)
+    var appOpenPopupEvaluated by remember { mutableStateOf(false) }
+    var activePopupSponsor by remember { mutableStateOf<com.example.data.local.SponsorEntity?>(null) }
+
+    LaunchedEffect(showSplash, sponsors, adConfig.appOpenPopupEnabled, adConfig.appOpenPopupFrequency, adConfig.appOpenPopupSponsorId, lastPopupDate) {
+        if (showSplash || appOpenPopupEvaluated) return@LaunchedEffect
+        val today = SponsorCampaignSelector.todayDateKey()
+        val shouldShow = SponsorCampaignSelector.shouldShowAppOpenPopup(
+            popupEnabled = adConfig.adsEnabled && adConfig.appOpenPopupEnabled,
+            frequency = adConfig.appOpenPopupFrequency,
+            lastShownDate = lastPopupDate,
+            todayDate = today,
+            alreadyShownThisLaunch = appOpenPopupEvaluated
+        )
+        if (!shouldShow) {
+            appOpenPopupEvaluated = true
+            return@LaunchedEffect
+        }
+        val candidate = SponsorCampaignSelector.selectAppOpenPopupSponsor(
+            sponsors = sponsors,
+            preferredSponsorId = adConfig.appOpenPopupSponsorId
+        )
+        if (candidate != null) {
+            appOpenPopupEvaluated = true
+            activePopupSponsor = candidate
+            vm.markAppOpenPopupShown()
+        } else if (sponsors.isNotEmpty() || !isOnline) {
+            // No valid non-expired sponsor exists -> never display popup
+            appOpenPopupEvaluated = true
+        }
+    }
+
+    // Initialize Unity Ads & Start.io SDKs live ONLY when Online (never repeated across page navigation)
     AdSdkInitializerEffect(adConfig = adConfig)
-    // Show real App Open Ad after Splash finishes & on foreground resume (respecting cooldown)
-    AppOpenAdController(adConfig = adConfig, isReadyToShow = !showSplash)
+    // Show real Unity/Start.io App Open Ad only online & after Direct Sponsor Popup is closed
+    AppOpenAdController(
+        adConfig = adConfig,
+        isReadyToShow = !showSplash && activePopupSponsor == null
+    )
 
     if (showSplash) {
         SplashScreen(
@@ -140,9 +182,9 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
         )
     }
 
-    // Show Rewarded Ad before opening any Doctor Profile; navigate once reward completes
+    // Show Rewarded Ad before opening any Doctor Profile ONLY when Online; navigate directly when Offline
     val openDoctorAfterReward: (String) -> Unit = { doctorId ->
-        if (adConfig.adsEnabled && adConfig.rewardedEnabled) {
+        if (isOnline && adConfig.adsEnabled && adConfig.rewardedEnabled) {
             if (!loadingDoctorRewardAd) {
                 loadingDoctorRewardAd = true
                 rewardedHelper.show(
@@ -227,8 +269,19 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                 )
             },
             bottomBar = {
+                val currentPageKey = SponsorCampaignSelector.normalizeRouteToPageKey(currentRoute)
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // Persistent Managed Banner Ad (Unity Ads + Start.io via Admin Panel)
+                    // Direct Sponsor Banner on EVERY app page (Online + Offline Cached)
+                    SponsorBannerView(
+                        sponsors = sponsors,
+                        adConfig = adConfig,
+                        pageKey = currentPageKey,
+                        isOnline = isOnline,
+                        lang = lang,
+                        onSponsorDisplayed = vm::recordSponsorDisplay,
+                        onSponsorClicked = vm::recordSponsorClick
+                    )
+                    // Persistent Managed Network Banner Ad (Unity Ads + Start.io — Online Only)
                     ManagedBannerAd(adConfig = adConfig)
                     if (showMainChrome && !isWideScreen) {
                         NavigationBar(
@@ -297,6 +350,10 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             lang = lang,
                             settings = settings,
                             adConfig = adConfig,
+                            sponsors = sponsors,
+                            isOnline = isOnline,
+                            onSponsorDisplayed = vm::recordSponsorDisplay,
+                            onSponsorClicked = vm::recordSponsorClick,
                             isSyncing = isSyncing,
                             specialties = specialties,
                             locations = locations,
@@ -336,6 +393,10 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                         FindDoctorsScreen(
                             lang = lang,
                             adConfig = adConfig,
+                            sponsors = sponsors,
+                            isOnline = isOnline,
+                            onSponsorDisplayed = vm::recordSponsorDisplay,
+                            onSponsorClicked = vm::recordSponsorClick,
                             searchState = searchState,
                             specialties = specialties,
                             locations = locations,
@@ -354,6 +415,10 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                         DirectoriesScreen(
                             lang = lang,
                             adConfig = adConfig,
+                            sponsors = sponsors,
+                            isOnline = isOnline,
+                            onSponsorDisplayed = vm::recordSponsorDisplay,
+                            onSponsorClicked = vm::recordSponsorClick,
                             selectedTab = facilitiesTab,
                             onTabChange = { facilitiesTab = it },
                             hospitals = hospitals,
@@ -377,6 +442,10 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                         PatientPortalScreen(
                             lang = lang,
                             adConfig = adConfig,
+                            sponsors = sponsors,
+                            isOnline = isOnline,
+                            onSponsorDisplayed = vm::recordSponsorDisplay,
+                            onSponsorClicked = vm::recordSponsorClick,
                             isSyncing = isSyncing,
                             favoriteDoctors = favDocs,
                             notifications = notifications,
@@ -438,6 +507,18 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                     }
                 }
             }
+        }
+
+        // Direct Sponsor App Open Popup (Online + Offline cached; dismissible immediately via Close X)
+        activePopupSponsor?.let { popupSponsor ->
+            AppOpenSponsorPopupDialog(
+                sponsor = popupSponsor,
+                isOnline = isOnline,
+                lang = lang,
+                onDisplayed = vm::recordSponsorDisplay,
+                onClicked = vm::recordSponsorClick,
+                onDismiss = { activePopupSponsor = null }
+            )
         }
 
         if (loadingDoctorRewardAd) {
