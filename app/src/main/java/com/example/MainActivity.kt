@@ -5,16 +5,19 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -29,13 +32,17 @@ import com.example.i18n.tr
 import com.example.ui.ads.AppOpenSponsorPopupDialog
 import com.example.ui.ads.HybridNetworkAdController
 import com.example.ui.ads.ManagedBannerAd
+import com.example.ui.ads.RewardedAdOutcome
 import com.example.ui.ads.SponsorBannerView
 import com.example.ui.ads.SponsorCampaignSelector
+import com.example.ui.ads.StartIoAdManager
+import com.example.ui.ads.UnityAdsManager
 import com.example.ui.ads.findActivity
 import com.example.ui.components.MedicalTopBar
 import com.example.ui.screens.*
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MainViewModel
+import kotlinx.coroutines.delay
 
 object Routes {
     const val HOME = "home"
@@ -175,9 +182,93 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
         }
     }
 
-    // Open Doctor Profile immediately with zero third-party ad gates
+    val unityRewardedReady by UnityAdsManager.isRewardedLoaded.collectAsStateWithLifecycle()
+    val startIoRewardedReady by StartIoAdManager.isRewardedReady.collectAsStateWithLifecycle()
+    var pendingRewardDoctorId by remember { mutableStateOf<String?>(null) }
+
+    val handleRewardOutcome: (android.app.Activity, String, RewardedAdOutcome) -> Unit = { act, doctorId, outcome ->
+        act.runOnUiThread {
+            when (outcome) {
+                RewardedAdOutcome.COMPLETED,
+                RewardedAdOutcome.FAILED_TO_SHOW -> {
+                    navController.navigate(Routes.doctorProfile(doctorId))
+                }
+                RewardedAdOutcome.SKIPPED -> {
+                    vm.showMessage(
+                        tr(
+                            lang,
+                            "ডাক্তারের বিস্তারিত তথ্য দেখতে সম্পূর্ণ রিওয়ার্ড অ্যাড দেখুন।",
+                            "Watch the complete rewarded ad to view doctor details."
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(pendingRewardDoctorId, unityRewardedReady, startIoRewardedReady) {
+        val targetDoctorId = pendingRewardDoctorId ?: return@LaunchedEffect
+        val act = appContext.findActivity()
+        if (act == null || !isOnline || !adConfig.adsEnabled || !adConfig.rewardedEnabled) {
+            pendingRewardDoctorId = null
+            navController.navigate(Routes.doctorProfile(targetDoctorId))
+            return@LaunchedEffect
+        }
+        if (HybridNetworkAdController.isAnyRewardedReady(adConfig)) {
+            val shown = HybridNetworkAdController.showOnlineRewardedIfReady(act, adConfig, isOnline = true) { outcome ->
+                handleRewardOutcome(act, targetDoctorId, outcome)
+            }
+            if (shown) {
+                pendingRewardDoctorId = null
+                return@LaunchedEffect
+            }
+        }
+        var elapsedMs = 0L
+        while (elapsedMs < 2600L && pendingRewardDoctorId == targetDoctorId) {
+            delay(200L)
+            elapsedMs += 200L
+            if (HybridNetworkAdController.isAnyRewardedReady(adConfig)) {
+                val shown = HybridNetworkAdController.showOnlineRewardedIfReady(act, adConfig, isOnline = true) { outcome ->
+                    handleRewardOutcome(act, targetDoctorId, outcome)
+                }
+                if (shown) {
+                    pendingRewardDoctorId = null
+                    return@LaunchedEffect
+                }
+            } else if (!HybridNetworkAdController.isAnyRewardedLoading(adConfig)) {
+                break
+            }
+        }
+        if (pendingRewardDoctorId == targetDoctorId) {
+            pendingRewardDoctorId = null
+            val shownAfterWait = HybridNetworkAdController.showOnlineRewardedIfReady(act, adConfig, isOnline = true) { outcome ->
+                handleRewardOutcome(act, targetDoctorId, outcome)
+            }
+            if (!shownAfterWait) {
+                navController.navigate(Routes.doctorProfile(targetDoctorId))
+            }
+        }
+    }
+
+    // Show online Rewarded Ad when clicking a doctor; open Doctor Profile upon reward completion
     val openDoctorProfile: (String) -> Unit = { doctorId ->
-        navController.navigate(Routes.doctorProfile(doctorId))
+        val act = appContext.findActivity()
+        val shouldShowReward = isOnline &&
+            adConfig.adsEnabled &&
+            adConfig.rewardedEnabled &&
+            HybridNetworkAdController.getOrderedNetworksForOnline(adConfig).isNotEmpty() &&
+            act != null
+        if (!shouldShowReward) {
+            navController.navigate(Routes.doctorProfile(doctorId))
+        } else {
+            val shownNow = HybridNetworkAdController.showOnlineRewardedIfReady(act!!, adConfig, isOnline = true) { outcome ->
+                handleRewardOutcome(act, doctorId, outcome)
+            }
+            if (!shownNow) {
+                HybridNetworkAdController.preloadRewardedForOnline(appContext, adConfig, isOnline = true)
+                pendingRewardDoctorId = doctorId
+            }
+        }
     }
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -258,7 +349,8 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                         if (isOnline) {
                             ManagedBannerAd(
                                 adConfig = adConfig,
-                                isOnline = isOnline
+                                isOnline = isOnline,
+                                refreshKey = currentPageKey
                             )
                         }
                     }
@@ -532,6 +624,29 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
             if (!showSplash && appOpenPopupEvaluated && activePopupSponsor == null && isOnline && adConfig.adsEnabled && adConfig.appOpenEnabled) {
                 appContext.findActivity()?.let { act ->
                     HybridNetworkAdController.maybeShowOnlineInterstitial(act, adConfig, isOnline = true)
+                }
+            }
+        }
+
+        if (pendingRewardDoctorId != null) {
+            Dialog(onDismissRequest = {}) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = SurfaceWhite,
+                    tonalElevation = 6.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
+                        Text(
+                            text = tr(lang, "রিওয়ার্ড অ্যাড লোড হচ্ছে...", "Loading rewarded ad..."),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary
+                        )
+                    }
                 }
             }
         }

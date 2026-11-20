@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="unity_banner_container" type="id" />
+    <item name="unity_banner_view" type="id" />
+    <item name="startio_banner_container" type="id" />
+    <item name="startio_banner_view" type="id" />
+    <item name="ad_ancestor_slot_1" type="id" />
+    <item name="ad_ancestor_slot_2" type="id" />
+    <item name="ad_ancestor_slot_3" type="id" />
+    <item name="ad_ancestor_slot_4" type="id" />
+    <item name="ad_ancestor_slot_5" type="id" />
+    <item name="ad_ancestor_slot_6" type="id" />
+    <item name="ad_ancestor_slot_7" type="id" />
+    <item name="ad_ancestor_slot_8" type="id" />
+</resources>

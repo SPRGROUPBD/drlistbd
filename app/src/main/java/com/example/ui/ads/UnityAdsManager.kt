@@ -3,19 +3,28 @@ package com.example.ui.ads
 import android.app.Activity
 import android.content.Context
 import android.util.Log
+import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.R
 import com.example.data.local.AdConfigEntity
 import com.unity3d.ads.IUnityAdsInitializationListener
 import com.unity3d.ads.IUnityAdsLoadListener
@@ -25,9 +34,16 @@ import com.unity3d.ads.UnityAdsShowOptions
 import com.unity3d.services.banners.BannerErrorInfo
 import com.unity3d.services.banners.BannerView
 import com.unity3d.services.banners.UnityBannerSize
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+
+enum class RewardedAdOutcome {
+    COMPLETED,
+    SKIPPED,
+    FAILED_TO_SHOW
+}
 
 /**
  * Production Unity Ads SDK v4.14.1 Manager (ONLINE ONLY).
@@ -55,6 +71,8 @@ object UnityAdsManager {
     private var isRewardedLoading = false
     private var lastInterstitialShownAt = 0L
 
+    fun isRewardedRequestInFlight(): Boolean = isRewardedLoading || isInitializing
+
     fun isUnityEnabled(config: AdConfigEntity): Boolean {
         if (!config.adsEnabled) return false
         if (config.unityGameId.isBlank()) return false
@@ -64,27 +82,36 @@ object UnityAdsManager {
         }
     }
 
+    internal fun effectiveTestMode(config: AdConfigEntity): Boolean = config.testMode
+
     fun ensureInitialized(context: Context, config: AdConfigEntity) {
         if (!ConnectivityMonitor.isOnline.value) return
         if (!isUnityEnabled(config)) return
         val gameId = config.unityGameId.trim()
-        if (initializedGameId == gameId && initializedTestMode == config.testMode && (_isReady.value || isInitializing)) {
+        val useTestMode = effectiveTestMode(config)
+        if (initializedGameId == gameId && initializedTestMode == useTestMode && (_isReady.value || isInitializing)) {
+            return
+        }
+        if (UnityAds.isInitialized && initializedGameId == gameId && initializedTestMode == useTestMode) {
+            isInitializing = false
+            _isReady.value = true
+            preloadPlacements(config)
             return
         }
         isInitializing = true
         initializedGameId = gameId
-        initializedTestMode = config.testMode
+        initializedTestMode = useTestMode
 
         runCatching {
             UnityAds.initialize(
                 context.applicationContext,
                 gameId,
-                config.testMode,
+                useTestMode,
                 object : IUnityAdsInitializationListener {
                     override fun onInitializationComplete() {
                         isInitializing = false
                         _isReady.value = true
-                        Log.d(TAG, "Unity Ads initialized (gameId=$gameId, testMode=${config.testMode})")
+                        Log.d(TAG, "Unity Ads initialized (gameId=$gameId, testMode=$useTestMode)")
                         preloadPlacements(config)
                     }
 
@@ -208,7 +235,7 @@ object UnityAdsManager {
     fun showRewardedIfReady(
         activity: Activity,
         config: AdConfigEntity,
-        onFinished: (rewardEarned: Boolean) -> Unit
+        onFinished: (RewardedAdOutcome) -> Unit
     ): Boolean {
         if (!ConnectivityMonitor.isOnline.value || !_isReady.value || !config.rewardedEnabled || !isUnityEnabled(config)) {
             return false
@@ -224,7 +251,7 @@ object UnityAdsManager {
                 override fun onUnityAdsShowFailure(id: String?, error: UnityAds.UnityAdsShowError?, message: String?) {
                     AdRevenueTracker.trackNetworkError("unity", "rewarded")
                     preloadRewarded(pid)
-                    onFinished(false)
+                    onFinished(RewardedAdOutcome.FAILED_TO_SHOW)
                 }
 
                 override fun onUnityAdsShowStart(id: String?) {
@@ -236,12 +263,14 @@ object UnityAdsManager {
                 }
 
                 override fun onUnityAdsShowComplete(id: String?, state: UnityAds.UnityAdsShowCompletionState?) {
-                    val completed = state == UnityAds.UnityAdsShowCompletionState.COMPLETED
-                    if (completed) {
+                    val outcome = if (state == UnityAds.UnityAdsShowCompletionState.COMPLETED) {
                         AdRevenueTracker.trackRewardedCompleted("unity")
+                        RewardedAdOutcome.COMPLETED
+                    } else {
+                        RewardedAdOutcome.SKIPPED
                     }
                     preloadRewarded(pid)
-                    onFinished(completed)
+                    onFinished(outcome)
                 }
             })
             true
@@ -252,66 +281,132 @@ object UnityAdsManager {
 @Composable
 internal fun UnityBannerViewSlot(
     activity: Activity,
+    adConfig: AdConfigEntity,
     placementId: String,
     formatKey: String,
     onLoaded: () -> Unit,
     onFailed: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isUnityReady by UnityAdsManager.isReady.collectAsStateWithLifecycle()
+    val latestOnLoaded by rememberUpdatedState(onLoaded)
+    val latestOnFailed by rememberUpdatedState(onFailed)
     var bannerLoaded by remember(placementId) { mutableStateOf(false) }
+    var loadRequested by remember(placementId) { mutableStateOf(false) }
+    var failedReported by remember(placementId) { mutableStateOf(false) }
+
     val bannerRef = remember(activity, placementId) {
-        BannerView(activity, placementId, UnityBannerSize(320, 50)).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-            listener = object : BannerView.IListener {
-                override fun onBannerLoaded(bannerAdView: BannerView?) {
-                    bannerLoaded = true
-                    AdRevenueTracker.trackNetworkLoad("unity", formatKey)
-                    onLoaded()
-                }
+        runCatching {
+            BannerView(activity, placementId, UnityBannerSize(320, 50)).apply {
+                id = R.id.unity_banner_view
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER
+                )
+                listener = object : BannerView.IListener {
+                    override fun onBannerLoaded(bannerAdView: BannerView?) {
+                        bannerLoaded = true
+                        AdRevenueTracker.trackNetworkLoad("unity", formatKey)
+                        latestOnLoaded()
+                    }
 
-                override fun onBannerShown(bannerAdView: BannerView?) {
-                    AdRevenueTracker.trackNetworkImpression("unity", formatKey)
-                }
+                    override fun onBannerShown(bannerAdView: BannerView?) {
+                        AdRevenueTracker.trackNetworkImpression("unity", formatKey)
+                    }
 
-                override fun onBannerClick(bannerAdView: BannerView?) {
-                    AdRevenueTracker.trackNetworkClick("unity", formatKey)
-                }
+                    override fun onBannerClick(bannerAdView: BannerView?) {
+                        AdRevenueTracker.trackNetworkClick("unity", formatKey)
+                    }
 
-                override fun onBannerFailedToLoad(bannerAdView: BannerView?, errorInfo: BannerErrorInfo?) {
-                    bannerLoaded = false
-                    AdRevenueTracker.trackNetworkError("unity", formatKey)
-                    onFailed()
-                }
+                    override fun onBannerFailedToLoad(bannerAdView: BannerView?, errorInfo: BannerErrorInfo?) {
+                        bannerLoaded = false
+                        AdRevenueTracker.trackNetworkError("unity", formatKey)
+                        if (!failedReported) {
+                            failedReported = true
+                            latestOnFailed()
+                        }
+                    }
 
-                override fun onBannerLeftApplication(bannerView: BannerView?) = Unit
+                    override fun onBannerLeftApplication(bannerView: BannerView?) = Unit
+                }
+            }
+        }.getOrNull()
+    }
+
+    LaunchedEffect(adConfig.unityGameId, adConfig.testMode) {
+        UnityAdsManager.ensureInitialized(activity, adConfig)
+    }
+
+    LaunchedEffect(bannerRef, isUnityReady) {
+        if (bannerRef == null) {
+            if (!failedReported) {
+                failedReported = true
+                latestOnFailed()
+            }
+            return@LaunchedEffect
+        }
+        if (!ConnectivityMonitor.isOnline.value) {
+            if (!failedReported) {
+                failedReported = true
+                latestOnFailed()
+            }
+            return@LaunchedEffect
+        }
+        if (isUnityReady && !loadRequested) {
+            loadRequested = true
+            AdRevenueTracker.trackNetworkRequest("unity", formatKey)
+            runCatching { bannerRef.load() }.onFailure {
+                if (!failedReported) {
+                    failedReported = true
+                    latestOnFailed()
+                }
+            }
+            delay(10_000L)
+            if (!bannerLoaded && !failedReported) {
+                failedReported = true
+                latestOnFailed()
+            }
+        } else if (!isUnityReady) {
+            delay(6500L)
+            if (!UnityAdsManager.isReady.value && !bannerLoaded && !failedReported) {
+                failedReported = true
+                latestOnFailed()
             }
         }
     }
 
     DisposableEffect(bannerRef) {
-        if (ConnectivityMonitor.isOnline.value) {
-            AdRevenueTracker.trackNetworkRequest("unity", formatKey)
-            runCatching { bannerRef.load() }.onFailure { onFailed() }
-        } else {
-            onFailed()
-        }
         onDispose {
-            runCatching { bannerRef.destroy() }
+            runCatching { bannerRef?.destroy() }
         }
     }
 
-    AndroidView(
-        factory = { ctx ->
-            FrameLayout(ctx).apply {
-                (bannerRef.parent as? ViewGroup)?.removeView(bannerRef)
-                addView(bannerRef)
-            }
-        },
-        modifier = modifier
-            .fillMaxWidth()
-            .height(if (bannerLoaded) 52.dp else 1.dp)
-    )
+    if (bannerRef != null) {
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .clipToBounds()
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    FrameLayout(ctx).apply {
+                        id = R.id.unity_banner_container
+                        addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                            override fun onViewAttachedToWindow(v: View) {
+                                ensureAncestorViewIds(v)
+                            }
+                            override fun onViewDetachedFromWindow(v: View) = Unit
+                        })
+                        (bannerRef.parent as? ViewGroup)?.removeView(bannerRef)
+                        addView(bannerRef)
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .requiredHeight(50.dp)
+            )
+        }
+    }
 }
