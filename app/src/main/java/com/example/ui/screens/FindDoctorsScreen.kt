@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -16,15 +17,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.data.local.AdConfigEntity
 import com.example.data.local.LocationEntity
 import com.example.data.local.SpecialtyEntity
 import com.example.data.model.DayOfWeekBd
 import com.example.data.model.DoctorFullProfile
 import com.example.data.model.SearchFilterState
 import com.example.data.model.SortOption
+import com.example.data.seed.SeedData
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
+import com.example.ui.ads.ManagedNativeBannerAd
 import com.example.ui.components.DoctorCard
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.SpecialtyStrip
@@ -34,6 +38,7 @@ import com.example.ui.theme.*
 @Composable
 fun FindDoctorsScreen(
     lang: AppLang,
+    adConfig: AdConfigEntity,
     searchState: SearchFilterState,
     specialties: List<SpecialtyEntity>,
     locations: List<LocationEntity>,
@@ -53,6 +58,7 @@ fun FindDoctorsScreen(
     val pagedDoctors = remember(filteredDoctors, visibleCount) {
         filteredDoctors.take(visibleCount)
     }
+    val nativeInterval = adConfig.nativeAdInterval.coerceAtLeast(2)
 
     Column(
         modifier = modifier
@@ -102,7 +108,7 @@ fun FindDoctorsScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // Quick Pill Filter Row (like Reference Image 1)
+            // Quick Pill Filter Row
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
                     val isDefault = !searchState.availableTodayOnly &&
@@ -122,6 +128,16 @@ fun FindDoctorsScreen(
                             { Icon(Icons.Rounded.Check, null, Modifier.size(16.dp)) }
                         } else null
                     )
+                }
+                if (searchState.district != null) {
+                    item {
+                        FilterChip(
+                            selected = true,
+                            onClick = { onUpdateSearch { it.copy(district = null, upazila = null) } },
+                            label = { Text(tr(lang, SeedData.districtBnName(searchState.district), searchState.district)) },
+                            trailingIcon = { Icon(Icons.Rounded.Close, null, Modifier.size(16.dp)) }
+                        )
+                    }
                 }
                 item {
                     Box {
@@ -196,9 +212,9 @@ fun FindDoctorsScreen(
                 modifier = Modifier.weight(1f)
             ) {
                 item {
-                    com.example.ui.ads.StartIoNativeBannerCard(lang = lang)
+                    ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
                 }
-                items(pagedDoctors, key = { it.doctor.id }) { doc ->
+                itemsIndexed(pagedDoctors, key = { _, it -> it.doctor.id }) { index, doc ->
                     DoctorCard(
                         item = doc,
                         lang = lang,
@@ -206,6 +222,11 @@ fun FindDoctorsScreen(
                         onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
                         onClick = { onDoctorClick(doc.doctor.id) }
                     )
+                    // Periodic inline Native Banner Ad every N cards
+                    if ((index + 1) % nativeInterval == 0) {
+                        Spacer(Modifier.height(10.dp))
+                        ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
+                    }
                 }
                 if (pagedDoctors.size < filteredDoctors.size) {
                     item {
@@ -246,14 +267,20 @@ private fun AdvancedFilterSheet(
     onUpdateSearch: ((SearchFilterState) -> SearchFilterState) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val divisions = remember(locations) { locations.map { it.division }.distinct() }
-    val districts = remember(locations, searchState.division) {
-        locations.filter { searchState.division == null || it.division == searchState.division }
-            .map { it.district }.distinct()
+    val divisions = remember { SeedData.bangladeshDivisions.map { it.nameEn } }
+    val districts = remember(searchState.division) {
+        if (searchState.division == null) {
+            SeedData.allDistricts.map { it.nameEn }
+        } else {
+            SeedData.bangladeshDivisions
+                .firstOrNull { it.nameEn == searchState.division }
+                ?.districts?.map { it.nameEn }
+                ?: SeedData.allDistricts.map { it.nameEn }
+        }
     }
     val upazilas = remember(locations, searchState.district) {
-        locations.filter { searchState.district == null || it.district == searchState.district }
-            .map { it.upazila }.distinct()
+        locations.filter { searchState.district == null || it.district.equals(searchState.district, ignoreCase = true) }
+            .map { it.upazila }.filter { it.isNotBlank() }.distinct()
     }
 
     ModalBottomSheet(
@@ -304,7 +331,7 @@ private fun AdvancedFilterSheet(
             }
 
             item {
-                Text(tr(lang, "বিভাগ", "Division"), style = MaterialTheme.typography.titleSmall)
+                Text(tr(lang, "বিভাগ (৮টি বিভাগ)", "Division (8 Divisions)"), style = MaterialTheme.typography.titleSmall)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(divisions) { div ->
                         FilterChip(
@@ -318,14 +345,17 @@ private fun AdvancedFilterSheet(
                                     )
                                 }
                             },
-                            label = { Text(div) }
+                            label = { Text(tr(lang, SeedData.divisionBnName(div), div)) }
                         )
                     }
                 }
             }
 
             item {
-                Text(tr(lang, "জেলা", "District"), style = MaterialTheme.typography.titleSmall)
+                Text(
+                    tr(lang, "জেলা (${districts.size}টি জেলা)", "District (${districts.size} Districts)"),
+                    style = MaterialTheme.typography.titleSmall
+                )
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(districts) { dist ->
                         FilterChip(
@@ -338,7 +368,7 @@ private fun AdvancedFilterSheet(
                                     )
                                 }
                             },
-                            label = { Text(dist) }
+                            label = { Text(tr(lang, SeedData.districtBnName(dist), dist)) }
                         )
                     }
                 }

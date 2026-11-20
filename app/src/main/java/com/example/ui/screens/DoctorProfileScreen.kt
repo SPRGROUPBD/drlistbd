@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.data.local.AdConfigEntity
 import com.example.data.local.ChamberScheduleEntity
 import com.example.data.local.SiteSettingsEntity
 import com.example.data.model.ChamberSessionType
@@ -37,6 +38,7 @@ import com.example.data.model.startMinutesOfDay
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
+import com.example.ui.ads.ManagedNativeBannerAd
 import com.example.ui.components.ExternalImageAvatar
 import com.example.ui.components.StatusPill
 import com.example.ui.theme.*
@@ -45,6 +47,7 @@ import com.example.ui.theme.*
 fun DoctorProfileScreen(
     profile: DoctorFullProfile?,
     lang: AppLang,
+    adConfig: AdConfigEntity,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onBack: () -> Unit,
@@ -185,6 +188,11 @@ fun DoctorProfileScreen(
                 if (doc.currentDesignation.isNotBlank()) InfoRow(tr(lang, "পদবি", "Designation"), doc.currentDesignation)
                 if (doc.currentHospital.isNotBlank()) InfoRow(tr(lang, "প্রতিষ্ঠান / হাসপাতাল", "Institution / Hospital"), doc.currentHospital)
             }
+        }
+
+        // Inline Managed Native Banner Ad
+        item {
+            ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
         }
 
         // Active Chambers & Weekly Schedules (Only Active Chambers are visible in the patient app)

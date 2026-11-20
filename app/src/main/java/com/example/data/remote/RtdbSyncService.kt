@@ -54,7 +54,7 @@ object RtdbSyncService {
                 }
             }
 
-            // Locations
+            // Locations (preserve all 64 Bangladesh districts + merge Admin custom locations)
             root.optJSONObject("locations")?.let { obj ->
                 val list = parseMap(obj) { id, o ->
                     LocationEntity(
@@ -66,7 +66,6 @@ object RtdbSyncService {
                     )
                 }
                 if (list.isNotEmpty()) {
-                    db.locationDao().deleteAll()
                     db.locationDao().insertAll(list)
                 }
             }
@@ -272,6 +271,31 @@ object RtdbSyncService {
                         contactPhone = s.optString("contactPhone", "+880 1700-000000"),
                         allowOnlineBooking = s.optBoolean("allowOnlineBooking", true),
                         showDemoData = false
+                    )
+                )
+            }
+
+            // Admin Ad Network Configuration (Unity Ads + Start.io)
+            root.optJSONObject("ad_config")?.let { a ->
+                db.adConfigDao().save(
+                    AdConfigEntity(
+                        id = "global",
+                        adsEnabled = a.optBoolean("adsEnabled", true),
+                        activeNetwork = a.optString("activeNetwork", "BOTH_UNITY_PRIMARY").ifBlank { "BOTH_UNITY_PRIMARY" },
+                        testMode = a.optBoolean("testMode", false),
+                        bannerEnabled = a.optBoolean("bannerEnabled", true),
+                        appOpenEnabled = a.optBoolean("appOpenEnabled", true),
+                        nativeBannerEnabled = a.optBoolean("nativeBannerEnabled", true),
+                        rewardedEnabled = a.optBoolean("rewardedEnabled", true),
+                        nativeAdInterval = a.optInt("nativeAdInterval", 3).coerceIn(1, 12),
+                        appOpenCooldownSeconds = a.optInt("appOpenCooldownSeconds", 120).coerceIn(15, 3600),
+                        unityGameId = a.optString("unityGameId", "").trim(),
+                        unityBannerPlacement = a.optString("unityBannerPlacement", "Banner_Android").ifBlank { "Banner_Android" },
+                        unityAppOpenPlacement = a.optString("unityAppOpenPlacement", "Interstitial_Android").ifBlank { "Interstitial_Android" },
+                        unityNativeBannerPlacement = a.optString("unityNativeBannerPlacement", "Banner_Android").ifBlank { "Banner_Android" },
+                        unityRewardedPlacement = a.optString("unityRewardedPlacement", "Rewarded_Android").ifBlank { "Rewarded_Android" },
+                        startIoAppId = a.optString("startIoAppId", "210630916").ifBlank { "210630916" },
+                        updatedAt = a.optLong("updatedAt", System.currentTimeMillis())
                     )
                 )
             }

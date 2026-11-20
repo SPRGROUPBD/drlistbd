@@ -33,6 +33,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val settings: StateFlow<SiteSettingsEntity> = repo.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, SiteSettingsEntity(siteTitle = "Doctor List BD", showDemoData = false))
 
+    val adConfig: StateFlow<AdConfigEntity> = repo.adConfig
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AdConfigEntity())
+
     val specialties: StateFlow<List<SpecialtyEntity>> = repo.specialties
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 

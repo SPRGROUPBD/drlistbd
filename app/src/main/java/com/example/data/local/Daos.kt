@@ -324,3 +324,15 @@ interface ProfileChangeRequestDao {
     @Query("UPDATE profile_change_requests SET status = :status WHERE id = :id")
     suspend fun updateStatus(id: String, status: String)
 }
+
+@Dao
+interface AdConfigDao {
+    @Query("SELECT * FROM ad_config WHERE id = 'global' LIMIT 1")
+    fun observe(): Flow<AdConfigEntity?>
+
+    @Query("SELECT * FROM ad_config WHERE id = 'global' LIMIT 1")
+    suspend fun getOnce(): AdConfigEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun save(config: AdConfigEntity)
+}

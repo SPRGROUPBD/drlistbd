@@ -24,9 +24,11 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
-import com.example.ui.ads.StartIoBannerAd
+import com.example.ui.ads.AdSdkInitializerEffect
+import com.example.ui.ads.AppOpenAdController
+import com.example.ui.ads.ManagedBannerAd
 import com.example.ui.ads.StartIoConfig
-import com.example.ui.ads.rememberStartIoRewardedHelper
+import com.example.ui.ads.rememberUnifiedRewardedHelper
 import com.example.ui.components.MedicalTopBar
 import com.example.ui.screens.*
 import com.example.ui.theme.*
@@ -56,7 +58,8 @@ private data class BottomTabItem(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        StartIoConfig.init(this)
+        // Boot-time default init (overridden/extended live once Room/RTDB AdConfig loads)
+        StartIoConfig.init(this, StartIoConfig.DEFAULT_APP_ID, testMode = false)
         enableEdgeToEdge()
         setContent {
             DoctorDirectoryTheme {
@@ -69,7 +72,13 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     val lang by vm.currentLang.collectAsStateWithLifecycle()
+    val adConfig by vm.adConfig.collectAsStateWithLifecycle()
     var showSplash by remember { mutableStateOf(true) }
+
+    // Initialize Unity Ads & Start.io SDKs live from Admin Panel AdConfig (even while Splash is visible)
+    AdSdkInitializerEffect(adConfig = adConfig)
+    // Show real App Open Ad after Splash finishes & on foreground resume (respecting cooldown)
+    AppOpenAdController(adConfig = adConfig, isReadyToShow = !showSplash)
 
     if (showSplash) {
         SplashScreen(
@@ -80,7 +89,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     }
 
     val navController = rememberNavController()
-    val rewardedHelper = rememberStartIoRewardedHelper()
+    val rewardedHelper = rememberUnifiedRewardedHelper(adConfig)
 
     val isSyncing by vm.isSyncing.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
@@ -127,6 +136,26 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: Routes.HOME
 
+    // Reliable top-level tab navigation that guarantees Home nav button ALWAYS returns to Home
+    val navigateToTab: (String) -> Unit = { route ->
+        if (route == Routes.HOME) {
+            val popped = navController.popBackStack(Routes.HOME, inclusive = false)
+            if (!popped) {
+                navController.navigate(Routes.HOME) {
+                    popUpTo(navController.graph.startDestinationId) { inclusive = true }
+                    launchSingleTop = true
+                }
+            }
+        } else if (currentRoute != route) {
+            navController.navigate(route) {
+                popUpTo(navController.graph.startDestinationId) {
+                    saveState = false
+                }
+                launchSingleTop = true
+            }
+        }
+    }
+
     val mainTabs = listOf(
         BottomTabItem(Routes.HOME, AppStrings.navHome(lang), Icons.Rounded.Home, Icons.Outlined.Home, "nav_home"),
         BottomTabItem(Routes.FIND_DOCTORS, AppStrings.navDoctors(lang), Icons.Rounded.MedicalServices, Icons.Outlined.MedicalServices, "nav_doctors"),
@@ -158,16 +187,14 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                     lang = lang,
                     unreadNotifications = unreadCount,
                     onToggleLang = { vm.toggleLanguage() },
-                    onNotificationsClick = {
-                        navController.navigate(Routes.PORTAL) { launchSingleTop = true }
-                    },
+                    onNotificationsClick = { navigateToTab(Routes.PORTAL) },
                     onBackClick = if (showMainChrome) null else ({ navController.popBackStack() })
                 )
             },
             bottomBar = {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // Persistent Start.io Banner Ad across all screens
-                    StartIoBannerAd()
+                    // Persistent Managed Banner Ad (Unity Ads + Start.io via Admin Panel)
+                    ManagedBannerAd(adConfig = adConfig)
                     if (showMainChrome && !isWideScreen) {
                         NavigationBar(
                             containerColor = SurfaceWhite,
@@ -177,13 +204,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                                 val selected = currentRoute == tab.route
                                 NavigationBarItem(
                                     selected = selected,
-                                    onClick = {
-                                        navController.navigate(tab.route) {
-                                            popUpTo(Routes.HOME) { saveState = true }
-                                            launchSingleTop = true
-                                            restoreState = true
-                                        }
-                                    },
+                                    onClick = { navigateToTab(tab.route) },
                                     icon = {
                                         Icon(
                                             imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
@@ -217,13 +238,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             val selected = currentRoute == tab.route
                             NavigationRailItem(
                                 selected = selected,
-                                onClick = {
-                                    navController.navigate(tab.route) {
-                                        popUpTo(Routes.HOME) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                },
+                                onClick = { navigateToTab(tab.route) },
                                 icon = {
                                     Icon(
                                         if (selected) tab.selectedIcon else tab.unselectedIcon,
@@ -246,6 +261,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                         HomeScreen(
                             lang = lang,
                             settings = settings,
+                            adConfig = adConfig,
                             isSyncing = isSyncing,
                             specialties = specialties,
                             locations = locations,
@@ -258,25 +274,25 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             onRefreshDirectory = vm::refreshDirectory,
                             onSearchSubmit = { query ->
                                 vm.updateSearch { it.copy(query = query) }
-                                navController.navigate(Routes.FIND_DOCTORS)
+                                navigateToTab(Routes.FIND_DOCTORS)
                             },
                             onSelectSpecialty = { specId ->
                                 vm.updateSearch { it.copy(specialtyId = specId) }
-                                navController.navigate(Routes.FIND_DOCTORS)
+                                navigateToTab(Routes.FIND_DOCTORS)
                             },
                             onSelectDistrict = { district ->
                                 vm.updateSearch { it.copy(district = district) }
-                                navController.navigate(Routes.FIND_DOCTORS)
+                                navigateToTab(Routes.FIND_DOCTORS)
                             },
                             onToggleFavorite = vm::toggleFavorite,
                             onDoctorClick = { id -> navController.navigate(Routes.doctorProfile(id)) },
                             onNavigateFindDoctors = { todayOnly ->
                                 vm.updateSearch { it.copy(availableTodayOnly = todayOnly) }
-                                navController.navigate(Routes.FIND_DOCTORS)
+                                navigateToTab(Routes.FIND_DOCTORS)
                             },
                             onNavigateFacilitiesTab = { tabIdx ->
                                 facilitiesTab = tabIdx
-                                navController.navigate(Routes.FACILITIES)
+                                navigateToTab(Routes.FACILITIES)
                             }
                         )
                     }
@@ -284,6 +300,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                     composable(Routes.FIND_DOCTORS) {
                         FindDoctorsScreen(
                             lang = lang,
+                            adConfig = adConfig,
                             searchState = searchState,
                             specialties = specialties,
                             locations = locations,
@@ -301,6 +318,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                     composable(Routes.FACILITIES) {
                         DirectoriesScreen(
                             lang = lang,
+                            adConfig = adConfig,
                             selectedTab = facilitiesTab,
                             onTabChange = { facilitiesTab = it },
                             hospitals = hospitals,
@@ -309,11 +327,11 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             doctors = publicDoctors,
                             onSelectSpecialty = { specId ->
                                 vm.updateSearch { it.copy(specialtyId = specId) }
-                                navController.navigate(Routes.FIND_DOCTORS)
+                                navigateToTab(Routes.FIND_DOCTORS)
                             },
                             onSelectFacility = { facName ->
                                 vm.updateSearch { it.copy(facilityQuery = facName) }
-                                navController.navigate(Routes.FIND_DOCTORS)
+                                navigateToTab(Routes.FIND_DOCTORS)
                             },
                             onDoctorClick = { id -> navController.navigate(Routes.doctorProfile(id)) }
                         )
@@ -323,6 +341,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                         val favDocs = publicDoctors.filter { it.doctor.id in favoriteIds }
                         PatientPortalScreen(
                             lang = lang,
+                            adConfig = adConfig,
                             isSyncing = isSyncing,
                             favoriteDoctors = favDocs,
                             notifications = notifications,
@@ -335,7 +354,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             onMarkNotificationRead = vm::markNotificationRead,
                             onNavigateInfo = { key ->
                                 if (key == "about") {
-                                    navController.navigate(Routes.ABOUT_US) { launchSingleTop = true }
+                                    navigateToTab(Routes.ABOUT_US)
                                 } else {
                                     navController.navigate(Routes.info(key))
                                 }
@@ -364,6 +383,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                         DoctorProfileScreen(
                             profile = profile,
                             lang = lang,
+                            adConfig = adConfig,
                             isFavorite = docId in favoriteIds,
                             onToggleFavorite = { vm.toggleFavorite(docId) },
                             onBack = { navController.popBackStack() }

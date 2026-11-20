@@ -59,62 +59,47 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 }
 
 object StartIoConfig {
-    const val APP_ID = "210630916"
+    const val DEFAULT_APP_ID = "210630916"
     private const val TAG = "StartIoAds"
 
     @Volatile
     private var initStarted = false
+    @Volatile
+    private var activeAppId: String = DEFAULT_APP_ID
 
     private val _isInitialized = MutableStateFlow(false)
     val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
 
     /**
-     * Real physical Android phones always receive LIVE production ads (testAds = false).
-     * Emulators (which Start.io's ad servers automatically reject with NO FILL) use Start.io
-     * test fill so preview & emulator testing render ads cleanly without NO FILL errors.
+     * Initializes Start.io SDK using the Admin-configured App ID and real-vs-test mode.
+     * By default [testMode] is false so real live revenue ads are served.
      */
-    fun isEmulatorDevice(): Boolean {
-        val fingerprint = Build.FINGERPRINT.lowercase()
-        val model = Build.MODEL.lowercase()
-        val brand = Build.BRAND.lowercase()
-        val device = Build.DEVICE.lowercase()
-        val product = Build.PRODUCT.lowercase()
-        val hardware = Build.HARDWARE.lowercase()
-        return fingerprint.startsWith("generic") ||
-            fingerprint.startsWith("unknown") ||
-            model.contains("google_sdk") ||
-            model.contains("emulator") ||
-            model.contains("android sdk built for x86") ||
-            hardware.contains("goldfish") ||
-            hardware.contains("ranchu") ||
-            hardware.contains("cutf") ||
-            product.contains("sdk_gphone") ||
-            product.contains("emulator") ||
-            product.contains("simulator") ||
-            (brand.startsWith("generic") && device.startsWith("generic"))
-    }
-
-    fun init(context: Context) {
+    fun init(
+        context: Context,
+        appId: String = DEFAULT_APP_ID,
+        testMode: Boolean = false
+    ) {
         val appCtx = context.applicationContext ?: context
-        val useEmulatorTestFill = isEmulatorDevice()
-        if (initStarted) {
+        val resolvedAppId = appId.trim().ifBlank { DEFAULT_APP_ID }
+        if (initStarted && activeAppId == resolvedAppId) {
             try {
-                StartAppSDK.setTestAdsEnabled(useEmulatorTestFill)
+                StartAppSDK.setTestAdsEnabled(testMode)
             } catch (_: Exception) {}
             return
         }
         initStarted = true
+        activeAppId = resolvedAppId
         try {
-            StartAppSDK.setTestAdsEnabled(useEmulatorTestFill)
+            StartAppSDK.setTestAdsEnabled(testMode)
             StartAppSDK.setUserConsent(appCtx, "pas", System.currentTimeMillis(), true)
 
-            StartAppSDK.initParams(appCtx, APP_ID)
+            StartAppSDK.initParams(appCtx, resolvedAppId)
                 .setReturnAdsEnabled(false)
                 .setCallback {
-                    StartAppSDK.setTestAdsEnabled(useEmulatorTestFill)
+                    StartAppSDK.setTestAdsEnabled(testMode)
                     Log.d(
                         TAG,
-                        "Start.io SDK initialized for App ID $APP_ID (liveProduction=${!useEmulatorTestFill})"
+                        "Start.io SDK initialized for App ID $resolvedAppId (realLiveAds=${!testMode})"
                     )
                     _isInitialized.value = true
                 }
@@ -132,6 +117,39 @@ object StartIoConfig {
             _isInitialized.value = true
         }
     }
+
+    /**
+     * Loads and displays a live Start.io App Open / Launch full-screen ad.
+     */
+    fun showAppOpenAd(
+        activity: Activity,
+        onShown: () -> Unit = {},
+        onDismissed: () -> Unit = {},
+        onFailed: () -> Unit = {}
+    ) {
+        try {
+            val ad = StartAppAd(activity)
+            ad.loadAd(StartAppAd.AdMode.AUTOMATIC, object : AdEventListener {
+                override fun onReceiveAd(receivedAd: Ad) {
+                    val displayed = ad.showAd(object : AdDisplayListener {
+                        override fun adHidden(p0: Ad?) { onDismissed() }
+                        override fun adDisplayed(p0: Ad?) { onShown() }
+                        override fun adClicked(p0: Ad?) {}
+                        override fun adNotDisplayed(p0: Ad?) { onFailed() }
+                    })
+                    if (!displayed) onFailed()
+                }
+
+                override fun onFailedToReceiveAd(failedAd: Ad?) {
+                    Log.w(TAG, "Start.io App Open no-fill: ${failedAd?.errorMessage}")
+                    onFailed()
+                }
+            })
+        } catch (e: Exception) {
+            Log.e(TAG, "Start.io App Open exception: ${e.message}")
+            onFailed()
+        }
+    }
 }
 
 /**
@@ -140,13 +158,17 @@ object StartIoConfig {
  * never collapses or misses async WebView insertion, with automatic retry backoff.
  */
 @Composable
-fun StartIoBannerAd(modifier: Modifier = Modifier) {
+fun StartIoBannerAd(
+    modifier: Modifier = Modifier,
+    onFailed: (() -> Unit)? = null
+) {
     val sdkReady by StartIoConfig.isInitialized.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
 
     var bannerCreator by remember { mutableStateOf<BannerCreator?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
+    var reportedFailure by remember { mutableStateOf(false) }
 
     LaunchedEffect(sdkReady, activity, retryCount) {
         if (!sdkReady || activity == null || bannerCreator != null) return@LaunchedEffect
@@ -160,21 +182,28 @@ fun StartIoBannerAd(modifier: Modifier = Modifier) {
                         bannerCreator = creator
                     } else {
                         Log.w("StartIoAds", "Live BannerRequest failed (attempt=${retryCount + 1}): $error")
+                        if (retryCount >= 1 && !reportedFailure) {
+                            reportedFailure = true
+                            onFailed?.invoke()
+                        }
                     }
                 }
         } catch (e: Exception) {
             Log.e("StartIoAds", "BannerRequest exception: ${e.message}")
+            if (!reportedFailure) {
+                reportedFailure = true
+                onFailed?.invoke()
+            }
         }
     }
 
     // Retry automatically if cold-start network or initial auction didn't fill yet
     LaunchedEffect(sdkReady, bannerCreator, retryCount) {
-        if (sdkReady && bannerCreator == null && retryCount < 4) {
+        if (sdkReady && bannerCreator == null && retryCount < 3) {
             val backoffMs = when (retryCount) {
-                0 -> 5000L
+                0 -> 4500L
                 1 -> 12000L
-                2 -> 25000L
-                else -> 45000L
+                else -> 25000L
             }
             delay(backoffMs)
             if (bannerCreator == null) {

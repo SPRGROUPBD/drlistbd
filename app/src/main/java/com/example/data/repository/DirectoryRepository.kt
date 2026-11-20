@@ -30,6 +30,9 @@ class DirectoryRepository(context: Context) {
     val settings: Flow<SiteSettingsEntity> = db.settingsDao().observe().map {
         it ?: SiteSettingsEntity(siteTitle = "Doctor List BD", showDemoData = false)
     }
+    val adConfig: Flow<AdConfigEntity> = db.adConfigDao().observe().map {
+        it ?: AdConfigEntity()
+    }
 
     val doctorsFull: Flow<List<DoctorFullProfile>> = combine(
         db.doctorDao().observeAll(),

@@ -64,9 +64,10 @@
         <button data-tab="hospitals" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">4. Hospitals</button>
         <button data-tab="diagnostics" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">5. Diagnostic Centers</button>
         <button data-tab="specialties" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">6. Specialties</button>
-        <button data-tab="locations" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">7. Locations</button>
+        <button data-tab="locations" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">7. Locations (64 Districts)</button>
         <button data-tab="notifications" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">8. Notifications</button>
-        <button data-tab="settings" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">9. Settings & CSV</button>
+        <button data-tab="ad_network" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">9. Ad Network Setup</button>
+        <button data-tab="settings" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">10. Settings & CSV</button>
       </nav>
     </aside>
 
@@ -167,30 +168,124 @@ function timeSortMinutes(t) {
   return (h || 0) * 60 + (m || 0);
 }
 
-// Built-in Bangladesh District -> Upazila/Area map (automatically merged with Admin-managed Locations tab)
-const BD_DEFAULT_LOCATIONS = {
-  "Dhaka": ["Dhanmondi", "Mirpur", "Uttara", "Gulshan", "Banani", "Shahbagh", "Panthapath", "Mohammadpur", "Motijheel", "Badda", "Bashundhara R/A", "Savar", "Keraniganj", "Dhamrai"],
-  "Gazipur": ["Gazipur Sadar", "Tongi", "Kaliakair", "Kapasia", "Sreepur"],
-  "Narayanganj": ["Narayanganj Sadar", "Chashara", "Siddhirganj", "Fatullah", "Rupganj", "Sonargaon"],
-  "Chattogram": ["Panchlaish", "Probartak Circle", "GEC Circle", "Agrabad", "Halishahar", "Chawkbazar", "Kotwali", "Patenga", "Sitakunda", "Hathazari", "Patiya"],
-  "Cox's Bazar": ["Cox's Bazar Sadar", "Kolatoli", "Chakaria", "Teknaf", "Ukhiya", "Ramu"],
-  "Cumilla": ["Cumilla Sadar", "Kandirpar", "Daudkandi", "Laksam", "Chauddagram", "Debidwar"],
-  "Sylhet": ["Sylhet Sadar", "Zindabazar", "Subhanighat", "Ambarkhana", "Beanibazar", "Golapganj", "Moulvibazar"],
-  "Rajshahi": ["Boalia", "Laxmipur", "Motihar", "Rajpara", "Shah Makhdum", "Paba", "Godagari"],
-  "Bogura": ["Bogura Sadar", "Satmatha", "Sherpur", "Shibganj", "Sariakandi"],
-  "Khulna": ["Sonadanga", "Khalishpur", "Daulatpur", "Khulna Sadar", "Rupsha", "Dumuria"],
-  "Jashore": ["Jashore Sadar", "Jhikargacha", "Benapole", "Manirampur", "Abhaynagar"],
-  "Barishal": ["Barishal Sadar", "Banglabazar", "Nathullabad", "Bakerganj", "Banaripara", "Gournadi"],
-  "Rangpur": ["Rangpur Sadar", "Dhap", "Medical Mor", "Mithapukur", "Pirganj", "Badarganj"],
-  "Dinajpur": ["Dinajpur Sadar", "Birganj", "Parbatipur", "Fulbari", "Birampur"],
-  "Mymensingh": ["Mymensingh Sadar", "Charpara", "Trishal", "Bhaluka", "Muktagachha", "Gafargaon"],
-  "Tangail": ["Tangail Sadar", "Mirzapur", "Madhupur", "Sakhipur", "Kalihati"],
-  "Faridpur": ["Faridpur Sadar", "Bhanga", "Boalmari", "Nagarkanda"],
-  "Noakhali": ["Noakhali Sadar", "Maijdee", "Begumganj", "Companiganj", "Senbagh"],
-  "Feni": ["Feni Sadar", "Chhagalnaiya", "Daganbhuiyan", "Parshuram"],
-  "Pabna": ["Pabna Sadar", "Ishwardi", "Santhia", "Bera"],
-  "Kushtia": ["Kushtia Sadar", "Kumarkhali", "Bheramara", "Mirpur"]
-};
+// বাংলাদেশের ৮টি বিভাগ ও ৬৪টি জেলার সম্পূর্ণ তালিকা (Complete 8 Divisions & 64 Districts of Bangladesh)
+const BD_DIVISIONS_64 = [
+  {
+    en: "Dhaka", bn: "ঢাকা বিভাগ",
+    districts: [
+      { en: "Dhaka", bn: "ঢাকা", upazilas: ["Dhanmondi", "Mirpur", "Uttara", "Gulshan", "Banani", "Shahbagh", "Panthapath", "Mohammadpur", "Motijheel", "Badda", "Bashundhara R/A", "Savar", "Keraniganj", "Dhamrai"] },
+      { en: "Faridpur", bn: "ফরিদপুর", upazilas: ["Faridpur Sadar", "Bhanga", "Boalmari", "Nagarkanda", "Alfadanga", "Madhukhali"] },
+      { en: "Gazipur", bn: "গাজীপুর", upazilas: ["Gazipur Sadar", "Tongi", "Kaliakair", "Kapasia", "Sreepur", "Kaliganj"] },
+      { en: "Gopalganj", bn: "গোপালগঞ্জ", upazilas: ["Gopalganj Sadar", "Tungipara", "Kotalipara", "Kashiani", "Muksudpur"] },
+      { en: "Kishoreganj", bn: "কিশোরগঞ্জ", upazilas: ["Kishoreganj Sadar", "Bhairab", "Bajitpur", "Kuliarchar", "Karimganj", "Pakundia"] },
+      { en: "Madaripur", bn: "মাদারীপুর", upazilas: ["Madaripur Sadar", "Kalkini", "Rajoir", "Shibchar"] },
+      { en: "Manikganj", bn: "মানিকগঞ্জ", upazilas: ["Manikganj Sadar", "Singair", "Saturia", "Ghior", "Shibalaya"] },
+      { en: "Munshiganj", bn: "মুন্সীগঞ্জ", upazilas: ["Munshiganj Sadar", "Sreenagar", "Sirajdikhan", "Lohajang", "Gazaria", "Tongibari"] },
+      { en: "Narayanganj", bn: "নারায়ণগঞ্জ", upazilas: ["Narayanganj Sadar", "Chashara", "Siddhirganj", "Fatullah", "Rupganj", "Sonargaon", "Bandar"] },
+      { en: "Narsingdi", bn: "নরসিংদী", upazilas: ["Narsingdi Sadar", "Madhabdi", "Palash", "Raipura", "Shibpur", "Belabo"] },
+      { en: "Rajbari", bn: "রাজবাড়ী", upazilas: ["Rajbari Sadar", "Goalanda", "Pangsha", "Baliakandi", "Kalukhali"] },
+      { en: "Shariatpur", bn: "শরীয়তপুর", upazilas: ["Shariatpur Sadar", "Naria", "Zanjira", "Bhedarganj", "Damudya", "Gosairhat"] },
+      { en: "Tangail", bn: "টাঙ্গাইল", upazilas: ["Tangail Sadar", "Mirzapur", "Madhupur", "Sakhipur", "Kalihati", "Ghatail", "Bhuapur"] }
+    ]
+  },
+  {
+    en: "Chattogram", bn: "চট্টগ্রাম বিভাগ",
+    districts: [
+      { en: "Bandarban", bn: "বান্দরবান", upazilas: ["Bandarban Sadar", "Lama", "Naikhongchhari", "Alikadam", "Thanchi"] },
+      { en: "Brahmanbaria", bn: "ব্রাহ্মণবাড়িয়া", upazilas: ["Brahmanbaria Sadar", "Ashuganj", "Kasba", "Nabinagar", "Sarail", "Bancharampur"] },
+      { en: "Chandpur", bn: "চাঁদপুর", upazilas: ["Chandpur Sadar", "Hajiganj", "Matlab North", "Matlab South", "Faridganj", "Shahrasti"] },
+      { en: "Chattogram", bn: "চট্টগ্রাম", upazilas: ["Panchlaish", "Probartak Circle", "GEC Circle", "Agrabad", "Halishahar", "Chawkbazar", "Kotwali", "Patenga", "Sitakunda", "Hathazari", "Patiya", "Mirsharai"] },
+      { en: "Cumilla", bn: "কুমিল্লা", upazilas: ["Cumilla Sadar", "Kandirpar", "Daudkandi", "Laksam", "Chauddagram", "Debidwar", "Muradnagar"] },
+      { en: "Cox's Bazar", bn: "কক্সবাজার", upazilas: ["Cox's Bazar Sadar", "Kolatoli", "Chakaria", "Teknaf", "Ukhiya", "Ramu", "Maheshkhali"] },
+      { en: "Feni", bn: "ফেনী", upazilas: ["Feni Sadar", "Chhagalnaiya", "Daganbhuiyan", "Parshuram", "Sonagazi", "Fulgazi"] },
+      { en: "Khagrachhari", bn: "খাগড়াছড়ি", upazilas: ["Khagrachhari Sadar", "Dighinala", "Matiranga", "Panchhari", "Ramgarh"] },
+      { en: "Lakshmipur", bn: "লক্ষ্মীপুর", upazilas: ["Lakshmipur Sadar", "Raipur", "Ramganj", "Ramgati", "Kamalnagar"] },
+      { en: "Noakhali", bn: "নোয়াখালী", upazilas: ["Noakhali Sadar", "Maijdee", "Begumganj", "Companiganj", "Senbagh", "Chatkhil", "Hatiya"] },
+      { en: "Rangamati", bn: "রাঙ্গামাটি", upazilas: ["Rangamati Sadar", "Kaptai", "Baghaichhari", "Langadu", "Naniarchar"] }
+    ]
+  },
+  {
+    en: "Rajshahi", bn: "রাজশাহী বিভাগ",
+    districts: [
+      { en: "Bogura", bn: "বগুড়া", upazilas: ["Bogura Sadar", "Satmatha", "Sherpur", "Shibganj", "Sariakandi", "Gabtali", "Dhunat"] },
+      { en: "Chapainawabganj", bn: "চাঁপাইনবাবগঞ্জ", upazilas: ["Chapainawabganj Sadar", "Shibganj", "Gomastapur", "Nachole", "Bholahat"] },
+      { en: "Joypurhat", bn: "জয়পুরহাট", upazilas: ["Joypurhat Sadar", "Panchbibi", "Akkelpur", "Kalai", "Khetlal"] },
+      { en: "Naogaon", bn: "নওগাঁ", upazilas: ["Naogaon Sadar", "Mohadevpur", "Patnitala", "Sapahar", "Manda", "Atrai"] },
+      { en: "Natore", bn: "নাটোর", upazilas: ["Natore Sadar", "Baraigram", "Gurudaspur", "Lalpur", "Singra", "Bagatipara"] },
+      { en: "Pabna", bn: "পাবনা", upazilas: ["Pabna Sadar", "Ishwardi", "Santhia", "Bera", "Chatmohar", "Sujanagar"] },
+      { en: "Rajshahi", bn: "রাজশাহী", upazilas: ["Boalia", "Laxmipur", "Motihar", "Rajpara", "Shah Makhdum", "Paba", "Godagari", "Bagmara"] },
+      { en: "Sirajganj", bn: "সিরাজগঞ্জ", upazilas: ["Sirajganj Sadar", "Ullapara", "Shahjadpur", "Belkuchi", "Kazipur", "Raiganj"] }
+    ]
+  },
+  {
+    en: "Khulna", bn: "খুলনা বিভাগ",
+    districts: [
+      { en: "Bagerhat", bn: "বাগেরহাট", upazilas: ["Bagerhat Sadar", "Mongla", "Fakirhat", "Morrelganj", "Rampal", "Chitalmari"] },
+      { en: "Chuadanga", bn: "চুয়াডাঙ্গা", upazilas: ["Chuadanga Sadar", "Alamdanga", "Damurhuda", "Jibannagar"] },
+      { en: "Jashore", bn: "যশোর", upazilas: ["Jashore Sadar", "Jhikargacha", "Benapole", "Manirampur", "Abhaynagar", "Keshabpur", "Sharsha"] },
+      { en: "Jhenaidah", bn: "ঝিনাইদহ", upazilas: ["Jhenaidah Sadar", "Kaliganj", "Kotchandpur", "Maheshpur", "Shailkupa", "Harinakunda"] },
+      { en: "Khulna", bn: "খুলনা", upazilas: ["Sonadanga", "Khalishpur", "Daulatpur", "Khulna Sadar", "Rupsha", "Dumuria", "Paikgachha"] },
+      { en: "Kushtia", bn: "কুষ্টিয়া", upazilas: ["Kushtia Sadar", "Kumarkhali", "Bheramara", "Mirpur", "Daulatpur", "Khoksa"] },
+      { en: "Magura", bn: "মাগুরা", upazilas: ["Magura Sadar", "Mohammadpur", "Shalikha", "Sreepur"] },
+      { en: "Meherpur", bn: "মেহেরপুর", upazilas: ["Meherpur Sadar", "Gangni", "Mujibnagar"] },
+      { en: "Narail", bn: "নড়াইল", upazilas: ["Narail Sadar", "Lohagara", "Kalia"] },
+      { en: "Satkhira", bn: "সাতক্ষীরা", upazilas: ["Satkhira Sadar", "Kaliganj", "Kalaroa", "Shyamnagar", "Tala", "Assasuni", "Debhata"] }
+    ]
+  },
+  {
+    en: "Barishal", bn: "বরিশাল বিভাগ",
+    districts: [
+      { en: "Barguna", bn: "বরগুনা", upazilas: ["Barguna Sadar", "Amtali", "Betagi", "Bamna", "Patharghata", "Taltali"] },
+      { en: "Barishal", bn: "বরিশাল", upazilas: ["Barishal Sadar", "Banglabazar", "Nathullabad", "Bakerganj", "Banaripara", "Gournadi", "Wazirpur"] },
+      { en: "Bhola", bn: "ভোলা", upazilas: ["Bhola Sadar", "Char Fasson", "Lalmohan", "Borhanuddin", "Daulatkhan", "Tazumuddin"] },
+      { en: "Jhalokati", bn: "ঝালকাঠি", upazilas: ["Jhalokati Sadar", "Kathalia", "Nalchity", "Rajapur"] },
+      { en: "Patuakhali", bn: "পটুয়াখালী", upazilas: ["Patuakhali Sadar", "Kalapara", "Galachipa", "Bauphal", "Dashmina", "Mirzaganj"] },
+      { en: "Pirojpur", bn: "পিরোজপুর", upazilas: ["Pirojpur Sadar", "Mathbaria", "Bhandaria", "Nazirpur", "Nesarabad", "Kawkhali"] }
+    ]
+  },
+  {
+    en: "Sylhet", bn: "সিলেট বিভাগ",
+    districts: [
+      { en: "Habiganj", bn: "হবিগঞ্জ", upazilas: ["Habiganj Sadar", "Madhabpur", "Chunarughat", "Nabiganj", "Bahubal", "Lakhai"] },
+      { en: "Moulvibazar", bn: "মৌলভীবাজার", upazilas: ["Moulvibazar Sadar", "Sreemangal", "Kulaura", "Kamalganj", "Barlekha", "Rajnagar"] },
+      { en: "Sunamganj", bn: "সুনামগঞ্জ", upazilas: ["Sunamganj Sadar", "Chhatak", "Jagannathpur", "Derai", "Tahirpur", "Bishwamvarpur"] },
+      { en: "Sylhet", bn: "সিলেট", upazilas: ["Sylhet Sadar", "Zindabazar", "Subhanighat", "Ambarkhana", "Beanibazar", "Golapganj", "Zakiganj", "Kanaighat"] }
+    ]
+  },
+  {
+    en: "Rangpur", bn: "রংপুর বিভাগ",
+    districts: [
+      { en: "Dinajpur", bn: "দিনাজপুর", upazilas: ["Dinajpur Sadar", "Birganj", "Parbatipur", "Fulbari", "Birampur", "Chirirbandar", "Setabganj"] },
+      { en: "Gaibandha", bn: "গাইবান্ধা", upazilas: ["Gaibandha Sadar", "Gobindaganj", "Palashbari", "Sundarganj", "Sadullapur", "Saghata"] },
+      { en: "Kurigram", bn: "কুড়িগ্রাম", upazilas: ["Kurigram Sadar", "Ulipur", "Nageshwari", "Bhurungamari", "Chilmari", "Rajarhat"] },
+      { en: "Lalmonirhat", bn: "লালমনিরহাট", upazilas: ["Lalmonirhat Sadar", "Hatibandha", "Kaliganj", "Aditmari", "Patgram"] },
+      { en: "Nilphamari", bn: "নীলফামারী", upazilas: ["Nilphamari Sadar", "Saidpur", "Domar", "Dimla", "Jaldhaka", "Kishoreganj"] },
+      { en: "Panchagarh", bn: "পঞ্চগড়", upazilas: ["Panchagarh Sadar", "Boda", "Debiganj", "Tetulia", "Atwari"] },
+      { en: "Rangpur", bn: "রংপুর", upazilas: ["Rangpur Sadar", "Dhap", "Medical Mor", "Mithapukur", "Pirganj", "Badarganj", "Kaunia"] },
+      { en: "Thakurgaon", bn: "ঠাকুরগাঁও", upazilas: ["Thakurgaon Sadar", "Pirganj", "Ranisankail", "Baliadangi", "Haripur"] }
+    ]
+  },
+  {
+    en: "Mymensingh", bn: "ময়মনসিংহ বিভাগ",
+    districts: [
+      { en: "Jamalpur", bn: "জামালপুর", upazilas: ["Jamalpur Sadar", "Sarishabari", "Islampur", "Dewanganj", "Melandaha", "Madarganj"] },
+      { en: "Mymensingh", bn: "ময়মনসিংহ", upazilas: ["Mymensingh Sadar", "Charpara", "Trishal", "Bhaluka", "Muktagachha", "Gafargaon", "Fulbaria"] },
+      { en: "Netrokona", bn: "নেত্রকোনা", upazilas: ["Netrokona Sadar", "Kendua", "Durgapur", "Mohanganj", "Purbadhala", "Madan"] },
+      { en: "Sherpur", bn: "শেরপুর", upazilas: ["Sherpur Sadar", "Nalitabari", "Nakla", "Sreebardi", "Jhenaigati"] }
+    ]
+  }
+];
+
+const BD_DEFAULT_LOCATIONS = {};
+const BD_DISTRICT_BN = {};
+BD_DIVISIONS_64.forEach(div => {
+  div.districts.forEach(d => {
+    BD_DEFAULT_LOCATIONS[d.en] = d.upazilas;
+    BD_DISTRICT_BN[d.en] = d.bn;
+  });
+});
+
+let locDivisionFilter = "ALL";
 
 function getDistrictUpazilaMap() {
   const map = {};
@@ -253,6 +348,24 @@ let dbState = {
     taglineEn: "Where doctors sit & when they sit — all verified chamber info in one place.",
     contactEmail: "support@doctorlistbd.org",
     contactPhone: "+880 1700-000000"
+  },
+  ad_config: {
+    adsEnabled: true,
+    activeNetwork: "BOTH_UNITY_PRIMARY",
+    testMode: false,
+    bannerEnabled: true,
+    appOpenEnabled: true,
+    nativeBannerEnabled: true,
+    rewardedEnabled: true,
+    nativeAdInterval: 3,
+    appOpenCooldownSeconds: 120,
+    unityGameId: "",
+    unityBannerPlacement: "Banner_Android",
+    unityAppOpenPlacement: "Interstitial_Android",
+    unityNativeBannerPlacement: "Banner_Android",
+    unityRewardedPlacement: "Rewarded_Android",
+    startIoAppId: "210630916",
+    updatedAt: Date.now()
   }
 };
 
@@ -321,8 +434,8 @@ async function loadAllData() {
     const data = await res.json();
     if (data) {
       for (const k of Object.keys(dbState)) {
-        if (k === "settings") {
-          if (data.settings) dbState.settings = { ...dbState.settings, ...data.settings };
+        if (k === "settings" || k === "ad_config") {
+          if (data[k]) dbState[k] = { ...dbState[k], ...data[k] };
         } else {
           dbState[k] = data[k] || {};
         }
@@ -382,8 +495,9 @@ function renderTab() {
     hospitals: "Hospital Management",
     diagnostics: "Diagnostic Center Management",
     specialties: "Medical Specialties",
-    locations: "Bangladesh Locations",
+    locations: "Bangladesh 8 Divisions & 64 Districts",
     notifications: "App Notifications",
+    ad_network: "Ad Network Setup (Unity Ads + Start.io)",
     settings: "App Settings & CSV Export"
   };
   document.getElementById("pageTitle").textContent = titles[activeTab] || "Admin";
@@ -396,6 +510,7 @@ function renderTab() {
   else if (activeTab === "specialties") el.innerHTML = renderSpecialties();
   else if (activeTab === "locations") el.innerHTML = renderLocations();
   else if (activeTab === "notifications") el.innerHTML = renderNotifications();
+  else if (activeTab === "ad_network") el.innerHTML = renderAdNetwork();
   else if (activeTab === "settings") el.innerHTML = renderSettings();
 }
 
@@ -725,13 +840,17 @@ function renderChambers() {
             <input id="ch_name" type="text" value="${esc(c.chamberName || "")}" placeholder="e.g. Room 302, Cardiac Chamber" class="input" />
           </div>
 
-          <!-- SL 4 & 5: District (Dropdown, Required) & Dependent Upazila / Area (Dropdown, Required) -->
+          <!-- SL 4 & 5: District (All 64 Districts grouped by 8 Divisions, Required) & Dependent Upazila / Area (Dropdown, Required) -->
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <div>
-              <label class="block text-xs font-semibold text-slate-700 mb-1">4. District <span class="text-rose-600">*</span></label>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">4. District (64 Districts) <span class="text-rose-600">*</span></label>
               <select id="ch_dist" required onchange="onChamberDistrictChange(this.value)" class="input bg-white">
                 <option value="">-- Select District * --</option>
-                ${districtNames.map(dist => `<option value="${esc(dist)}" ${selectedDistrict === dist ? "selected" : ""}>${esc(dist)}</option>`).join("")}
+                ${BD_DIVISIONS_64.map(div => `
+                  <optgroup label="${esc(div.bn)} (${esc(div.en)} — ${div.districts.length})">
+                    ${div.districts.map(d => `<option value="${esc(d.en)}" ${selectedDistrict === d.en ? "selected" : ""}>${esc(d.en)} (${esc(d.bn)})</option>`).join("")}
+                  </optgroup>
+                `).join("")}
               </select>
             </div>
             <div>
@@ -1457,23 +1576,82 @@ async function submitSpecialty(e) {
   });
 }
 
-// --- LOCATIONS ---
+// --- LOCATIONS (বাংলাদেশের ৮টি বিভাগ ও ৬৪টি জেলা) ---
+function setLocDivisionFilter(divEn) {
+  locDivisionFilter = divEn;
+  renderTab();
+}
+
 function renderLocations() {
+  const visibleDivs = locDivisionFilter === "ALL"
+    ? BD_DIVISIONS_64
+    : BD_DIVISIONS_64.filter(d => d.en === locDivisionFilter);
+
   return `
+    <!-- বাংলাদেশের ৮টি বিভাগ ও ৬৪টি জেলার তালিকা -->
+    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm mb-6">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div>
+          <h3 class="font-bold text-sky-800 text-base">বাংলাদেশের বিভাগ অনুযায়ী ৬৪টি জেলার তালিকা</h3>
+          <p class="text-xs text-slate-500">মোট ৮টি বিভাগ ও ৬৪টি জেলা — সব জেলা অটোমেটিক অ্যাপ এবং চেম্বার ড্রপডাউনে যুক্ত আছে।</p>
+        </div>
+        <span class="px-3 py-1 rounded-full bg-teal-50 text-teal-800 border border-teal-200 text-xs font-bold">8 Divisions • 64 Districts</span>
+      </div>
+      <div class="flex flex-wrap gap-1.5 mb-4">
+        <button type="button" onclick="setLocDivisionFilter('ALL')" class="px-3 py-1.5 rounded-full text-xs font-semibold border ${locDivisionFilter === "ALL" ? "bg-sky-600 text-white border-sky-600" : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-sky-50"}">
+          সব বিভাগ (৬৪)
+        </button>
+        ${BD_DIVISIONS_64.map(div => `
+          <button type="button" onclick="setLocDivisionFilter('${esc(div.en)}')" class="px-3 py-1.5 rounded-full text-xs font-semibold border ${locDivisionFilter === div.en ? "bg-sky-600 text-white border-sky-600" : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-sky-50"}">
+            ${esc(div.bn)} (${div.districts.length})
+          </button>
+        `).join("")}
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        ${visibleDivs.map(div => `
+          <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+            <div class="flex items-center justify-between mb-2.5">
+              <div class="font-bold text-sky-900 text-sm">${esc(div.bn)} <span class="text-slate-500 font-normal">(${esc(div.en)} Division)</span></div>
+              <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">${div.districts.length} জেলা</span>
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              ${div.districts.map((d, idx) => `
+                <span class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs text-slate-800">
+                  <span class="text-slate-400 mr-1">${idx + 1}.</span><strong>${esc(d.bn)}</strong> <span class="text-slate-500">(${esc(d.en)})</span>
+                </span>
+              `).join("")}
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+
+    <!-- Custom Upazila / Area Entry -->
     <div class="bg-white p-5 rounded-2xl border border-slate-200 mb-6">
-      <h3 class="font-bold text-sky-800 mb-3">Add Bangladesh Location</h3>
+      <h3 class="font-bold text-sky-800 mb-1">Add Custom Upazila / Area</h3>
+      <p class="text-xs text-slate-500 mb-3">Add additional upazilas or local areas to any of the 64 districts.</p>
       <form onsubmit="submitLocation(event)" class="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <input id="loc_div" required placeholder="Division *" class="input" />
-        <input id="loc_dist" required placeholder="District *" class="input" />
-        <input id="loc_upz" required placeholder="Upazila *" class="input" />
-        <input id="loc_area" placeholder="Area" class="input" />
-        <button type="submit" class="md:col-span-4 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Add Location</button>
+        <select id="loc_div" required class="input bg-white">
+          <option value="">-- Select Division * --</option>
+          ${BD_DIVISIONS_64.map(div => `<option value="${esc(div.en)}">${esc(div.bn)} (${esc(div.en)})</option>`).join("")}
+        </select>
+        <select id="loc_dist" required class="input bg-white">
+          <option value="">-- Select District * --</option>
+          ${BD_DIVISIONS_64.map(div => `
+            <optgroup label="${esc(div.bn)} (${esc(div.en)})">
+              ${div.districts.map(d => `<option value="${esc(d.en)}">${esc(d.en)} (${esc(d.bn)})</option>`).join("")}
+            </optgroup>
+          `).join("")}
+        </select>
+        <input id="loc_upz" required placeholder="Upazila / Thana *" class="input" />
+        <input id="loc_area" placeholder="Area / Road (Optional)" class="input" />
+        <button type="submit" class="md:col-span-4 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Add Upazila / Area</button>
       </form>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
       ${Object.entries(dbState.locations).map(([id, l]) => `
         <div class="bg-white p-3.5 rounded-xl border border-slate-200 flex justify-between items-center text-sm">
-          <span>${esc(l.division)} &rsaquo; <strong>${esc(l.district)}</strong> &rsaquo; ${esc(l.upazila)}</span>
+          <span>${esc(l.division)} &rsaquo; <strong>${esc(l.district)}</strong> &rsaquo; ${esc(l.upazila)}${l.area ? " (" + esc(l.area) + ")" : ""}</span>
           <button onclick="deleteNode('locations','${id}')" class="text-rose-600 text-xs font-semibold">Delete</button>
         </div>
       `).join("")}
@@ -1489,6 +1667,175 @@ async function submitLocation(e) {
     upazila: document.getElementById("loc_upz").value.trim(),
     area: document.getElementById("loc_area").value.trim()
   });
+}
+
+// --- AD NETWORK SETUP (UNITY ADS + START.IO LIVE MONETIZATION) ---
+function renderAdNetwork() {
+  const a = dbState.ad_config || {};
+  const adsEnabled = a.adsEnabled !== false;
+  const testMode = a.testMode === true;
+  const activeNetwork = a.activeNetwork || "BOTH_UNITY_PRIMARY";
+  const bannerEnabled = a.bannerEnabled !== false;
+  const appOpenEnabled = a.appOpenEnabled !== false;
+  const nativeBannerEnabled = a.nativeBannerEnabled !== false;
+  const rewardedEnabled = a.rewardedEnabled !== false;
+
+  return `
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-6">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4 pb-4 border-b border-slate-100">
+        <div>
+          <h3 class="font-bold text-sky-900 text-lg">Ad Network Control (Unity Ads SDK + Start.io)</h3>
+          <p class="text-xs text-slate-500">Configure real live monetization ads remotely. Changes sync straight to the Android app via Firebase RTDB.</p>
+        </div>
+        <span class="px-3 py-1.5 rounded-full text-xs font-bold ${!testMode ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-800 border border-amber-200"}">
+          ${!testMode ? "LIVE REAL REVENUE ADS (PRODUCTION)" : "TEST MODE ACTIVE"}
+        </span>
+      </div>
+
+      <form onsubmit="submitAdConfig(event)" class="space-y-5">
+        <!-- Row 1: Master Switch, Active Network & Revenue Mode -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="p-4 rounded-xl border border-slate-200 bg-slate-50">
+            <label class="flex items-center justify-between cursor-pointer">
+              <div>
+                <div class="text-sm font-bold text-slate-800">Master Ads Switch</div>
+                <div class="text-[11px] text-slate-500">Enable/disable all ads globally</div>
+              </div>
+              <input id="ad_enabled" type="checkbox" ${adsEnabled ? "checked" : ""} class="w-5 h-5 accent-sky-600" />
+            </label>
+          </div>
+
+          <div class="p-4 rounded-xl border border-slate-200 bg-slate-50">
+            <label class="block text-xs font-bold text-slate-700 mb-1.5">Active Ad Network</label>
+            <select id="ad_network" class="input bg-white text-sm">
+              <option value="BOTH_UNITY_PRIMARY" ${activeNetwork === "BOTH_UNITY_PRIMARY" ? "selected" : ""}>Unity Ads Primary + Start.io Fallback (Best Fill)</option>
+              <option value="BOTH_STARTIO_PRIMARY" ${activeNetwork === "BOTH_STARTIO_PRIMARY" ? "selected" : ""}>Start.io Primary + Unity Ads Fallback</option>
+              <option value="UNITY" ${activeNetwork === "UNITY" ? "selected" : ""}>Unity Ads Only</option>
+              <option value="STARTIO" ${activeNetwork === "STARTIO" ? "selected" : ""}>Start.io Only</option>
+            </select>
+          </div>
+
+          <div class="p-4 rounded-xl border ${!testMode ? "border-emerald-200 bg-emerald-50/50" : "border-amber-200 bg-amber-50/50"}">
+            <label class="block text-xs font-bold text-slate-700 mb-1.5">Ad Serving Mode (টাকা ইনকাম)</label>
+            <select id="ad_test_mode" class="input bg-white text-sm">
+              <option value="false" ${!testMode ? "selected" : ""}>Real Live Production Ads (Revenue ON)</option>
+              <option value="true" ${testMode ? "selected" : ""}>Test Ads Only (Development)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Row 2: Unity Ads SDK Credentials -->
+        <div class="p-5 rounded-2xl border border-sky-200 bg-sky-50/40">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h4 class="font-bold text-sky-900 text-sm">Unity Ads SDK v4.14.1 Setup (Android)</h4>
+              <p class="text-xs text-slate-600">Enter your real Unity Dashboard Android Game ID & Placement IDs to serve real Unity Ads.</p>
+            </div>
+            <span class="px-2.5 py-1 rounded-lg bg-sky-100 text-sky-800 text-[11px] font-bold">Unity SDK Ready</span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="md:col-span-2">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Unity Android Game ID</label>
+              <input id="ad_unity_game_id" value="${esc(a.unityGameId || "")}" placeholder="e.g. 5789123 (from Unity Monetization Dashboard)" class="input bg-white" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Banner Ad Unit / Placement ID</label>
+              <input id="ad_unity_banner" value="${esc(a.unityBannerPlacement || "Banner_Android")}" placeholder="Banner_Android" class="input bg-white" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">App Open / Interstitial Placement ID</label>
+              <input id="ad_unity_appopen" value="${esc(a.unityAppOpenPlacement || "Interstitial_Android")}" placeholder="Interstitial_Android" class="input bg-white" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Native Banner Placement ID</label>
+              <input id="ad_unity_native" value="${esc(a.unityNativeBannerPlacement || "Banner_Android")}" placeholder="Banner_Android" class="input bg-white" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Rewarded Video Placement ID</label>
+              <input id="ad_unity_rewarded" value="${esc(a.unityRewardedPlacement || "Rewarded_Android")}" placeholder="Rewarded_Android" class="input bg-white" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 3: Start.io Credentials -->
+        <div class="p-5 rounded-2xl border border-teal-200 bg-teal-50/40">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h4 class="font-bold text-teal-900 text-sm">Start.io SDK Setup (Android)</h4>
+              <p class="text-xs text-slate-600">Pre-configured with your Start.io App ID (210630916) for Banner, Native Banner, App Open & Rewarded fallback.</p>
+            </div>
+            <span class="px-2.5 py-1 rounded-lg bg-teal-100 text-teal-800 text-[11px] font-bold">Start.io Active</span>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Start.io App ID</label>
+            <input id="ad_startio_id" value="${esc(a.startIoAppId || "210630916")}" placeholder="210630916" class="input bg-white" />
+          </div>
+        </div>
+
+        <!-- Row 4: Individual Formats & Periodic Native Frequency -->
+        <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50/60">
+          <h4 class="font-bold text-slate-800 text-sm mb-3">Ad Formats & Display Frequency</h4>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <label class="flex items-center gap-2 p-3 rounded-xl bg-white border border-slate-200 cursor-pointer text-xs font-semibold">
+              <input id="ad_fmt_banner" type="checkbox" ${bannerEnabled ? "checked" : ""} class="w-4 h-4 accent-sky-600" />
+              <span>Banner Ad</span>
+            </label>
+            <label class="flex items-center gap-2 p-3 rounded-xl bg-white border border-slate-200 cursor-pointer text-xs font-semibold">
+              <input id="ad_fmt_appopen" type="checkbox" ${appOpenEnabled ? "checked" : ""} class="w-4 h-4 accent-sky-600" />
+              <span>App Open Ad</span>
+            </label>
+            <label class="flex items-center gap-2 p-3 rounded-xl bg-white border border-slate-200 cursor-pointer text-xs font-semibold">
+              <input id="ad_fmt_native" type="checkbox" ${nativeBannerEnabled ? "checked" : ""} class="w-4 h-4 accent-sky-600" />
+              <span>Native Banner</span>
+            </label>
+            <label class="flex items-center gap-2 p-3 rounded-xl bg-white border border-slate-200 cursor-pointer text-xs font-semibold">
+              <input id="ad_fmt_rewarded" type="checkbox" ${rewardedEnabled ? "checked" : ""} class="w-4 h-4 accent-sky-600" />
+              <span>Rewarded Video</span>
+            </label>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Periodic Native Ad Interval (মাঝে মাঝে নেটিভ অ্যাড — প্রতি কতটি কার্ড পর)</label>
+              <input id="ad_native_interval" type="number" min="1" max="12" value="${esc(a.nativeAdInterval ?? 3)}" class="input bg-white" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">App Open Ad Cooldown (Seconds between App Open ads)</label>
+              <input id="ad_appopen_cooldown" type="number" min="15" max="3600" value="${esc(a.appOpenCooldownSeconds ?? 120)}" class="input bg-white" />
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" class="w-full md:w-auto px-6 py-3 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-semibold text-sm shadow-sm">
+          Save Ad Network Configuration to Cloud
+        </button>
+      </form>
+    </div>
+  `;
+}
+
+async function submitAdConfig(e) {
+  e.preventDefault();
+  const payload = {
+    adsEnabled: document.getElementById("ad_enabled").checked,
+    activeNetwork: document.getElementById("ad_network").value,
+    testMode: document.getElementById("ad_test_mode").value === "true",
+    bannerEnabled: document.getElementById("ad_fmt_banner").checked,
+    appOpenEnabled: document.getElementById("ad_fmt_appopen").checked,
+    nativeBannerEnabled: document.getElementById("ad_fmt_native").checked,
+    rewardedEnabled: document.getElementById("ad_fmt_rewarded").checked,
+    nativeAdInterval: Math.max(1, Math.min(12, parseInt(document.getElementById("ad_native_interval").value, 10) || 3)),
+    appOpenCooldownSeconds: Math.max(15, Math.min(3600, parseInt(document.getElementById("ad_appopen_cooldown").value, 10) || 120)),
+    unityGameId: document.getElementById("ad_unity_game_id").value.trim(),
+    unityBannerPlacement: document.getElementById("ad_unity_banner").value.trim() || "Banner_Android",
+    unityAppOpenPlacement: document.getElementById("ad_unity_appopen").value.trim() || "Interstitial_Android",
+    unityNativeBannerPlacement: document.getElementById("ad_unity_native").value.trim() || "Banner_Android",
+    unityRewardedPlacement: document.getElementById("ad_unity_rewarded").value.trim() || "Rewarded_Android",
+    startIoAppId: document.getElementById("ad_startio_id").value.trim() || "210630916",
+    updatedAt: Date.now()
+  };
+  await saveNode("ad_config", null, payload);
+  toast("Ad Network Setup saved! Android app will sync live automatically.");
 }
 
 // --- NOTIFICATIONS ---

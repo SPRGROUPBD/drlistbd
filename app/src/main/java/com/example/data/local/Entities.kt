@@ -254,3 +254,25 @@ data class ProfileChangeRequestEntity(
     val status: String = "PENDING", // PENDING, APPROVED, REJECTED
     val createdAt: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "ad_config")
+data class AdConfigEntity(
+    @PrimaryKey val id: String = "global",
+    val adsEnabled: Boolean = true,
+    // UNITY | STARTIO | BOTH_UNITY_PRIMARY | BOTH_STARTIO_PRIMARY
+    val activeNetwork: String = "BOTH_UNITY_PRIMARY",
+    val testMode: Boolean = false, // false = 100% REAL LIVE REVENUE ADS
+    val bannerEnabled: Boolean = true,
+    val appOpenEnabled: Boolean = true,
+    val nativeBannerEnabled: Boolean = true,
+    val rewardedEnabled: Boolean = true,
+    val nativeAdInterval: Int = 3,
+    val appOpenCooldownSeconds: Int = 120,
+    val unityGameId: String = "",
+    val unityBannerPlacement: String = "Banner_Android",
+    val unityAppOpenPlacement: String = "Interstitial_Android",
+    val unityNativeBannerPlacement: String = "Banner_Android",
+    val unityRewardedPlacement: String = "Rewarded_Android",
+    val startIoAppId: String = "210630916",
+    val updatedAt: Long = System.currentTimeMillis()
+)

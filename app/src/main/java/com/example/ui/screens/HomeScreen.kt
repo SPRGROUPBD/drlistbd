@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -29,16 +30,18 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.local.AdConfigEntity
 import com.example.data.local.HospitalEntity
 import com.example.data.local.LocationEntity
 import com.example.data.local.SiteSettingsEntity
 import com.example.data.local.SpecialtyEntity
 import com.example.data.model.DoctorFullProfile
+import com.example.data.seed.SeedData
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
+import com.example.ui.ads.ManagedNativeBannerAd
 import com.example.ui.ads.RewardedAdCard
-import com.example.ui.ads.StartIoNativeBannerCard
 import com.example.ui.components.*
 import com.example.ui.theme.*
 
@@ -46,6 +49,7 @@ import com.example.ui.theme.*
 fun HomeScreen(
     lang: AppLang,
     settings: SiteSettingsEntity,
+    adConfig: AdConfigEntity,
     isSyncing: Boolean,
     specialties: List<SpecialtyEntity>,
     locations: List<LocationEntity>,
@@ -66,9 +70,21 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     var quickQuery by remember { mutableStateOf("") }
-    val districts = remember(locations) { locations.map { it.district }.distinct() }
+    // null = All 64 districts; otherwise selected division nameEn from SeedData.bangladeshDivisions
+    var selectedDivisionEn by remember { mutableStateOf<String?>(null) }
+
+    val displayedDistricts = remember(selectedDivisionEn) {
+        if (selectedDivisionEn == null) {
+            SeedData.allDistricts
+        } else {
+            SeedData.bangladeshDivisions
+                .firstOrNull { it.nameEn == selectedDivisionEn }
+                ?.districts ?: SeedData.allDistricts
+        }
+    }
     val availableTodayDocs = remember(doctors) { doctors.filter { it.isAvailableToday() }.take(5) }
     val recentDocs = remember(doctors) { doctors.sortedByDescending { it.doctor.updatedAt }.take(6) }
+    val nativeInterval = adConfig.nativeAdInterval.coerceAtLeast(2)
 
     LazyColumn(
         modifier = modifier
@@ -225,9 +241,10 @@ fun HomeScreen(
             Spacer(Modifier.height(12.dp))
         }
 
-        // Start.io Native Banner Ad
+        // Managed Native Banner Ad #1 (Unity Ads / Start.io)
         item {
-            StartIoNativeBannerCard(
+            ManagedNativeBannerAd(
+                adConfig = adConfig,
                 lang = lang,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
@@ -250,18 +267,82 @@ fun HomeScreen(
             Spacer(Modifier.height(12.dp))
         }
 
-        // District Selector
+        // বাংলাদেশের ৮টি বিভাগ অনুযায়ী ৬৪টি জেলার তালিকা (8 Divisions & 64 Districts Browser)
         item {
-            SectionHeader(title = AppStrings.selectDistrict(lang))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = tr(lang, "বিভাগ অনুযায়ী ৬৪টি জেলা", "64 Districts by Division"),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                StatusPill(
+                    text = tr(lang, "৮ বিভাগ • ৬৪ জেলা", "8 Div • 64 Dist"),
+                    bgColor = MedicalTealLight,
+                    textColor = MedicalTealDark
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            // Division Filter Strip (All 8 Divisions of Bangladesh)
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.testTag("home_division_row")
             ) {
-                items(districts) { district ->
+                item {
+                    FilterChip(
+                        selected = selectedDivisionEn == null,
+                        onClick = { selectedDivisionEn = null },
+                        label = {
+                            Text(tr(lang, "সব বিভাগ (৬৪)", "All (64)"))
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MedicalBlue,
+                            selectedLabelColor = Color.White,
+                            containerColor = SurfaceWhite
+                        )
+                    )
+                }
+                items(SeedData.bangladeshDivisions, key = { it.nameEn }) { div ->
+                    val shortDivLabel = tr(
+                        lang,
+                        "${div.nameBn.removeSuffix(" বিভাগ")} (${div.districts.size})",
+                        "${div.nameEn} (${div.districts.size})"
+                    )
+                    FilterChip(
+                        selected = selectedDivisionEn == div.nameEn,
+                        onClick = {
+                            selectedDivisionEn = if (selectedDivisionEn == div.nameEn) null else div.nameEn
+                        },
+                        label = { Text(shortDivLabel) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MedicalBlue,
+                            selectedLabelColor = Color.White,
+                            containerColor = SurfaceWhite
+                        )
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            // Matching Districts Strip (All 64 Districts or Selected Division's Districts)
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.testTag("home_district_row")
+            ) {
+                items(displayedDistricts, key = { "${it.divisionEn}_${it.nameEn}" }) { dist ->
                     FilterChip(
                         selected = false,
-                        onClick = { onSelectDistrict(district) },
-                        label = { Text(district) },
+                        onClick = { onSelectDistrict(dist.nameEn) },
+                        label = {
+                            Text(tr(lang, dist.nameBn, dist.nameEn))
+                        },
                         leadingIcon = {
                             Icon(
                                 Icons.Outlined.LocationOn,
@@ -301,7 +382,7 @@ fun HomeScreen(
                         onAction = { onNavigateFindDoctors(true) }
                     )
                 }
-                items(availableTodayDocs, key = { "today_${it.doctor.id}" }) { doc ->
+                itemsIndexed(availableTodayDocs, key = { _, it -> "today_${it.doctor.id}" }) { index, doc ->
                     DoctorCard(
                         item = doc,
                         lang = lang,
@@ -310,10 +391,17 @@ fun HomeScreen(
                         onClick = { onDoctorClick(doc.doctor.id) },
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                     )
+                    if ((index + 1) % nativeInterval == 0) {
+                        ManagedNativeBannerAd(
+                            adConfig = adConfig,
+                            lang = lang,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                        )
+                    }
                 }
             }
 
-            // Directory Doctors List
+            // Directory Doctors List with periodic Native Banner Ads
             item {
                 Spacer(Modifier.height(6.dp))
                 SectionHeader(
@@ -322,7 +410,8 @@ fun HomeScreen(
                     onAction = { onNavigateFindDoctors(false) }
                 )
             }
-            items(doctors.take(6), key = { "dir_${it.doctor.id}" }) { doc ->
+            val featuredSlice = doctors.take(6)
+            itemsIndexed(featuredSlice, key = { _, it -> "dir_${it.doctor.id}" }) { index, doc ->
                 DoctorCard(
                     item = doc,
                     lang = lang,
@@ -331,6 +420,13 @@ fun HomeScreen(
                     onClick = { onDoctorClick(doc.doctor.id) },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                 )
+                if ((index + 1) % nativeInterval == 0) {
+                    ManagedNativeBannerAd(
+                        adConfig = adConfig,
+                        lang = lang,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                    )
+                }
             }
 
             // Recently Updated Doctors
@@ -445,17 +541,29 @@ fun HomeScreen(
             }
         }
 
-        // Rewarded Video Ad Card
+        // Bottom Periodic Native Banner Ad
         item {
-            Spacer(Modifier.height(14.dp))
-            RewardedAdCard(
+            Spacer(Modifier.height(10.dp))
+            ManagedNativeBannerAd(
+                adConfig = adConfig,
                 lang = lang,
-                isReady = isRewardedReady,
-                isLoading = isRewardedLoading,
-                onWatchClick = onWatchRewardedAd,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
-            Spacer(Modifier.height(12.dp))
+        }
+
+        // Rewarded Video Ad Card (shown when Rewarded format is enabled by Admin)
+        if (adConfig.adsEnabled && adConfig.rewardedEnabled) {
+            item {
+                Spacer(Modifier.height(12.dp))
+                RewardedAdCard(
+                    lang = lang,
+                    isReady = isRewardedReady,
+                    isLoading = isRewardedLoading,
+                    onWatchClick = onWatchRewardedAd,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+                Spacer(Modifier.height(12.dp))
+            }
         }
     }
 }

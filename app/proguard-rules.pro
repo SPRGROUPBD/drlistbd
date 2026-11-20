@@ -6,7 +6,16 @@
 -keep class com.startapp.** { *; }
 -dontwarn com.startapp.**
 
-# Preserve WebView JavaScript interfaces & reflection metadata used by Start.io ad templates
+# 1b. Unity Ads SDK (Real Production Ads)
+-keepattributes SourceFile,LineNumberTable
+-keepattributes JavascriptInterface
+-keep class android.webkit.JavascriptInterface { *; }
+-keep class com.unity3d.ads.** { *; }
+-keep class com.unity3d.services.** { *; }
+-dontwarn com.unity3d.ads.**
+-dontwarn com.unity3d.services.**
+
+# Preserve WebView JavaScript interfaces & reflection metadata used by ad templates
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,RuntimeVisibleAnnotations,RuntimeVisibleParameterAnnotations
 -keepclassmembers class * extends android.webkit.WebView {
     public *;

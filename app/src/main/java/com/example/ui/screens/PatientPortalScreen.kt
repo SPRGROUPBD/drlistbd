@@ -17,14 +17,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.data.local.AdConfigEntity
 import com.example.data.local.AppointmentRequestEntity
 import com.example.data.local.NotificationEntity
 import com.example.data.model.DoctorFullProfile
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
+import com.example.ui.ads.ManagedNativeBannerAd
 import com.example.ui.ads.RewardedAdCard
-import com.example.ui.ads.StartIoNativeBannerCard
 import com.example.ui.components.DoctorCard
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.StatusPill
@@ -33,6 +34,7 @@ import com.example.ui.theme.*
 @Composable
 fun PatientPortalScreen(
     lang: AppLang,
+    adConfig: AdConfigEntity,
     isSyncing: Boolean,
     favoriteDoctors: List<DoctorFullProfile>,
     notifications: List<NotificationEntity>,
@@ -107,14 +109,16 @@ fun PatientPortalScreen(
             }
         }
 
-        // Start.io Rewarded Ad Support Card
-        item {
-            RewardedAdCard(
-                lang = lang,
-                isReady = isRewardedReady,
-                isLoading = isRewardedLoading,
-                onWatchClick = onWatchRewardedAd
-            )
+        // Rewarded Ad Support Card
+        if (adConfig.adsEnabled && adConfig.rewardedEnabled) {
+            item {
+                RewardedAdCard(
+                    lang = lang,
+                    isReady = isRewardedReady,
+                    isLoading = isRewardedLoading,
+                    onWatchClick = onWatchRewardedAd
+                )
+            }
         }
 
         // Sub-Tabs: Favorites | Notifications
@@ -185,9 +189,9 @@ fun PatientPortalScreen(
             }
         }
 
-        // Start.io Native Banner Ad
+        // Managed Native Banner Ad
         item {
-            StartIoNativeBannerCard(lang = lang)
+            ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
         }
 
         // Information Links

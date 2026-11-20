@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.LocationOn
@@ -21,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.data.local.AdConfigEntity
 import com.example.data.local.DiagnosticCenterEntity
 import com.example.data.local.HospitalEntity
 import com.example.data.local.SpecialtyEntity
@@ -32,6 +34,7 @@ import com.example.data.model.startMinutesOfDay
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
+import com.example.ui.ads.ManagedNativeBannerAd
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.ExternalImageAvatar
 import com.example.ui.components.StatusPill
@@ -41,6 +44,7 @@ import com.example.ui.theme.*
 @Composable
 fun DirectoriesScreen(
     lang: AppLang,
+    adConfig: AdConfigEntity,
     selectedTab: Int,
     onTabChange: (Int) -> Unit,
     hospitals: List<HospitalEntity>,
@@ -52,6 +56,7 @@ fun DirectoriesScreen(
     onDoctorClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val nativeInterval = adConfig.nativeAdInterval.coerceAtLeast(2)
     val tabs = listOf(
         AppStrings.hospitals(lang),
         AppStrings.diagnosticCenters(lang),
@@ -104,7 +109,7 @@ fun DirectoriesScreen(
                     EmptyStateCard(Icons.Rounded.LocalHospital, tr(lang, "হাসপাতাল পাওয়া যায়নি", "No Hospitals Found"), "")
                 } else {
                     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(list, key = { it.id }) { h ->
+                        itemsIndexed(list, key = { _, it -> it.id }) { idx, h ->
                             FacilityCard(
                                 name = tr(lang, h.nameBn, h.nameEn),
                                 subtitle = "${h.upazila}, ${h.district}",
@@ -119,6 +124,10 @@ fun DirectoriesScreen(
                                 },
                                 onViewDoctors = { onSelectFacility(h.nameEn.removePrefix("[DEMO] ")) }
                             )
+                            if ((idx + 1) % nativeInterval == 0) {
+                                Spacer(Modifier.height(10.dp))
+                                ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
+                            }
                         }
                     }
                 }
@@ -132,7 +141,7 @@ fun DirectoriesScreen(
                     EmptyStateCard(Icons.Rounded.Biotech, tr(lang, "ডায়াগনস্টিক সেন্টার পাওয়া যায়নি", "No Diagnostic Centers Found"), "")
                 } else {
                     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(list, key = { it.id }) { dc ->
+                        itemsIndexed(list, key = { _, it -> it.id }) { idx, dc ->
                             FacilityCard(
                                 name = tr(lang, dc.nameBn, dc.nameEn),
                                 subtitle = "${dc.upazila}, ${dc.district}",
@@ -147,6 +156,10 @@ fun DirectoriesScreen(
                                 },
                                 onViewDoctors = { onSelectFacility(dc.nameEn.removePrefix("[DEMO] ")) }
                             )
+                            if ((idx + 1) % nativeInterval == 0) {
+                                Spacer(Modifier.height(10.dp))
+                                ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
+                            }
                         }
                     }
                 }
@@ -157,7 +170,7 @@ fun DirectoriesScreen(
                     search.isBlank() || it.nameBn.contains(search, true) || it.nameEn.contains(search, true)
                 }
                 LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(list, key = { it.id }) { sp ->
+                    itemsIndexed(list, key = { _, it -> it.id }) { idx, sp ->
                         val docCount = doctors.count { it.doctor.mainSpecialtyId == sp.id }
                         Surface(
                             onClick = { onSelectSpecialty(sp.id) },
@@ -189,6 +202,10 @@ fun DirectoriesScreen(
                                     textColor = MedicalTealDark
                                 )
                             }
+                        }
+                        if ((idx + 1) % (nativeInterval + 1) == 0) {
+                            Spacer(Modifier.height(10.dp))
+                            ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
                         }
                     }
                 }
@@ -275,7 +292,7 @@ fun DirectoriesScreen(
                     )
                 } else {
                     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(matching) { (doc, ch, slots) ->
+                        itemsIndexed(matching) { idx, (doc, ch, slots) ->
                             Surface(
                                 onClick = { onDoctorClick(doc.doctor.id) },
                                 shape = RoundedCornerShape(18.dp),
@@ -323,6 +340,10 @@ fun DirectoriesScreen(
                                         }
                                     }
                                 }
+                            }
+                            if ((idx + 1) % nativeInterval == 0) {
+                                Spacer(Modifier.height(10.dp))
+                                ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
                             }
                         }
                     }
