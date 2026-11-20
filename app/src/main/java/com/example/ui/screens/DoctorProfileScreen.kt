@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.example.data.local.AdConfigEntity
 import com.example.data.local.ChamberScheduleEntity
 import com.example.data.local.SiteSettingsEntity
+import com.example.data.local.SponsorEntity
 import com.example.data.model.ChamberSessionType
 import com.example.data.model.ChamberWithSchedules
 import com.example.data.model.DayOfWeekBd
@@ -38,7 +39,8 @@ import com.example.data.model.startMinutesOfDay
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
-import com.example.ui.ads.ManagedNativeBannerAd
+import com.example.ui.ads.NativeSponsorAdCard
+import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.ExternalImageAvatar
 import com.example.ui.components.StatusPill
 import com.example.ui.theme.*
@@ -48,6 +50,11 @@ fun DoctorProfileScreen(
     profile: DoctorFullProfile?,
     lang: AppLang,
     adConfig: AdConfigEntity,
+    sponsors: List<SponsorEntity> = emptyList(),
+    isOnline: Boolean = true,
+    nowMs: Long = System.currentTimeMillis(),
+    onSponsorDisplayed: (String, Boolean, String) -> Unit = { _, _, _ -> },
+    onSponsorClicked: (String, Boolean) -> Unit = { _, _ -> },
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onBack: () -> Unit,
@@ -190,9 +197,19 @@ fun DoctorProfileScreen(
             }
         }
 
-        // Inline Managed Native Banner Ad
+        // Direct Sponsor Native Card (Online + Offline Cached)
         item {
-            ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
+            NativeSponsorAdCard(
+                sponsors = sponsors,
+                adConfig = adConfig,
+                pageKey = SponsorCampaignSelector.PAGE_DOCTOR_PROFILE,
+                slotIndex = 0,
+                isOnline = isOnline,
+                nowMs = nowMs,
+                lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked
+            )
         }
 
         // Active Chambers & Weekly Schedules (Only Active Chambers are visible in the patient app)

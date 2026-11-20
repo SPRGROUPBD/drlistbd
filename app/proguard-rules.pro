@@ -1,35 +1,25 @@
 # ==========================================
 # Doctor List BD — Production R8/ProGuard Rules
+# Hybrid Ad Configuration:
+#   ONLINE:  Start.io Ads + Unity Ads + Direct Sponsor Ads (Zero AdMob)
+#   OFFLINE: Direct Sponsor Ads ONLY (Cached)
 # ==========================================
 
-# 1. Start.io (StartApp) In-App SDK
--keep class com.startapp.** { *; }
--dontwarn com.startapp.**
-
-# 1b. Unity Ads SDK (Real Production Ads)
--keepattributes SourceFile,LineNumberTable
--keepattributes JavascriptInterface
--keep class android.webkit.JavascriptInterface { *; }
--keep class com.unity3d.ads.** { *; }
--keep class com.unity3d.services.** { *; }
--dontwarn com.unity3d.ads.**
--dontwarn com.unity3d.services.**
-
-# Preserve WebView JavaScript interfaces & reflection metadata used by ad templates
--keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,RuntimeVisibleAnnotations,RuntimeVisibleParameterAnnotations
--keepclassmembers class * extends android.webkit.WebView {
-    public *;
-}
-
-# 2. Google Play Services Ads Identifier (GAID for real production ads)
--keep class com.google.android.gms.ads.identifier.** { *; }
--dontwarn com.google.android.gms.ads.identifier.**
--keep class com.google.android.gms.common.** { *; }
--dontwarn com.google.android.gms.common.**
-
-# 3. Room Entities & DAOs
+# 1. Room Entities & DAOs
 -keep class com.example.data.local.** { *; }
 -keep class com.example.data.model.** { *; }
+
+# 2. Start.io SDK
+-keep class com.startapp.** { *; }
+-dontwarn com.startapp.**
+-keepattributes Exceptions,InnerClasses,Signature,Deprecated,SourceFile,LineNumberTable,*Annotation*,EnclosingMethod
+
+# 3. Unity Ads SDK
+-keep class com.unity3d.** { *; }
+-dontwarn com.unity3d.**
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
 
 # 4. Serializable & Reflection Safety
 -keepclassmembers class * implements java.io.Serializable {

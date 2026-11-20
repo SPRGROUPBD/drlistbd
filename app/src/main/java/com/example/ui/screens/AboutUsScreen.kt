@@ -28,11 +28,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.BuildConfig
 import com.example.R
+import com.example.data.local.AdConfigEntity
 import com.example.data.local.SiteSettingsEntity
+import com.example.data.local.SponsorEntity
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
-import com.example.ui.ads.StartIoNativeBannerCard
+import com.example.ui.ads.AboutUsSponsorSection
 import com.example.ui.components.StatusPill
 import com.example.ui.theme.*
 
@@ -40,6 +42,13 @@ import com.example.ui.theme.*
 fun AboutUsScreen(
     lang: AppLang,
     settings: SiteSettingsEntity,
+    adConfig: AdConfigEntity = AdConfigEntity(),
+    sponsors: List<SponsorEntity> = emptyList(),
+    isOnline: Boolean = true,
+    nowMs: Long = System.currentTimeMillis(),
+    onSponsorDisplayed: (String, Boolean, String) -> Unit = { _, _, _ -> },
+    onSponsorClicked: (String, Boolean) -> Unit = { _, _ -> },
+    onOpenAdvertiserPortal: () -> Unit = {},
     doctorsCount: Int,
     hospitalsCount: Int,
     diagnosticCount: Int,
@@ -263,9 +272,18 @@ fun AboutUsScreen(
             }
         }
 
-        // Start.io Native Banner Ad
+        // Administrator-Controlled Direct Sponsor Advertisement Section + Advertiser Portal CTA
         item {
-            StartIoNativeBannerCard(lang = lang)
+            AboutUsSponsorSection(
+                sponsors = sponsors,
+                adConfig = adConfig,
+                isOnline = isOnline,
+                nowMs = nowMs,
+                lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked,
+                onOpenAdvertiserPortal = onOpenAdvertiserPortal
+            )
         }
 
         // Contact, Share & Support Card

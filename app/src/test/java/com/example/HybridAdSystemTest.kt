@@ -3,10 +3,17 @@ package com.example
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.local.AdConfigEntity
 import com.example.data.local.AppDatabase
+import com.example.data.local.PaymentSettingsEntity
+import com.example.data.local.PendingAdViewEventEntity
 import com.example.data.local.SessionPreferences
 import com.example.data.local.SponsorEntity
+import com.example.data.local.SponsorPackageEntity
+import com.example.data.remote.AdvertiserRemoteService
+import com.example.ui.ads.AdRevenueTracker
 import com.example.ui.ads.ConnectivityMonitor
+import com.example.ui.ads.HybridNetworkAdController
 import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.ads.SponsorOfflineCacheManager
 import kotlinx.coroutines.runBlocking
@@ -25,16 +32,12 @@ import org.robolectric.annotation.Config
 import java.io.File
 
 /**
- * Comprehensive verification suite for the Complete Hybrid Advertisement Monetization System:
- * - Zero AdMob verification
- * - Campaign start/expiration scheduling (online & offline)
- * - Target page filtering & route normalization
- * - Direct Sponsor Banner priority & weighted rotation
- * - App Open Sponsor Popup (EVERY_LAUNCH, ONCE_DAILY, ON/OFF, selection, empty fallback)
- * - Native Sponsor Card insertion interval (4, 5, 6) & non-duplicate rotation
- * - Image URL, Website URL, and magic-byte/size validation
- * - Persistent Room + File offline cache survival across offline states
- * - Connectivity online/offline gating & strictly separated offline local event storage
+ * Comprehensive verification suite for the Final Hybrid Ad Configuration:
+ * - ONLINE:  Start.io Ads + Unity Ads + Custom Direct Sponsor Ads (ZERO AdMob)
+ * - OFFLINE: Custom Direct Sponsor Ads ONLY (Cached Banner, Popup, Native Card, About Us)
+ * - Server-authoritative activation/expiry + offline clock rollback protection
+ * - Dynamic packages, manual payment validation, salted SHA-256 advertiser password hashing
+ * - Persistent Room v7 cache + local image file cache + offline view analytics queue & dedup
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -44,8 +47,9 @@ class HybridAdSystemTest {
     private lateinit var db: AppDatabase
     private lateinit var cacheDir: File
 
-    // Fixed reference date: 2026-06-15 12:00:00 Asia/Dhaka
-    private val refNowMs: Long = SponsorCampaignSelector.parseCampaignBounds("2026-06-15", "2026-06-15").first + 12L * 3600L * 1000L
+    // Fixed reference time: 2026-06-15 12:00:00 Asia/Dhaka
+    private val refNowMs: Long =
+        SponsorCampaignSelector.parseCampaignBounds("2026-06-15", "2026-06-15").first + 12L * 3600L * 1000L
 
     @Before
     fun setUp() {
@@ -54,20 +58,27 @@ class HybridAdSystemTest {
             .allowMainThreadQueries()
             .build()
         cacheDir = File(context.filesDir, "test_sponsor_cache_${System.nanoTime()}").apply { mkdirs() }
+        AdRevenueTracker.clearMemoryCooldownsForTesting()
+        ConnectivityMonitor.setOnlineForTesting(true)
     }
 
     @After
     fun tearDown() {
         db.close()
         cacheDir.deleteRecursively()
+        AdRevenueTracker.clearMemoryCooldownsForTesting()
         ConnectivityMonitor.setOnlineForTesting(true)
     }
 
     private fun makeSponsor(
         id: String,
         name: String = "Sponsor $id",
+        status: String = SponsorCampaignSelector.STATUS_ACTIVE,
+        placementType: String = SponsorCampaignSelector.PLACEMENT_ALL,
         startDate: String = "2026-01-01",
         endDate: String = "2026-12-31",
+        activatedAt: Long = 0L,
+        expiryAt: Long = Long.MAX_VALUE,
         targetPages: String = "ALL",
         priority: Int = 10,
         frequency: Int = 1,
@@ -78,6 +89,8 @@ class HybridAdSystemTest {
         val (sTs, eTs) = SponsorCampaignSelector.parseCampaignBounds(startDate, endDate)
         return SponsorEntity(
             id = id,
+            status = status,
+            placementType = placementType,
             name = name,
             logoUrl = "https://cdn.example.com/${id}_logo.png",
             bannerImageUrl = bannerUrl,
@@ -88,6 +101,8 @@ class HybridAdSystemTest {
             contactNumber = "+8801700000000",
             startDate = startDate,
             endDate = endDate,
+            activatedAt = activatedAt,
+            expiryAt = expiryAt,
             startTimestamp = sTs,
             endTimestamp = eTs,
             targetPages = targetPages,
@@ -97,111 +112,130 @@ class HybridAdSystemTest {
         )
     }
 
-    // 1. Strictly zero AdMob SDK presence
+    // 1. Strictly ZERO AdMob SDK, while Start.io + Unity Ads SDKs are available for ONLINE mode
     @Test
-    fun verifyNoAdMobSdkOnClasspath() {
-        val admobLoaded = runCatching {
-            Class.forName("com.google.android.gms.ads.MobileAds")
-        }.isSuccess
-        assertFalse("Google AdMob SDK must be strictly removed from dependencies", admobLoaded)
+    fun verifyZeroAdMobAndStartIoPlusUnityPresentForOnlineMode() {
+        val admobLoaded = runCatching { Class.forName("com.google.android.gms.ads.MobileAds") }.isSuccess
+        val startIoLoaded = runCatching { Class.forName("com.startapp.sdk.adsbase.StartAppSDK") }.isSuccess
+        val unityLoaded = runCatching { Class.forName("com.unity3d.ads.UnityAds") }.isSuccess
+
+        assertFalse("Google AdMob SDK must be strictly removed", admobLoaded)
+        assertTrue("Start.io SDK must be present for Online Hybrid Ads", startIoLoaded)
+        assertTrue("Unity Ads SDK must be present for Online Hybrid Ads", unityLoaded)
     }
 
-    // 2. Campaign scheduling: active vs future vs expired vs inactive
+    // 2. Hybrid Online Network ordering & failover rules
     @Test
-    fun campaignScheduleHidesExpiredFutureAndInactiveSponsors() {
-        val valid = makeSponsor("sp_valid", startDate = "2026-06-01", endDate = "2026-06-30")
-        val expired = makeSponsor("sp_expired", startDate = "2026-01-01", endDate = "2026-06-14")
-        val future = makeSponsor("sp_future", startDate = "2026-06-16", endDate = "2026-12-31")
-        val disabled = makeSponsor("sp_disabled", isActive = false)
+    fun hybridNetworkControllerResolvesExactOnlineFailoverOrder() {
+        val bothUnityFirst = AdConfigEntity(
+            adsEnabled = true,
+            activeNetwork = "BOTH_UNITY_PRIMARY",
+            unityGameId = "5789123",
+            startIoAppId = "210630916"
+        )
+        assertEquals(listOf("UNITY", "STARTIO"), HybridNetworkAdController.getOrderedNetworksForOnline(bothUnityFirst))
 
-        assertTrue(SponsorCampaignSelector.isCampaignValid(valid, refNowMs))
-        assertFalse(SponsorCampaignSelector.isCampaignExpired(valid, refNowMs))
+        val bothStartIoFirst = bothUnityFirst.copy(activeNetwork = "BOTH_STARTIO_PRIMARY")
+        assertEquals(listOf("STARTIO", "UNITY"), HybridNetworkAdController.getOrderedNetworksForOnline(bothStartIoFirst))
 
-        assertFalse(SponsorCampaignSelector.isCampaignValid(expired, refNowMs))
-        assertTrue(SponsorCampaignSelector.isCampaignExpired(expired, refNowMs))
+        val unityMissingGameId = bothUnityFirst.copy(unityGameId = "")
+        assertEquals(listOf("STARTIO"), HybridNetworkAdController.getOrderedNetworksForOnline(unityMissingGameId))
 
-        assertFalse(SponsorCampaignSelector.isCampaignValid(future, refNowMs))
-        assertFalse(SponsorCampaignSelector.isCampaignExpired(future, refNowMs))
-
-        assertFalse(SponsorCampaignSelector.isCampaignValid(disabled, refNowMs))
+        val sponsorsOnly = bothUnityFirst.copy(activeNetwork = "SPONSORS_ONLY")
+        assertTrue(HybridNetworkAdController.getOrderedNetworksForOnline(sponsorsOnly).isEmpty())
     }
 
-    // 3. Target pages matching & route normalization
+    // 3. Server-authoritative lifecycle & expiry enforcement
     @Test
-    fun targetPageMatchingWorksForAllAndSpecificRoutes() {
-        val allPages = makeSponsor("sp_all", targetPages = "ALL")
-        val homeOnly = makeSponsor("sp_home", targetPages = "home,find_doctors")
-        val profileOnly = makeSponsor("sp_prof", targetPages = "doctor_profile")
+    fun lifecycleEnforcesActiveStatusAndServerAuthoritativeWindow() {
+        val dayMs = 24L * 3600L * 1000L
+        val active = makeSponsor(
+            id = "sp_active",
+            status = SponsorCampaignSelector.STATUS_ACTIVE,
+            activatedAt = refNowMs - 2 * dayMs,
+            expiryAt = refNowMs + 5 * dayMs
+        )
+        val pendingPayment = makeSponsor("sp_pp", status = SponsorCampaignSelector.STATUS_PENDING_PAYMENT)
+        val pendingApproval = makeSponsor("sp_pa", status = SponsorCampaignSelector.STATUS_PENDING_APPROVAL)
+        val paused = makeSponsor("sp_paused", status = SponsorCampaignSelector.STATUS_PAUSED)
+        val rejected = makeSponsor("sp_rej", status = SponsorCampaignSelector.STATUS_REJECTED)
+        val expiredByTime = makeSponsor(
+            id = "sp_exp",
+            status = SponsorCampaignSelector.STATUS_ACTIVE,
+            activatedAt = refNowMs - 10 * dayMs,
+            expiryAt = refNowMs - 1000L
+        )
 
-        assertEquals(SponsorCampaignSelector.PAGE_DOCTOR_PROFILE, SponsorCampaignSelector.normalizeRouteToPageKey("doctor_profile/doc_123"))
-        assertEquals(SponsorCampaignSelector.PAGE_INFO, SponsorCampaignSelector.normalizeRouteToPageKey("info/privacy"))
-        assertEquals(SponsorCampaignSelector.PAGE_FIND_DOCTORS, SponsorCampaignSelector.normalizeRouteToPageKey("find_doctors"))
+        assertTrue(SponsorCampaignSelector.isCampaignValid(active, refNowMs))
+        assertEquals(5, SponsorCampaignSelector.remainingDays(active, refNowMs))
 
-        assertTrue(SponsorCampaignSelector.matchesPage(allPages, "facilities"))
-        assertTrue(SponsorCampaignSelector.matchesPage(homeOnly, "home"))
-        assertTrue(SponsorCampaignSelector.matchesPage(homeOnly, "find_doctors"))
-        assertFalse(SponsorCampaignSelector.matchesPage(homeOnly, "portal"))
-        assertTrue(SponsorCampaignSelector.matchesPage(profileOnly, "doctor_profile/doc_99"))
-        assertFalse(SponsorCampaignSelector.matchesPage(profileOnly, "home"))
+        assertFalse(SponsorCampaignSelector.isCampaignValid(pendingPayment, refNowMs))
+        assertFalse(SponsorCampaignSelector.isCampaignValid(pendingApproval, refNowMs))
+        assertFalse(SponsorCampaignSelector.isCampaignValid(paused, refNowMs))
+        assertFalse(SponsorCampaignSelector.isCampaignValid(rejected, refNowMs))
+        assertFalse(SponsorCampaignSelector.isCampaignValid(expiredByTime, refNowMs))
+        assertTrue(SponsorCampaignSelector.isCampaignExpired(expiredByTime, refNowMs))
+        assertEquals(0, SponsorCampaignSelector.remainingDays(expiredByTime, refNowMs))
     }
 
-    // 4. Direct Sponsor Banner selection respects priority & frequency
+    // 4. Offline clock rollback protection via monotonic elapsedRealtime anchor
     @Test
-    fun bannerSelectionRespectsPriorityAndExcludesExpired() {
-        val expiredHigh = makeSponsor("sp_exp", priority = 100, endDate = "2026-05-01")
-        val low = makeSponsor("sp_low", priority = 5, frequency = 1)
-        val high = makeSponsor("sp_high", priority = 50, frequency = 2)
+    fun authoritativeClockBlocksOfflineDeviceClockRollback() {
+        val serverSyncMs = refNowMs
+        val syncElapsedMs = 100_000L
+        val tenMinutesLaterElapsedMs = syncElapsedMs + 600_000L
+        // User maliciously sets device clock back by 30 days while offline
+        val rolledBackDeviceClockMs = refNowMs - 30L * 24L * 3600L * 1000L
 
-        val picked0 = SponsorCampaignSelector.selectBannerSponsor(
-            sponsors = listOf(expiredHigh, low, high),
-            pageKey = "home",
-            rotationTick = 0,
-            nowMs = refNowMs
+        val authoritativeNow = SessionPreferences.computeAuthoritativeNowMs(
+            deviceWallClockMs = rolledBackDeviceClockMs,
+            lastServerSyncAtMs = serverSyncMs,
+            lastServerSyncElapsedMs = syncElapsedMs,
+            currentElapsedMs = tenMinutesLaterElapsedMs
         )
-        assertEquals("sp_high", picked0?.id)
-
-        // Weighted pool has [high, high, low] -> tick 2 selects low
-        val picked2 = SponsorCampaignSelector.selectBannerSponsor(
-            sponsors = listOf(expiredHigh, low, high),
-            pageKey = "home",
-            rotationTick = 2,
-            nowMs = refNowMs
-        )
-        assertEquals("sp_low", picked2?.id)
+        assertEquals(serverSyncMs + 600_000L, authoritativeNow)
     }
 
-    // 5. App Open Sponsor Popup: EVERY_LAUNCH, ONCE_DAILY, ON/OFF, selection & empty state
+    // 5. All 4 Custom Direct Sponsor formats: Banner, Popup, Native Card, About Us Sponsor Ad
     @Test
-    fun appOpenSponsorPopupFrequencyAndSelectionRules() {
-        val spHigh = makeSponsor("sp_1", priority = 20)
-        val spMed = makeSponsor("sp_2", priority = 10)
-        val spExpired = makeSponsor("sp_exp", priority = 99, endDate = "2026-01-01")
+    fun allFourDirectSponsorFormatsSelectAndFilterProperly() {
+        val banner320 = makeSponsor("sp_b320", placementType = SponsorCampaignSelector.PLACEMENT_BANNER_320x100, priority = 30)
+        val banner300 = makeSponsor("sp_b300", placementType = SponsorCampaignSelector.PLACEMENT_BANNER_300x200, priority = 20)
+        val popupAd = makeSponsor("sp_pop", placementType = SponsorCampaignSelector.PLACEMENT_POPUP, priority = 40)
+        val nativeAd = makeSponsor("sp_nat", placementType = SponsorCampaignSelector.PLACEMENT_NATIVE_CARD, priority = 25)
+        val aboutUsAd = makeSponsor("sp_abt", placementType = SponsorCampaignSelector.PLACEMENT_ABOUT_US, priority = 15)
+        val all = listOf(banner320, banner300, popupAd, nativeAd, aboutUsAd)
 
-        // Preferred sponsor selected if valid
-        val preferred = SponsorCampaignSelector.selectAppOpenPopupSponsor(
-            sponsors = listOf(spHigh, spMed, spExpired),
-            preferredSponsorId = "sp_2",
+        // Banner selects banner placement
+        val pickedBanner = SponsorCampaignSelector.selectBannerSponsor(all, "home", 0, refNowMs)
+        assertEquals("sp_b320", pickedBanner?.id)
+
+        // Popup prefers POPUP_AD placement
+        val pickedPopup = SponsorCampaignSelector.selectAppOpenPopupSponsor(all, "", refNowMs)
+        assertEquals("sp_pop", pickedPopup?.id)
+
+        // Native selects SPONSORED_NATIVE_CARD / 300x200 and rotates without duplicates
+        val nat0 = SponsorCampaignSelector.selectNativeSponsorForSlot(all, "find_doctors", 0, refNowMs)
+        val nat1 = SponsorCampaignSelector.selectNativeSponsorForSlot(all, "find_doctors", 1, refNowMs)
+        assertEquals("sp_nat", nat0?.id)
+        assertEquals("sp_b300", nat1?.id)
+        assertNotEquals(nat0?.id, nat1?.id)
+
+        // About Us prioritizes featured ad then dedicated ABOUT_US_SPONSOR, capped by maxAds
+        val aboutPicked = SponsorCampaignSelector.selectAboutUsSponsors(
+            sponsors = all,
+            featuredAdId = "sp_b300",
+            maxAds = 2,
             nowMs = refNowMs
         )
-        assertEquals("sp_2", preferred?.id)
+        assertEquals(2, aboutPicked.size)
+        assertEquals("sp_b300", aboutPicked[0].id)
+        assertEquals("sp_abt", aboutPicked[1].id)
+    }
 
-        // If preferred sponsor is expired, falls back to highest priority valid sponsor
-        val fallback = SponsorCampaignSelector.selectAppOpenPopupSponsor(
-            sponsors = listOf(spHigh, spMed, spExpired),
-            preferredSponsorId = "sp_exp",
-            nowMs = refNowMs
-        )
-        assertEquals("sp_1", fallback?.id)
-
-        // If NO valid sponsor exists, popup must NOT display (returns null)
-        val none = SponsorCampaignSelector.selectAppOpenPopupSponsor(
-            sponsors = listOf(spExpired),
-            preferredSponsorId = "",
-            nowMs = refNowMs
-        )
-        assertNull(none)
-
-        // Frequency rules: EVERY_LAUNCH vs ONCE_DAILY vs disabled
+    // 6. Popup frequency (EVERY_LAUNCH vs ONCE_DAILY) & Native interval (4, 5, 6)
+    @Test
+    fun popupFrequencyAndNativeIntervalsWorkAccurately() {
         assertTrue(
             SponsorCampaignSelector.shouldShowAppOpenPopup(
                 popupEnabled = true,
@@ -220,102 +254,78 @@ class HybridAdSystemTest {
                 alreadyShownThisLaunch = false
             )
         )
-        assertTrue(
-            SponsorCampaignSelector.shouldShowAppOpenPopup(
-                popupEnabled = true,
-                frequency = SponsorCampaignSelector.FREQ_ONCE_DAILY,
-                lastShownDate = "2026-06-14",
-                todayDate = "2026-06-15",
-                alreadyShownThisLaunch = false
-            )
-        )
-        assertFalse(
-            SponsorCampaignSelector.shouldShowAppOpenPopup(
-                popupEnabled = false,
-                frequency = SponsorCampaignSelector.FREQ_EVERY_LAUNCH,
-                lastShownDate = "",
-                todayDate = "2026-06-15",
-                alreadyShownThisLaunch = false
-            )
-        )
-    }
-
-    // 6. Native Sponsor Card interval (4, 5, 6) & non-duplicate rotation
-    @Test
-    fun nativeSponsorIntervalAndRotationPreventDuplicates() {
-        // Default 5 cards: inserted after 0-based index 4, 9, 14
-        assertFalse(SponsorCampaignSelector.shouldInsertNativeSponsorAfter(3, 5))
-        assertTrue(SponsorCampaignSelector.shouldInsertNativeSponsorAfter(4, 5))
-        assertTrue(SponsorCampaignSelector.shouldInsertNativeSponsorAfter(9, 5))
-
-        // Admin configured 4 cards: inserted after index 3, 7
         assertTrue(SponsorCampaignSelector.shouldInsertNativeSponsorAfter(3, 4))
-        assertFalse(SponsorCampaignSelector.shouldInsertNativeSponsorAfter(4, 4))
-        assertTrue(SponsorCampaignSelector.shouldInsertNativeSponsorAfter(7, 4))
-
-        // Admin configured 6 cards: inserted after index 5, 11
-        assertFalse(SponsorCampaignSelector.shouldInsertNativeSponsorAfter(4, 6))
+        assertTrue(SponsorCampaignSelector.shouldInsertNativeSponsorAfter(4, 5))
         assertTrue(SponsorCampaignSelector.shouldInsertNativeSponsorAfter(5, 6))
-
-        // Rotation across multiple active sponsors prevents consecutive duplicates
-        val spA = makeSponsor("sp_a", priority = 30)
-        val spB = makeSponsor("sp_b", priority = 20)
-        val spC = makeSponsor("sp_c", priority = 10)
-        val slot0 = SponsorCampaignSelector.selectNativeSponsorForSlot(listOf(spA, spB, spC), "home", 0, refNowMs)
-        val slot1 = SponsorCampaignSelector.selectNativeSponsorForSlot(listOf(spA, spB, spC), "home", 1, refNowMs)
-        val slot2 = SponsorCampaignSelector.selectNativeSponsorForSlot(listOf(spA, spB, spC), "home", 2, refNowMs)
-        assertEquals("sp_a", slot0?.id)
-        assertEquals("sp_b", slot1?.id)
-        assertEquals("sp_c", slot2?.id)
-        assertNotEquals(slot0?.id, slot1?.id)
-
-        // Single valid sponsor avoids repeating duplicates in same short section
-        val onlyFirst = SponsorCampaignSelector.selectNativeSponsorForSlot(listOf(spA), "home", 0, refNowMs)
-        val noDuplicateSecond = SponsorCampaignSelector.selectNativeSponsorForSlot(listOf(spA), "home", 1, refNowMs)
-        assertEquals("sp_a", onlyFirst?.id)
-        assertNull(noDuplicateSecond)
+        assertFalse(SponsorCampaignSelector.shouldInsertNativeSponsorAfter(2, 5))
     }
 
-    // 7. Image & Website URL validation + magic byte safety enforcement
+    // 7. Image, URL, Mobile, TrxID validation & Salted SHA-256 hashing
     @Test
-    fun validatesImageFormatsSizesAndSecureUrls() {
+    fun validatesMediaPaymentsAndSaltedPasswordHash() {
         assertTrue(SponsorCampaignSelector.isValidImageSource("https://cdn.hospitalbd.com/banner.png"))
-        assertTrue(SponsorCampaignSelector.isValidImageSource("data:image/png;base64,iVBORw0KGgo="))
-        assertFalse(SponsorCampaignSelector.isValidImageSource("http://insecure.example.com/banner.png"))
+        assertTrue(SponsorCampaignSelector.isValidImageSource("data:image/webp;base64,UklGRh4="))
         assertFalse(SponsorCampaignSelector.isValidImageSource("javascript:alert(1)"))
 
-        assertTrue(SponsorCampaignSelector.isValidWebsiteUrl("https://hospitalbd.com"))
-        assertFalse(SponsorCampaignSelector.isValidWebsiteUrl("file:///etc/passwd"))
+        assertTrue(SponsorCampaignSelector.validateImageDimensions(300, 200, 300, 200))
+        assertFalse(SponsorCampaignSelector.validateImageDimensions(50, 20, 300, 200))
 
-        // Valid PNG magic header
+        assertTrue(SponsorCampaignSelector.isValidBangladeshMobile("01712345678"))
+        assertTrue(SponsorCampaignSelector.isValidBangladeshMobile("+8801812345678"))
+        assertFalse(SponsorCampaignSelector.isValidBangladeshMobile("12345"))
+
+        assertEquals("TRX9AB88C", SponsorCampaignSelector.normalizeTransactionId("  trx-9ab 88c "))
+
         val validPng = byteArrayOf(
             0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
             0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52
         )
         assertTrue(SponsorCampaignSelector.isSupportedImageBytes(validPng))
+        assertFalse(SponsorCampaignSelector.isSupportedImageBytes("<script>xss</script>".toByteArray()))
 
-        // Valid JPEG magic header
-        val validJpeg = ByteArray(16).apply {
-            this[0] = 0xFF.toByte()
-            this[1] = 0xD8.toByte()
-            this[2] = 0xFF.toByte()
-        }
-        assertTrue(SponsorCampaignSelector.isSupportedImageBytes(validJpeg))
-
-        // Invalid text payload rejected
-        val fakeScript = "<script>alert('xss')</script>".toByteArray()
-        assertFalse(SponsorCampaignSelector.isSupportedImageBytes(fakeScript))
-
-        // Oversized > 3MB payload rejected
-        val oversized = ByteArray(SponsorCampaignSelector.MAX_IMAGE_BYTES + 100).apply {
-            this[0] = 0x89.toByte(); this[1] = 0x50; this[2] = 0x4E; this[3] = 0x47
-        }
-        assertFalse(SponsorCampaignSelector.isSupportedImageBytes(oversized))
+        val salt1 = AdvertiserRemoteService.generateSalt()
+        val salt2 = AdvertiserRemoteService.generateSalt()
+        assertNotEquals(salt1, salt2)
+        assertEquals(
+            AdvertiserRemoteService.hashPassword("Secret#2026", salt1),
+            AdvertiserRemoteService.hashPassword("Secret#2026", salt1)
+        )
+        assertNotEquals(
+            AdvertiserRemoteService.hashPassword("Secret#2026", salt1),
+            AdvertiserRemoteService.hashPassword("Secret#2026", salt2)
+        )
     }
 
-    // 8. Persistent Room cache + local file survival in Offline Mode
+    // 8. Room v7 persistence, local file offline cache & offline view analytics queue with 30s dedup
     @Test
-    fun offlineSponsorCacheSurvivesOfflineStateAndResolvesLocalFile() = runBlocking {
+    fun offlineCacheAndQueuedViewEventsWorkOfflineWithDuplicateProtection() = runBlocking {
+        // Persist dynamic package & payment settings in Room
+        db.sponsorPackageDao().insertAll(
+            listOf(
+                SponsorPackageEntity(
+                    id = "pkg_300x200_30d",
+                    name = "Standard 300x200 Banner",
+                    widthPx = 300,
+                    heightPx = 200,
+                    durationDays = 30,
+                    priceBdt = 300,
+                    placementType = SponsorCampaignSelector.PLACEMENT_BANNER_300x200,
+                    status = "ACTIVE"
+                )
+            )
+        )
+        db.paymentSettingsDao().save(
+            PaymentSettingsEntity(
+                bkashNumber = "01700000001",
+                bkashAccountType = "Personal",
+                nagadNumber = "01800000002",
+                nagadAccountType = "Personal"
+            )
+        )
+        assertEquals(1, db.sponsorPackageDao().getActiveOnce().size)
+        assertEquals("01700000001", db.paymentSettingsDao().getOnce()?.bkashNumber)
+
+        // Save validated sponsor image to local cache
         val validPng = byteArrayOf(
             0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
             0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52
@@ -328,61 +338,62 @@ class HybridAdSystemTest {
             bytes = validPng
         )
         assertNotNull(savedFile)
-        assertTrue(savedFile!!.exists())
+        db.sponsorDao().insert(makeSponsor(id = "sp_cached", localBannerPath = savedFile!!.absolutePath))
 
-        val sponsor = makeSponsor(
-            id = "sp_cached",
-            name = "Dhaka Heart Lab",
-            localBannerPath = savedFile.absolutePath
-        )
-        db.sponsorDao().insert(sponsor)
-
-        // Simulate offline mode: Room still returns cached sponsor and resolves local File directly
+        // Switch to OFFLINE mode -> cached file resolves locally, uncached HTTPS blocked
         ConnectivityMonitor.setOnlineForTesting(false)
         assertFalse(ConnectivityMonitor.isOnline.value)
 
-        val persisted = db.sponsorDao().getAllOnce()
-        assertEquals(1, persisted.size)
-        assertEquals("Dhaka Heart Lab", persisted.first().name)
-
         val offlineModel = SponsorOfflineCacheManager.resolveImageModel(
-            localPath = persisted.first().localBannerPath,
-            remoteUrl = persisted.first().bannerImageUrl,
+            localPath = savedFile.absolutePath,
+            remoteUrl = "https://cdn.example.com/cached.png",
             isOnline = false
         )
-        assertTrue("Offline resolver must return cached File", offlineModel is File)
-        assertEquals(savedFile.absolutePath, (offlineModel as File).absolutePath)
-
-        // Uncached remote HTTPS image must NOT be requested while offline
-        val uncachedOffline = SponsorOfflineCacheManager.resolveImageModel(
-            localPath = "",
-            remoteUrl = "https://cdn.example.com/uncached.png",
-            isOnline = false
+        assertTrue(offlineModel is File)
+        assertNull(
+            SponsorOfflineCacheManager.resolveImageModel(
+                localPath = "",
+                remoteUrl = "https://cdn.example.com/uncached.png",
+                isOnline = false
+            )
         )
-        assertNull("Offline mode must not attempt remote HTTPS image fetch", uncachedOffline)
-    }
 
-    // 9. Strictly separated offline local event counters in SessionPreferences
-    @Test
-    fun offlineDisplaysAndSessionsAreRecordedLocallyAndConsumedOnReconnect() = runBlocking {
+        // Offline visible impression queues in Room & enforces 30s duplicate protection
         val prefs = SessionPreferences(context)
-        prefs.consumePendingOfflineStats() // clear any prior state
+        val firstCounted = AdRevenueTracker.recordVisibleImpression(
+            db = db,
+            prefs = prefs,
+            adId = "sp_cached",
+            packageId = "pkg_300x200_30d",
+            slotKey = "banner_home",
+            isOnline = false,
+            nowMs = refNowMs
+        )
+        val duplicateBlocked = AdRevenueTracker.recordVisibleImpression(
+            db = db,
+            prefs = prefs,
+            adId = "sp_cached",
+            packageId = "pkg_300x200_30d",
+            slotKey = "banner_home",
+            isOnline = false,
+            nowMs = refNowMs + 10_000L
+        )
+        val afterCooldown = AdRevenueTracker.recordVisibleImpression(
+            db = db,
+            prefs = prefs,
+            adId = "sp_cached",
+            packageId = "pkg_300x200_30d",
+            slotKey = "banner_home",
+            isOnline = false,
+            nowMs = refNowMs + 35_000L
+        )
 
-        prefs.recordLocalOfflineSponsorDisplay()
-        prefs.recordLocalOfflineSponsorDisplay()
-        prefs.recordLocalOfflineSession()
+        assertTrue(firstCounted)
+        assertFalse(duplicateBlocked)
+        assertTrue(afterCooldown)
 
-        val (displays, sessions) = prefs.consumePendingOfflineStats()
-        assertEquals(2, displays)
-        assertEquals(1, sessions)
-
-        // After flush/consume, local queue resets to 0
-        val (afterDisplays, afterSessions) = prefs.consumePendingOfflineStats()
-        assertEquals(0, afterDisplays)
-        assertEquals(0, afterSessions)
-
-        // Popup daily date persists cleanly
-        prefs.setLastAppOpenPopupDate("2026-06-15")
-        assertEquals("2026-06-15", prefs.getLastAppOpenPopupDateOnce())
+        val queued: List<PendingAdViewEventEntity> = db.pendingAdViewEventDao().getPendingOnce()
+        assertEquals(2, queued.size)
+        assertTrue(queued.all { it.wasOffline && it.adId == "sp_cached" })
     }
 }

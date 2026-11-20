@@ -16,15 +16,20 @@ import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,6 +42,41 @@ import com.example.data.local.SponsorEntity
 import com.example.i18n.AppLang
 import com.example.i18n.tr
 import com.example.ui.theme.*
+import kotlin.math.max
+import kotlin.math.min
+
+/**
+ * Counts an impression ONLY when at least 50% of the advertisement card/banner is genuinely visible
+ * inside the active screen viewport (prevents off-screen LazyColumn pre-composition inflation).
+ */
+fun Modifier.onAdVisibleOnScreen(
+    visibilityKey: String,
+    onBecomeVisible: () -> Unit
+): Modifier = composed {
+    val rootView = LocalView.current.rootView
+    var firedForKey by remember(visibilityKey) { mutableStateOf(false) }
+    val latestCallback by rememberUpdatedState(onBecomeVisible)
+
+    this.onGloballyPositioned { coords ->
+        if (firedForKey || !coords.isAttached) return@onGloballyPositioned
+        val rect = coords.boundsInWindow()
+        val height = rect.height
+        val width = rect.width
+        if (height <= 0f || width <= 0f) return@onGloballyPositioned
+        val screenH = rootView.height.toFloat().coerceAtLeast(1f)
+        val screenW = rootView.width.toFloat().coerceAtLeast(1f)
+        val visibleTop = max(0f, rect.top)
+        val visibleBottom = min(screenH, rect.bottom)
+        val visibleLeft = max(0f, rect.left)
+        val visibleRight = min(screenW, rect.right)
+        val visibleH = (visibleBottom - visibleTop).coerceAtLeast(0f)
+        val visibleW = (visibleRight - visibleLeft).coerceAtLeast(0f)
+        if ((visibleH / height) >= 0.5f && (visibleW / width) >= 0.5f) {
+            firedForKey = true
+            latestCallback()
+        }
+    }
+}
 
 private fun openSponsorWebsite(
     context: Context,
@@ -64,14 +104,11 @@ private fun openSponsorWebsite(
 private fun dialSponsorPhone(
     context: Context,
     sponsor: SponsorEntity,
-    isOnline: Boolean,
     onClickTracked: (String) -> Unit
 ) {
     val phone = sponsor.contactNumber.trim()
     if (phone.isEmpty()) return
-    if (isOnline) {
-        onClickTracked(sponsor.id)
-    }
+    onClickTracked(sponsor.id)
     runCatching {
         context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone")))
     }
@@ -113,9 +150,40 @@ private fun SponsorLogoAvatar(
     }
 }
 
+@Composable
+private fun SponsoredBadgePill(lang: AppLang, isOnline: Boolean, darkBg: Boolean = false) {
+    Surface(
+        color = if (darkBg) Color.Black.copy(alpha = 0.68f) else MedicalTealLight,
+        shape = RoundedCornerShape(6.dp),
+        border = if (darkBg) null else BorderStroke(1.dp, MedicalTeal.copy(alpha = 0.45f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = tr(lang, "স্পন্সরড", "Sponsored"),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = if (darkBg) Color.White else MedicalTealDark
+            )
+            if (!isOnline) {
+                Icon(
+                    imageVector = Icons.Rounded.CloudOff,
+                    contentDescription = "Offline cached sponsor",
+                    tint = if (darkBg) Color(0xFFBAE6FD) else TextMuted,
+                    modifier = Modifier.size(11.dp)
+                )
+            }
+        }
+    }
+}
+
 /**
- * Responsive Direct Sponsor Banner component displayed on every app page.
- * Works seamlessly in both Online Mode and Offline Mode (using persisted local cached images & metadata).
+ * Responsive Direct Sponsor Banner displayed across app pages.
+ * Supports 320x100, 300x200, 728x90, and custom-size packages, with server-authoritative expiry check
+ * and real viewport-visibility impression counting.
  */
 @Composable
 fun SponsorBannerView(
@@ -123,18 +191,20 @@ fun SponsorBannerView(
     adConfig: AdConfigEntity,
     pageKey: String,
     isOnline: Boolean,
+    nowMs: Long,
     lang: AppLang,
-    onSponsorDisplayed: (sponsorId: String, isOnline: Boolean) -> Unit,
+    onSponsorDisplayed: (sponsorId: String, isOnline: Boolean, slotKey: String) -> Unit,
     onSponsorClicked: (sponsorId: String, isOnline: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (!adConfig.adsEnabled || !adConfig.sponsorBannerEnabled) return
 
-    val sponsor = remember(sponsors, pageKey) {
+    val sponsor = remember(sponsors, pageKey, nowMs / 60_000L) {
         SponsorCampaignSelector.selectBannerSponsor(
             sponsors = sponsors,
             pageKey = pageKey,
-            rotationTick = pageKey.hashCode()
+            rotationTick = pageKey.hashCode(),
+            nowMs = nowMs
         )
     } ?: return
 
@@ -143,16 +213,15 @@ fun SponsorBannerView(
         SponsorOfflineCacheManager.resolveImageModel(sponsor.localBannerPath, sponsor.bannerImageUrl, isOnline)
     }
 
-    LaunchedEffect(sponsor.id, pageKey, isOnline) {
-        onSponsorDisplayed(sponsor.id, isOnline)
-    }
-
     Surface(
         color = SurfaceWhite,
         border = BorderStroke(1.dp, MedicalTeal.copy(alpha = 0.35f)),
         tonalElevation = 2.dp,
         modifier = modifier
             .fillMaxWidth()
+            .onAdVisibleOnScreen("banner_${sponsor.id}_$pageKey") {
+                onSponsorDisplayed(sponsor.id, isOnline, "banner_$pageKey")
+            }
             .testTag("direct_sponsor_banner")
     ) {
         Row(
@@ -171,11 +240,10 @@ fun SponsorBannerView(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Promotional banner thumbnail or sponsor logo
             if (bannerModel != null) {
                 Box(
                     modifier = Modifier
-                        .size(width = 64.dp, height = 46.dp)
+                        .size(width = 72.dp, height = 48.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(MedicalBlueLight)
                 ) {
@@ -185,7 +253,6 @@ fun SponsorBannerView(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
-                    // Small sponsor logo badge overlay
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
@@ -206,18 +273,7 @@ fun SponsorBannerView(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .background(MedicalTeal, RoundedCornerShape(4.dp))
-                            .padding(horizontal = 5.dp, vertical = 1.dp)
-                    ) {
-                        Text(
-                            text = tr(lang, "স্পন্সরড", "Sponsored"),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
+                    SponsoredBadgePill(lang = lang, isOnline = isOnline)
                     Text(
                         text = sponsor.name,
                         style = MaterialTheme.typography.labelMedium,
@@ -226,15 +282,8 @@ fun SponsorBannerView(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (!isOnline) {
-                        Icon(
-                            imageVector = Icons.Rounded.CloudOff,
-                            contentDescription = "Offline cached sponsor",
-                            tint = TextMuted,
-                            modifier = Modifier.size(12.dp)
-                        )
-                    }
                 }
+                Spacer(Modifier.height(2.dp))
                 Text(
                     text = sponsor.promoTitle.ifBlank { sponsor.description },
                     style = MaterialTheme.typography.bodySmall,
@@ -244,7 +293,6 @@ fun SponsorBannerView(
                 )
             }
 
-            // Action buttons (Visit Sponsor + optional Call Sponsor)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -252,9 +300,7 @@ fun SponsorBannerView(
                 if (sponsor.contactNumber.isNotBlank()) {
                     FilledTonalIconButton(
                         onClick = {
-                            dialSponsorPhone(context, sponsor, isOnline) { id ->
-                                onSponsorClicked(id, isOnline)
-                            }
+                            dialSponsorPhone(context, sponsor) { id -> onSponsorClicked(id, isOnline) }
                         },
                         colors = IconButtonDefaults.filledTonalIconButtonColors(
                             containerColor = MedicalTealLight,
@@ -297,26 +343,21 @@ fun SponsorBannerView(
 }
 
 /**
- * Direct Sponsor App Open Popup displayed when the app launches.
- * - Includes Sponsor Image, Logo, Sponsor Name, Promotional Text, CTA, and clearly visible Close (X) button.
- * - Never forces clicks or blocks navigation; works offline from local cache; hidden if no valid sponsor exists.
+ * Direct Sponsor Popup Advertisement displayed when the application launches.
+ * Dismissible immediately via visible Close (X) button or Continue button.
  */
 @Composable
 fun AppOpenSponsorPopupDialog(
     sponsor: SponsorEntity,
     isOnline: Boolean,
     lang: AppLang,
-    onDisplayed: (sponsorId: String, isOnline: Boolean) -> Unit,
+    onDisplayed: (sponsorId: String, isOnline: Boolean, slotKey: String) -> Unit,
     onClicked: (sponsorId: String, isOnline: Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val bannerModel = remember(sponsor.localBannerPath, sponsor.bannerImageUrl, isOnline) {
         SponsorOfflineCacheManager.resolveImageModel(sponsor.localBannerPath, sponsor.bannerImageUrl, isOnline)
-    }
-
-    LaunchedEffect(sponsor.id, isOnline) {
-        onDisplayed(sponsor.id, isOnline)
     }
 
     Dialog(
@@ -335,18 +376,18 @@ fun AppOpenSponsorPopupDialog(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
                 .widthIn(max = 420.dp)
+                .onAdVisibleOnScreen("popup_${sponsor.id}") {
+                    onDisplayed(sponsor.id, isOnline, "popup")
+                }
                 .testTag("app_open_sponsor_popup")
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                // Hero Banner Area with clearly visible Close (X) button & Sponsored label
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(190.dp)
+                        .height(200.dp)
                         .background(
-                            Brush.linearGradient(
-                                listOf(MedicalBlueDark, MedicalTealDark)
-                            )
+                            Brush.linearGradient(listOf(MedicalBlueDark, MedicalTealDark))
                         )
                 ) {
                     if (bannerModel != null) {
@@ -392,36 +433,14 @@ fun AppOpenSponsorPopupDialog(
                         }
                     }
 
-                    // Sponsored badge top-left
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.65f),
-                        shape = RoundedCornerShape(999.dp),
+                    Box(
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .padding(12.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = tr(lang, "স্পন্সরড বিজ্ঞাপন", "Sponsored"),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            if (!isOnline) {
-                                Text(
-                                    text = "• Offline",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color(0xFFBAE6FD)
-                                )
-                            }
-                        }
+                        SponsoredBadgePill(lang = lang, isOnline = isOnline, darkBg = true)
                     }
 
-                    // Clearly visible Close (X) button (48dp touch target) top-right
                     IconButton(
                         onClick = onDismiss,
                         colors = IconButtonDefaults.iconButtonColors(
@@ -442,7 +461,6 @@ fun AppOpenSponsorPopupDialog(
                     }
                 }
 
-                // Sponsor Identity & Promotional Copy
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -516,9 +534,7 @@ fun AppOpenSponsorPopupDialog(
                         if (sponsor.contactNumber.isNotBlank()) {
                             OutlinedButton(
                                 onClick = {
-                                    dialSponsorPhone(context, sponsor, isOnline) { id ->
-                                        onClicked(id, isOnline)
-                                    }
+                                    dialSponsorPhone(context, sponsor) { id -> onClicked(id, isOnline) }
                                 },
                                 border = BorderStroke(1.dp, MedicalTeal),
                                 modifier = Modifier
@@ -537,7 +553,6 @@ fun AppOpenSponsorPopupDialog(
                         }
                     }
 
-                    // Always provide non-blocking continue button
                     TextButton(
                         onClick = onDismiss,
                         modifier = Modifier
@@ -558,10 +573,9 @@ fun AppOpenSponsorPopupDialog(
 }
 
 /**
- * Reusable Native Sponsor Advertisement Card displayed between content cards (every 4, 5, or 6 cards).
- * - Visually distinct with clear "Sponsored" badge.
- * - Rotates active sponsors by priority & schedule, preventing duplicate sponsors in short sections.
- * - Works seamlessly offline using cached images & metadata.
+ * Reusable Sponsored Native Card displayed between content cards (4/5/6 interval).
+ * Respects configured package aspect ratio (e.g., 300x200, 320x100, 728x90, or custom) and counts
+ * impressions ONLY when genuinely visible on screen.
  */
 @Composable
 fun NativeSponsorAdCard(
@@ -570,28 +584,66 @@ fun NativeSponsorAdCard(
     pageKey: String,
     slotIndex: Int,
     isOnline: Boolean,
+    nowMs: Long,
     lang: AppLang,
-    onSponsorDisplayed: (sponsorId: String, isOnline: Boolean) -> Unit,
+    onSponsorDisplayed: (sponsorId: String, isOnline: Boolean, slotKey: String) -> Unit,
     onSponsorClicked: (sponsorId: String, isOnline: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (!adConfig.adsEnabled || !adConfig.nativeSponsorEnabled) return
 
-    val sponsor = remember(sponsors, pageKey, slotIndex) {
+    val sponsor = remember(sponsors, pageKey, slotIndex, nowMs / 60_000L) {
         SponsorCampaignSelector.selectNativeSponsorForSlot(
             sponsors = sponsors,
             pageKey = pageKey,
-            slotIndex = slotIndex
+            slotIndex = slotIndex,
+            nowMs = nowMs
         )
     } ?: return
 
+    SponsorCardRenderer(
+        sponsor = sponsor,
+        slotKey = "native_${pageKey}_$slotIndex",
+        isOnline = isOnline,
+        lang = lang,
+        onSponsorDisplayed = onSponsorDisplayed,
+        onSponsorClicked = onSponsorClicked,
+        modifier = modifier.testTag("native_sponsor_ad_card_$slotIndex")
+    )
+}
+
+/**
+ * Shared responsive Sponsor Advertisement Card supporting 300x200, 320x100, 728x90,
+ * Custom-size banners, Sponsored Native Cards, and About Us Sponsor placements.
+ */
+@Composable
+fun SponsorCardRenderer(
+    sponsor: SponsorEntity,
+    slotKey: String,
+    isOnline: Boolean,
+    lang: AppLang,
+    onSponsorDisplayed: (sponsorId: String, isOnline: Boolean, slotKey: String) -> Unit,
+    onSponsorClicked: (sponsorId: String, isOnline: Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val bannerModel = remember(sponsor.localBannerPath, sponsor.bannerImageUrl, isOnline) {
         SponsorOfflineCacheManager.resolveImageModel(sponsor.localBannerPath, sponsor.bannerImageUrl, isOnline)
     }
 
-    LaunchedEffect(sponsor.id, pageKey, slotIndex, isOnline) {
-        onSponsorDisplayed(sponsor.id, isOnline)
+    // Dynamic responsive height respecting package dimensions (300x200 -> tall, 320x100 / 728x90 -> wide)
+    val imageHeightDp = remember(sponsor.widthPx, sponsor.heightPx, sponsor.placementType) {
+        when {
+            sponsor.placementType.equals(SponsorCampaignSelector.PLACEMENT_BANNER_728x90, ignoreCase = true) -> 88.dp
+            sponsor.placementType.equals(SponsorCampaignSelector.PLACEMENT_BANNER_320x100, ignoreCase = true) -> 110.dp
+            sponsor.placementType.equals(SponsorCampaignSelector.PLACEMENT_BANNER_300x200, ignoreCase = true) -> 196.dp
+            else -> {
+                val ratio = if (sponsor.widthPx > 0 && sponsor.heightPx > 0) {
+                    sponsor.heightPx.toFloat() / sponsor.widthPx.toFloat()
+                } else 0.55f
+                (300f * ratio).coerceIn(96f, 220f).dp
+            }
+        }
     }
 
     Card(
@@ -601,7 +653,9 @@ fun NativeSponsorAdCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = modifier
             .fillMaxWidth()
-            .testTag("native_sponsor_ad_card_${slotIndex}")
+            .onAdVisibleOnScreen("${slotKey}_${sponsor.id}") {
+                onSponsorDisplayed(sponsor.id, isOnline, slotKey)
+            }
     ) {
         Column(
             modifier = Modifier
@@ -615,7 +669,6 @@ fun NativeSponsorAdCard(
                     )
                 )
         ) {
-            // Header row: Logo + Sponsor Name + Clear Sponsored Badge
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -642,36 +695,27 @@ fun NativeSponsorAdCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Surface(
-                    color = MedicalTealLight,
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, MedicalTeal.copy(alpha = 0.45f))
+                SponsoredBadgePill(lang = lang, isOnline = isOnline)
+            }
+
+            if (bannerModel != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(imageHeightDp)
+                        .padding(horizontal = 12.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MedicalBlueLight.copy(alpha = 0.4f))
                 ) {
-                    Text(
-                        text = tr(lang, "স্পন্সরড", "Sponsored"),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MedicalTealDark,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    AsyncImage(
+                        model = bannerModel,
+                        contentDescription = sponsor.promoTitle.ifBlank { sponsor.name },
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
             }
 
-            // Promotional Banner Image (Cached locally for offline)
-            if (bannerModel != null) {
-                AsyncImage(
-                    model = bannerModel,
-                    contentDescription = sponsor.promoTitle.ifBlank { sponsor.name },
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(148.dp)
-                        .padding(horizontal = 12.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                )
-            }
-
-            // Description + CTA Row
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -717,9 +761,7 @@ fun NativeSponsorAdCard(
                     if (sponsor.contactNumber.isNotBlank()) {
                         OutlinedButton(
                             onClick = {
-                                dialSponsorPhone(context, sponsor, isOnline) { id ->
-                                    onSponsorClicked(id, isOnline)
-                                }
+                                dialSponsorPhone(context, sponsor) { id -> onSponsorClicked(id, isOnline) }
                             },
                             border = BorderStroke(1.dp, MedicalTeal),
                             modifier = Modifier.heightIn(min = 44.dp)
@@ -738,6 +780,153 @@ fun NativeSponsorAdCard(
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Administrator-controlled Sponsor Advertisement Section for the About Us page,
+ * paired with a direct CTA for businesses & institutions to purchase packages or manage their ads.
+ */
+@Composable
+fun AboutUsSponsorSection(
+    sponsors: List<SponsorEntity>,
+    adConfig: AdConfigEntity,
+    isOnline: Boolean,
+    nowMs: Long,
+    lang: AppLang,
+    onSponsorDisplayed: (sponsorId: String, isOnline: Boolean, slotKey: String) -> Unit,
+    onSponsorClicked: (sponsorId: String, isOnline: Boolean) -> Unit,
+    onOpenAdvertiserPortal: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val activeAboutSponsors = remember(sponsors, adConfig, nowMs / 60_000L) {
+        if (!adConfig.adsEnabled || !adConfig.aboutUsSponsorEnabled) emptyList()
+        else SponsorCampaignSelector.selectAboutUsSponsors(
+            sponsors = sponsors,
+            featuredAdId = adConfig.aboutUsFeaturedAdId,
+            maxAds = adConfig.aboutUsSponsorMaxAds,
+            nowMs = nowMs
+        )
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("about_us_sponsor_section"),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        if (adConfig.adsEnabled && adConfig.aboutUsSponsorEnabled && activeAboutSponsors.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Campaign,
+                        contentDescription = null,
+                        tint = MedicalTealDark,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = tr(
+                            lang,
+                            adConfig.aboutUsSponsorTitleBn.ifBlank { "আমাদের স্পন্সর পার্টনার" },
+                            adConfig.aboutUsSponsorTitleEn.ifBlank { "Our Sponsor Partners" }
+                        ),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                }
+                SponsoredBadgePill(lang = lang, isOnline = isOnline)
+            }
+
+            activeAboutSponsors.forEachIndexed { idx, sp ->
+                SponsorCardRenderer(
+                    sponsor = sp,
+                    slotKey = "about_us_$idx",
+                    isOnline = isOnline,
+                    lang = lang,
+                    onSponsorDisplayed = onSponsorDisplayed,
+                    onSponsorClicked = onSponsorClicked,
+                    modifier = Modifier.testTag("about_us_sponsor_card_$idx")
+                )
+            }
+        }
+
+        // Direct Sponsor Portal CTA Card for Businesses & Healthcare Institutions
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = SurfaceWhite,
+            border = BorderStroke(1.2.dp, MedicalBlue.copy(alpha = 0.35f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(MedicalBlueLight.copy(alpha = 0.5f), SurfaceWhite)
+                        )
+                    )
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MedicalBlue,
+                        modifier = Modifier.size(42.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Rounded.Storefront,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = tr(lang, "আপনার প্রতিষ্ঠানের বিজ্ঞাপন দিন", "Advertise Your Business Here"),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = tr(
+                                lang,
+                                "হাসপাতাল, ডায়াগনস্টিক বা ফার্মেসি — সরাসরি প্যাকেজ কিনে বিজ্ঞাপন প্রকাশ করুন (বিকাশ/নগদ)।",
+                                "Hospitals, clinics & businesses can purchase direct sponsor packages via bKash or Nagad."
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = onOpenAdvertiserPortal,
+                    colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("open_advertiser_portal_btn")
+                ) {
+                    Icon(Icons.Rounded.Campaign, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(tr(lang, "অ্যাডভার্টাইজার পোর্টাল ওপেন করুন", "Open Advertiser Portal"))
                 }
             }
         }

@@ -10,7 +10,7 @@ import java.util.UUID
 
 class DirectoryRepository(context: Context) {
     private val appContext = context.applicationContext ?: context
-    private val db = AppDatabase.getInstance(appContext)
+    val db = AppDatabase.getInstance(appContext)
     val prefs = SessionPreferences(appContext)
 
     suspend fun initializeAndSync(): Result<Int> {
@@ -35,6 +35,11 @@ class DirectoryRepository(context: Context) {
         it ?: AdConfigEntity()
     }
     val sponsors: Flow<List<SponsorEntity>> = db.sponsorDao().observeAll()
+    val sponsorPackages: Flow<List<SponsorPackageEntity>> = db.sponsorPackageDao().observeAll()
+    val paymentSettings: Flow<PaymentSettingsEntity> = db.paymentSettingsDao().observe().map {
+        it ?: PaymentSettingsEntity()
+    }
+    val pendingViewEventsCount: Flow<Int> = db.pendingAdViewEventDao().observePendingCount()
 
     val doctorsFull: Flow<List<DoctorFullProfile>> = combine(
         db.doctorDao().observeAll(),

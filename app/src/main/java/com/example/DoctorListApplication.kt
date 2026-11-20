@@ -2,16 +2,17 @@ package com.example
 
 import android.app.Application
 import com.example.ui.ads.ConnectivityMonitor
-import com.example.ui.ads.StartIoConfig
 
+/**
+ * Application entry point.
+ * Monitors real internet reachability so:
+ * - ONLINE:  Start.io Ads + Unity Ads + Custom Direct Sponsor Ads are active.
+ * - OFFLINE: Network SDKs are strictly disabled and cached Direct Sponsor Ads ONLY are shown.
+ * Google AdMob is strictly removed.
+ */
 class DoctorListApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        // Start real internet reachability monitoring before initializing online ad SDKs
         ConnectivityMonitor.start(this)
-        if (ConnectivityMonitor.isOnline.value) {
-            // Initialize Start.io SDK at Application startup only when connectivity is present
-            StartIoConfig.init(this)
-        }
     }
 }

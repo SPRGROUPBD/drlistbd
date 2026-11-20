@@ -43,7 +43,6 @@ import com.example.i18n.AppStrings
 import com.example.i18n.tr
 import com.example.ui.ads.ManagedNativeBannerAd
 import com.example.ui.ads.NativeSponsorAdCard
-import com.example.ui.ads.RewardedAdCard
 import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.*
 import com.example.ui.theme.*
@@ -55,7 +54,8 @@ fun HomeScreen(
     adConfig: AdConfigEntity,
     sponsors: List<SponsorEntity> = emptyList(),
     isOnline: Boolean = true,
-    onSponsorDisplayed: (String, Boolean) -> Unit = { _, _ -> },
+    nowMs: Long = System.currentTimeMillis(),
+    onSponsorDisplayed: (String, Boolean, String) -> Unit = { _, _, _ -> },
     onSponsorClicked: (String, Boolean) -> Unit = { _, _ -> },
     isSyncing: Boolean,
     specialties: List<SpecialtyEntity>,
@@ -63,9 +63,6 @@ fun HomeScreen(
     doctors: List<DoctorFullProfile>,
     hospitals: List<HospitalEntity>,
     favoriteIds: Set<String>,
-    isRewardedReady: Boolean,
-    isRewardedLoading: Boolean = false,
-    onWatchRewardedAd: () -> Unit,
     onRefreshDirectory: () -> Unit,
     onSearchSubmit: (String) -> Unit,
     onSelectSpecialty: (String) -> Unit,
@@ -91,7 +88,6 @@ fun HomeScreen(
     }
     val availableTodayDocs = remember(doctors) { doctors.filter { it.isAvailableToday() }.take(5) }
     val recentDocs = remember(doctors) { doctors.sortedByDescending { it.doctor.updatedAt }.take(6) }
-    val nativeInterval = adConfig.nativeAdInterval.coerceAtLeast(2)
 
     LazyColumn(
         modifier = modifier
@@ -248,11 +244,18 @@ fun HomeScreen(
             Spacer(Modifier.height(12.dp))
         }
 
-        // Managed Native Banner Ad #1 (Unity Ads / Start.io)
+        // Top Direct Sponsor Native Card (if active sponsors exist)
         item {
-            ManagedNativeBannerAd(
+            NativeSponsorAdCard(
+                sponsors = sponsors,
                 adConfig = adConfig,
+                pageKey = SponsorCampaignSelector.PAGE_HOME,
+                slotIndex = 0,
+                isOnline = isOnline,
+                nowMs = nowMs,
                 lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
             Spacer(Modifier.height(8.dp))
@@ -399,22 +402,17 @@ fun HomeScreen(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                     )
                     if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(index, adConfig.nativeSponsorInterval)) {
-                        val slot = index / adConfig.nativeSponsorInterval.coerceIn(4, 6)
+                        val slot = 1 + (index / adConfig.nativeSponsorInterval.coerceIn(4, 6))
                         NativeSponsorAdCard(
                             sponsors = sponsors,
                             adConfig = adConfig,
                             pageKey = SponsorCampaignSelector.PAGE_HOME,
                             slotIndex = slot,
                             isOnline = isOnline,
+                            nowMs = nowMs,
                             lang = lang,
                             onSponsorDisplayed = onSponsorDisplayed,
                             onSponsorClicked = onSponsorClicked,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                        )
-                    } else if ((index + 1) % nativeInterval == 0) {
-                        ManagedNativeBannerAd(
-                            adConfig = adConfig,
-                            lang = lang,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                         )
                     }
@@ -441,22 +439,17 @@ fun HomeScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                 )
                 if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(index, adConfig.nativeSponsorInterval)) {
-                    val slot = 1 + (index / adConfig.nativeSponsorInterval.coerceIn(4, 6))
+                    val slot = 2 + (index / adConfig.nativeSponsorInterval.coerceIn(4, 6))
                     NativeSponsorAdCard(
                         sponsors = sponsors,
                         adConfig = adConfig,
                         pageKey = SponsorCampaignSelector.PAGE_HOME,
                         slotIndex = slot,
                         isOnline = isOnline,
+                        nowMs = nowMs,
                         lang = lang,
                         onSponsorDisplayed = onSponsorDisplayed,
                         onSponsorClicked = onSponsorClicked,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                    )
-                } else if ((index + 1) % nativeInterval == 0) {
-                    ManagedNativeBannerAd(
-                        adConfig = adConfig,
-                        lang = lang,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                     )
                 }
@@ -574,41 +567,30 @@ fun HomeScreen(
             }
         }
 
-        // Bottom Native Sponsor Card (Online + Offline Cached) & Network Native Banner (Online Only)
+        // Bottom Native Sponsor Card (Online + Offline Cached) + Online-ONLY Start.io/Unity Native Banner
         item {
             Spacer(Modifier.height(10.dp))
             NativeSponsorAdCard(
                 sponsors = sponsors,
                 adConfig = adConfig,
                 pageKey = SponsorCampaignSelector.PAGE_HOME,
-                slotIndex = if (doctors.isEmpty()) 0 else 2,
+                slotIndex = if (doctors.isEmpty()) 1 else 4,
                 isOnline = isOnline,
+                nowMs = nowMs,
                 lang = lang,
                 onSponsorDisplayed = onSponsorDisplayed,
                 onSponsorClicked = onSponsorClicked,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
-            Spacer(Modifier.height(8.dp))
-            ManagedNativeBannerAd(
-                adConfig = adConfig,
-                lang = lang,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
-        }
-
-        // Rewarded Video Ad Card (Online Only)
-        if (isOnline && adConfig.adsEnabled && adConfig.rewardedEnabled) {
-            item {
-                Spacer(Modifier.height(12.dp))
-                RewardedAdCard(
-                    lang = lang,
-                    isReady = isRewardedReady,
-                    isLoading = isRewardedLoading,
-                    onWatchClick = onWatchRewardedAd,
+            if (isOnline) {
+                Spacer(Modifier.height(8.dp))
+                ManagedNativeBannerAd(
+                    adConfig = adConfig,
+                    isOnline = isOnline,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
-                Spacer(Modifier.height(12.dp))
             }
+            Spacer(Modifier.height(12.dp))
         }
     }
 }

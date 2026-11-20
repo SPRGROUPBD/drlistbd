@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -24,15 +25,13 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
-import com.example.ui.ads.AdSdkInitializerEffect
-import com.example.ui.ads.AppOpenAdController
+import com.example.i18n.tr
 import com.example.ui.ads.AppOpenSponsorPopupDialog
-import com.example.ui.ads.ConnectivityMonitor
+import com.example.ui.ads.HybridNetworkAdController
 import com.example.ui.ads.ManagedBannerAd
 import com.example.ui.ads.SponsorBannerView
 import com.example.ui.ads.SponsorCampaignSelector
-import com.example.ui.ads.StartIoConfig
-import com.example.ui.ads.rememberUnifiedRewardedHelper
+import com.example.ui.ads.findActivity
 import com.example.ui.components.MedicalTopBar
 import com.example.ui.screens.*
 import com.example.ui.theme.*
@@ -44,6 +43,7 @@ object Routes {
     const val FACILITIES = "facilities"
     const val PORTAL = "portal"
     const val ABOUT_US = "about_us"
+    const val ADVERTISER_PORTAL = "advertiser_portal"
     const val DOCTOR_PROFILE = "doctor_profile/{doctorId}"
     const val INFO = "info/{pageKey}"
 
@@ -62,8 +62,6 @@ private data class BottomTabItem(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Boot-time default init (overridden/extended live once Room/RTDB AdConfig loads)
-        StartIoConfig.init(this, StartIoConfig.DEFAULT_APP_ID, testMode = false)
         enableEdgeToEdge()
         setContent {
             DoctorDirectoryTheme {
@@ -78,17 +76,46 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     val lang by vm.currentLang.collectAsStateWithLifecycle()
     val adConfig by vm.adConfig.collectAsStateWithLifecycle()
     val sponsors by vm.sponsors.collectAsStateWithLifecycle()
+    val sponsorPackages by vm.sponsorPackages.collectAsStateWithLifecycle()
+    val paymentSettings by vm.paymentSettings.collectAsStateWithLifecycle()
+    val advertiserSession by vm.advertiserSession.collectAsStateWithLifecycle()
+    val authoritativeNowMs by vm.authoritativeNowMs.collectAsStateWithLifecycle()
     val isOnline by vm.isOnline.collectAsStateWithLifecycle()
     val lastPopupDate by vm.lastAppOpenPopupDate.collectAsStateWithLifecycle()
     var showSplash by remember { mutableStateOf(true) }
+    val appContext = LocalContext.current
 
-    // App Open Direct Sponsor Popup state (works both Online & Offline from persisted cache)
+    // Initialize Online-ONLY ad networks (Start.io + Unity Ads) once when internet is available.
+    // Strictly disabled in Offline Mode so Offline serves Custom Direct Sponsor Ads ONLY.
+    LaunchedEffect(
+        isOnline,
+        adConfig.adsEnabled,
+        adConfig.activeNetwork,
+        adConfig.unityGameId,
+        adConfig.startIoAppId,
+        adConfig.testMode
+    ) {
+        if (isOnline && adConfig.adsEnabled) {
+            HybridNetworkAdController.syncOnlineSdks(appContext, adConfig, isOnline = true)
+        }
+    }
+
+    // Direct Sponsor Popup Advertisement (Online + Offline cached; server-authoritative expiry)
     var appOpenPopupEvaluated by remember { mutableStateOf(false) }
     var activePopupSponsor by remember { mutableStateOf<com.example.data.local.SponsorEntity?>(null) }
 
-    LaunchedEffect(showSplash, sponsors, adConfig.appOpenPopupEnabled, adConfig.appOpenPopupFrequency, adConfig.appOpenPopupSponsorId, lastPopupDate) {
+    LaunchedEffect(
+        showSplash,
+        sponsors,
+        adConfig.adsEnabled,
+        adConfig.appOpenPopupEnabled,
+        adConfig.appOpenPopupFrequency,
+        adConfig.appOpenPopupSponsorId,
+        lastPopupDate,
+        authoritativeNowMs
+    ) {
         if (showSplash || appOpenPopupEvaluated) return@LaunchedEffect
-        val today = SponsorCampaignSelector.todayDateKey()
+        val today = SponsorCampaignSelector.todayDateKey(authoritativeNowMs)
         val shouldShow = SponsorCampaignSelector.shouldShowAppOpenPopup(
             popupEnabled = adConfig.adsEnabled && adConfig.appOpenPopupEnabled,
             frequency = adConfig.appOpenPopupFrequency,
@@ -102,25 +129,17 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
         }
         val candidate = SponsorCampaignSelector.selectAppOpenPopupSponsor(
             sponsors = sponsors,
-            preferredSponsorId = adConfig.appOpenPopupSponsorId
+            preferredSponsorId = adConfig.appOpenPopupSponsorId,
+            nowMs = authoritativeNowMs
         )
         if (candidate != null) {
             appOpenPopupEvaluated = true
             activePopupSponsor = candidate
             vm.markAppOpenPopupShown()
         } else if (sponsors.isNotEmpty() || !isOnline) {
-            // No valid non-expired sponsor exists -> never display popup
             appOpenPopupEvaluated = true
         }
     }
-
-    // Initialize Unity Ads & Start.io SDKs live ONLY when Online (never repeated across page navigation)
-    AdSdkInitializerEffect(adConfig = adConfig)
-    // Show real Unity/Start.io App Open Ad only online & after Direct Sponsor Popup is closed
-    AppOpenAdController(
-        adConfig = adConfig,
-        isReadyToShow = !showSplash && activePopupSponsor == null
-    )
 
     if (showSplash) {
         SplashScreen(
@@ -131,7 +150,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     }
 
     val navController = rememberNavController()
-    val rewardedHelper = rememberUnifiedRewardedHelper(adConfig)
 
     val isSyncing by vm.isSyncing.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
@@ -148,7 +166,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     val snackbarMsg by vm.snackbar.collectAsStateWithLifecycle()
 
     var facilitiesTab by remember { mutableIntStateOf(0) }
-    var loadingDoctorRewardAd by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(snackbarMsg) {
@@ -158,56 +175,9 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
         }
     }
 
-    val triggerRewardedAd: () -> Unit = {
-        rewardedHelper.show(
-            onRewarded = {
-                vm.refreshDirectory()
-                vm.showMessage(
-                    if (lang == AppLang.BN) "ধন্যবাদ! রিওয়ার্ড সম্পন্ন এবং ডিরেক্টরি আপডেট হয়েছে।"
-                    else "Thank you! Reward earned & directory refreshed."
-                )
-            },
-            onDismissedWithoutReward = {
-                vm.showMessage(
-                    if (lang == AppLang.BN) "রিওয়ার্ড পেতে সম্পূর্ণ বিজ্ঞাপনটি দেখুন।"
-                    else "Please finish watching the ad to earn your reward."
-                )
-            },
-            onUnavailable = {
-                vm.showMessage(
-                    if (lang == AppLang.BN) "ভিডিও বিজ্ঞাপন লোড হচ্ছে, অনুগ্রহ করে একটু পর আবার চেষ্টা করুন।"
-                    else "Rewarded video is loading — please tap again in a moment."
-                )
-            }
-        )
-    }
-
-    // Show Rewarded Ad before opening any Doctor Profile ONLY when Online; navigate directly when Offline
-    val openDoctorAfterReward: (String) -> Unit = { doctorId ->
-        if (isOnline && adConfig.adsEnabled && adConfig.rewardedEnabled) {
-            if (!loadingDoctorRewardAd) {
-                loadingDoctorRewardAd = true
-                rewardedHelper.show(
-                    onRewarded = {
-                        loadingDoctorRewardAd = false
-                        navController.navigate(Routes.doctorProfile(doctorId))
-                    },
-                    onDismissedWithoutReward = {
-                        loadingDoctorRewardAd = false
-                        vm.showMessage(
-                            if (lang == AppLang.BN) "ডাক্তারের প্রোফাইল দেখতে সম্পূর্ণ রিওয়ার্ড অ্যাডটি দেখুন।"
-                            else "Please complete the rewarded ad to view the doctor profile."
-                        )
-                    },
-                    onUnavailable = {
-                        loadingDoctorRewardAd = false
-                        navController.navigate(Routes.doctorProfile(doctorId))
-                    }
-                )
-            }
-        } else {
-            navController.navigate(Routes.doctorProfile(doctorId))
-        }
+    // Open Doctor Profile immediately with zero third-party ad gates
+    val openDoctorProfile: (String) -> Unit = { doctorId ->
+        navController.navigate(Routes.doctorProfile(doctorId))
     }
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -257,6 +227,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                     Routes.FACILITIES -> AppStrings.navFacilities(lang)
                     Routes.PORTAL -> AppStrings.navPortal(lang)
                     Routes.ABOUT_US -> AppStrings.aboutUs(lang)
+                    Routes.ADVERTISER_PORTAL -> tr(lang, "অ্যাডভার্টাইজার পোর্টাল", "Advertiser Portal")
                     else -> AppStrings.appTitle(lang)
                 }
                 MedicalTopBar(
@@ -271,18 +242,26 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
             bottomBar = {
                 val currentPageKey = SponsorCampaignSelector.normalizeRouteToPageKey(currentRoute)
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // Direct Sponsor Banner on EVERY app page (Online + Offline Cached)
-                    SponsorBannerView(
-                        sponsors = sponsors,
-                        adConfig = adConfig,
-                        pageKey = currentPageKey,
-                        isOnline = isOnline,
-                        lang = lang,
-                        onSponsorDisplayed = vm::recordSponsorDisplay,
-                        onSponsorClicked = vm::recordSponsorClick
-                    )
-                    // Persistent Managed Network Banner Ad (Unity Ads + Start.io — Online Only)
-                    ManagedBannerAd(adConfig = adConfig)
+                    // 1. Custom Direct Sponsor Banner (Works ONLINE + OFFLINE Cached; hidden on Advertiser Portal)
+                    if (currentRoute != Routes.ADVERTISER_PORTAL) {
+                        SponsorBannerView(
+                            sponsors = sponsors,
+                            adConfig = adConfig,
+                            pageKey = currentPageKey,
+                            isOnline = isOnline,
+                            nowMs = authoritativeNowMs,
+                            lang = lang,
+                            onSponsorDisplayed = vm::recordSponsorDisplay,
+                            onSponsorClicked = vm::recordSponsorClick
+                        )
+                        // 2. Online-ONLY Start.io + Unity Ads Banner (auto-disabled in Offline Mode)
+                        if (isOnline) {
+                            ManagedBannerAd(
+                                adConfig = adConfig,
+                                isOnline = isOnline
+                            )
+                        }
+                    }
                     if (showMainChrome && !isWideScreen) {
                         NavigationBar(
                             containerColor = SurfaceWhite,
@@ -352,6 +331,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             adConfig = adConfig,
                             sponsors = sponsors,
                             isOnline = isOnline,
+                            nowMs = authoritativeNowMs,
                             onSponsorDisplayed = vm::recordSponsorDisplay,
                             onSponsorClicked = vm::recordSponsorClick,
                             isSyncing = isSyncing,
@@ -360,9 +340,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             doctors = publicDoctors,
                             hospitals = hospitals,
                             favoriteIds = favoriteIds,
-                            isRewardedReady = rewardedHelper.isReady,
-                            isRewardedLoading = rewardedHelper.isLoading,
-                            onWatchRewardedAd = triggerRewardedAd,
                             onRefreshDirectory = vm::refreshDirectory,
                             onSearchSubmit = { query ->
                                 vm.updateSearch { it.copy(query = query) }
@@ -377,7 +354,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                                 navigateToTab(Routes.FIND_DOCTORS)
                             },
                             onToggleFavorite = vm::toggleFavorite,
-                            onDoctorClick = openDoctorAfterReward,
+                            onDoctorClick = openDoctorProfile,
                             onNavigateFindDoctors = { todayOnly ->
                                 vm.updateSearch { it.copy(availableTodayOnly = todayOnly) }
                                 navigateToTab(Routes.FIND_DOCTORS)
@@ -395,6 +372,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             adConfig = adConfig,
                             sponsors = sponsors,
                             isOnline = isOnline,
+                            nowMs = authoritativeNowMs,
                             onSponsorDisplayed = vm::recordSponsorDisplay,
                             onSponsorClicked = vm::recordSponsorClick,
                             searchState = searchState,
@@ -407,7 +385,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             onResetFilters = vm::resetFilters,
                             onLoadMore = vm::loadMoreDoctors,
                             onToggleFavorite = vm::toggleFavorite,
-                            onDoctorClick = openDoctorAfterReward
+                            onDoctorClick = openDoctorProfile
                         )
                     }
 
@@ -417,6 +395,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             adConfig = adConfig,
                             sponsors = sponsors,
                             isOnline = isOnline,
+                            nowMs = authoritativeNowMs,
                             onSponsorDisplayed = vm::recordSponsorDisplay,
                             onSponsorClicked = vm::recordSponsorClick,
                             selectedTab = facilitiesTab,
@@ -433,7 +412,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                                 vm.updateSearch { it.copy(facilityQuery = facName) }
                                 navigateToTab(Routes.FIND_DOCTORS)
                             },
-                            onDoctorClick = openDoctorAfterReward
+                            onDoctorClick = openDoctorProfile
                         )
                     }
 
@@ -444,18 +423,17 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             adConfig = adConfig,
                             sponsors = sponsors,
                             isOnline = isOnline,
+                            nowMs = authoritativeNowMs,
                             onSponsorDisplayed = vm::recordSponsorDisplay,
                             onSponsorClicked = vm::recordSponsorClick,
                             isSyncing = isSyncing,
                             favoriteDoctors = favDocs,
                             notifications = notifications,
-                            isRewardedReady = rewardedHelper.isReady,
-                            isRewardedLoading = rewardedHelper.isLoading,
-                            onWatchRewardedAd = triggerRewardedAd,
                             onRefreshDirectory = vm::refreshDirectory,
                             onToggleFavorite = vm::toggleFavorite,
-                            onDoctorClick = openDoctorAfterReward,
+                            onDoctorClick = openDoctorProfile,
                             onMarkNotificationRead = vm::markNotificationRead,
+                            onOpenAdvertiserPortal = { navController.navigate(Routes.ADVERTISER_PORTAL) },
                             onNavigateInfo = { key ->
                                 if (key == "about") {
                                     navigateToTab(Routes.ABOUT_US)
@@ -470,11 +448,32 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                         AboutUsScreen(
                             lang = lang,
                             settings = settings,
+                            adConfig = adConfig,
+                            sponsors = sponsors,
+                            isOnline = isOnline,
+                            nowMs = authoritativeNowMs,
+                            onSponsorDisplayed = vm::recordSponsorDisplay,
+                            onSponsorClicked = vm::recordSponsorClick,
+                            onOpenAdvertiserPortal = { navController.navigate(Routes.ADVERTISER_PORTAL) },
                             doctorsCount = publicDoctors.size,
                             hospitalsCount = hospitals.size,
                             diagnosticCount = diagnosticCenters.size,
                             specialtiesCount = specialties.size,
                             onNavigateInfo = { key -> navController.navigate(Routes.info(key)) }
+                        )
+                    }
+
+                    composable(Routes.ADVERTISER_PORTAL) {
+                        AdvertiserPortalScreen(
+                            lang = lang,
+                            session = advertiserSession,
+                            cachedPackages = sponsorPackages,
+                            cachedPaymentSettings = paymentSettings,
+                            isOnline = isOnline,
+                            nowMs = authoritativeNowMs,
+                            onLoginSuccess = vm::saveAdvertiserSession,
+                            onLogout = vm::logoutAdvertiser,
+                            onShowMessage = vm::showMessage
                         )
                     }
 
@@ -488,6 +487,11 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             profile = profile,
                             lang = lang,
                             adConfig = adConfig,
+                            sponsors = sponsors,
+                            isOnline = isOnline,
+                            nowMs = authoritativeNowMs,
+                            onSponsorDisplayed = vm::recordSponsorDisplay,
+                            onSponsorClicked = vm::recordSponsorClick,
                             isFavorite = docId in favoriteIds,
                             onToggleFavorite = { vm.toggleFavorite(docId) },
                             onBack = { navController.popBackStack() }
@@ -517,35 +521,19 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                 lang = lang,
                 onDisplayed = vm::recordSponsorDisplay,
                 onClicked = vm::recordSponsorClick,
-                onDismiss = { activePopupSponsor = null }
+                onDismiss = {
+                    activePopupSponsor = null
+                }
             )
         }
 
-        if (loadingDoctorRewardAd) {
-            AlertDialog(
-                onDismissRequest = {},
-                confirmButton = {},
-                title = {
-                    Text(
-                        if (lang == AppLang.BN) "রিওয়ার্ড বিজ্ঞাপন লোড হচ্ছে..."
-                        else "Loading Rewarded Ad..."
-                    )
-                },
-                text = {
-                    Row(
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(28.dp), color = MedicalBlue)
-                        Text(
-                            if (lang == AppLang.BN) "রিওয়ার্ড অ্যাড সম্পন্ন হলে ডাক্তারের সম্পূর্ণ প্রোফাইল ও চেম্বার সময়সূচী ওপেন হবে।"
-                            else "Doctor profile & chamber schedule will open as soon as the rewarded ad completes.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
-                    }
+        // Approved Online-ONLY SDK Interstitial / App Open (only when online, cooldown met, and no sponsor popup is open)
+        LaunchedEffect(showSplash, activePopupSponsor, appOpenPopupEvaluated, isOnline) {
+            if (!showSplash && appOpenPopupEvaluated && activePopupSponsor == null && isOnline && adConfig.adsEnabled && adConfig.appOpenEnabled) {
+                appContext.findActivity()?.let { act ->
+                    HybridNetworkAdController.maybeShowOnlineInterstitial(act, adConfig, isOnline = true)
                 }
-            )
+            }
         }
     }
 }

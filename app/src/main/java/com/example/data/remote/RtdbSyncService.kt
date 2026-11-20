@@ -32,8 +32,14 @@ object RtdbSyncService {
                 conn.disconnect()
                 return@withContext Result.failure(IllegalStateException("HTTP $code"))
             }
+            // Capture authoritative server timestamp from HTTP Date header (prevents offline clock rollback abuse)
+            val serverHeaderDateMs = conn.date.takeIf { it > 0L } ?: System.currentTimeMillis()
             val body = conn.inputStream.bufferedReader().use { it.readText() }
             conn.disconnect()
+
+            if (context != null) {
+                SessionPreferences(context.applicationContext).saveServerSyncAnchor(serverHeaderDateMs)
+            }
 
             if (body.isBlank() || body == "null") {
                 return@withContext Result.success(0)
@@ -278,39 +284,100 @@ object RtdbSyncService {
                 )
             }
 
-            // Admin Ad Network & Hybrid Sponsor Configuration (Unity Ads + Start.io + Direct Sponsors; ZERO AdMob)
-            root.optJSONObject("ad_config")?.let { a ->
+            // Hybrid Ad Configuration: ONLINE (Start.io + Unity Ads + Direct Sponsors) | OFFLINE (Direct Sponsors ONLY)
+            val adCfgObj = root.optJSONObject("ad_config")
+            val aboutCfgObj = root.optJSONObject("about_us_ad_settings")
+            if (adCfgObj != null || aboutCfgObj != null) {
                 db.adConfigDao().save(
                     AdConfigEntity(
                         id = "global",
-                        adsEnabled = a.optBoolean("adsEnabled", true),
-                        activeNetwork = a.optString("activeNetwork", "BOTH_UNITY_PRIMARY").ifBlank { "BOTH_UNITY_PRIMARY" },
-                        testMode = a.optBoolean("testMode", false),
-                        bannerEnabled = a.optBoolean("bannerEnabled", true),
-                        appOpenEnabled = a.optBoolean("appOpenEnabled", true),
-                        nativeBannerEnabled = a.optBoolean("nativeBannerEnabled", true),
-                        rewardedEnabled = a.optBoolean("rewardedEnabled", true),
-                        nativeAdInterval = a.optInt("nativeAdInterval", 5).coerceIn(1, 12),
-                        appOpenCooldownSeconds = a.optInt("appOpenCooldownSeconds", 120).coerceIn(15, 3600),
-                        unityGameId = a.optString("unityGameId", "").trim(),
-                        unityBannerPlacement = a.optString("unityBannerPlacement", "Banner_Android").ifBlank { "Banner_Android" },
-                        unityAppOpenPlacement = a.optString("unityAppOpenPlacement", "Interstitial_Android").ifBlank { "Interstitial_Android" },
-                        unityNativeBannerPlacement = a.optString("unityNativeBannerPlacement", "Banner_Android").ifBlank { "Banner_Android" },
-                        unityRewardedPlacement = a.optString("unityRewardedPlacement", "Rewarded_Android").ifBlank { "Rewarded_Android" },
-                        startIoAppId = a.optString("startIoAppId", "210630916").ifBlank { "210630916" },
-                        sponsorBannerEnabled = a.optBoolean("sponsorBannerEnabled", true),
-                        appOpenPopupEnabled = a.optBoolean("appOpenPopupEnabled", true),
-                        appOpenPopupFrequency = a.optString("appOpenPopupFrequency", SponsorCampaignSelector.FREQ_EVERY_LAUNCH)
-                            .ifBlank { SponsorCampaignSelector.FREQ_EVERY_LAUNCH },
-                        appOpenPopupSponsorId = a.optString("appOpenPopupSponsorId", "").trim(),
-                        nativeSponsorEnabled = a.optBoolean("nativeSponsorEnabled", true),
-                        nativeSponsorInterval = a.optInt("nativeSponsorInterval", 5).coerceIn(4, 6),
-                        updatedAt = a.optLong("updatedAt", System.currentTimeMillis())
+                        adsEnabled = adCfgObj?.optBoolean("adsEnabled", true) ?: true,
+                        activeNetwork = adCfgObj?.optString("activeNetwork", "BOTH_UNITY_PRIMARY")
+                            ?.ifBlank { "BOTH_UNITY_PRIMARY" } ?: "BOTH_UNITY_PRIMARY",
+                        testMode = adCfgObj?.optBoolean("testMode", false) ?: false,
+                        bannerEnabled = adCfgObj?.optBoolean("bannerEnabled", true) ?: true,
+                        appOpenEnabled = adCfgObj?.optBoolean("appOpenEnabled", true) ?: true,
+                        nativeBannerEnabled = adCfgObj?.optBoolean("nativeBannerEnabled", true) ?: true,
+                        rewardedEnabled = adCfgObj?.optBoolean("rewardedEnabled", true) ?: true,
+                        nativeAdInterval = (adCfgObj?.optInt("nativeAdInterval", 5) ?: 5).coerceIn(3, 12),
+                        appOpenCooldownSeconds = (adCfgObj?.optInt("appOpenCooldownSeconds", 120) ?: 120).coerceIn(15, 3600),
+                        unityGameId = adCfgObj?.optString("unityGameId", "")?.trim().orEmpty(),
+                        unityBannerPlacement = adCfgObj?.optString("unityBannerPlacement", "Banner_Android")
+                            ?.ifBlank { "Banner_Android" } ?: "Banner_Android",
+                        unityAppOpenPlacement = adCfgObj?.optString("unityAppOpenPlacement", "Interstitial_Android")
+                            ?.ifBlank { "Interstitial_Android" } ?: "Interstitial_Android",
+                        unityNativeBannerPlacement = adCfgObj?.optString("unityNativeBannerPlacement", "Banner_Android")
+                            ?.ifBlank { "Banner_Android" } ?: "Banner_Android",
+                        unityRewardedPlacement = adCfgObj?.optString("unityRewardedPlacement", "Rewarded_Android")
+                            ?.ifBlank { "Rewarded_Android" } ?: "Rewarded_Android",
+                        startIoAppId = adCfgObj?.optString("startIoAppId", "210630916")
+                            ?.ifBlank { "210630916" } ?: "210630916",
+                        sponsorBannerEnabled = adCfgObj?.optBoolean("sponsorBannerEnabled", true) ?: true,
+                        appOpenPopupEnabled = adCfgObj?.optBoolean("appOpenPopupEnabled", true) ?: true,
+                        appOpenPopupFrequency = adCfgObj?.optString("appOpenPopupFrequency", SponsorCampaignSelector.FREQ_EVERY_LAUNCH)
+                            ?.ifBlank { SponsorCampaignSelector.FREQ_EVERY_LAUNCH }
+                            ?: SponsorCampaignSelector.FREQ_EVERY_LAUNCH,
+                        appOpenPopupSponsorId = adCfgObj?.optString("appOpenPopupSponsorId", "")?.trim().orEmpty(),
+                        nativeSponsorEnabled = adCfgObj?.optBoolean("nativeSponsorEnabled", true) ?: true,
+                        nativeSponsorInterval = (adCfgObj?.optInt("nativeSponsorInterval", 5) ?: 5).coerceIn(4, 6),
+                        aboutUsSponsorEnabled = aboutCfgObj?.optBoolean("enabled", true)
+                            ?: adCfgObj?.optBoolean("aboutUsSponsorEnabled", true) ?: true,
+                        aboutUsSponsorTitleBn = aboutCfgObj?.optString("sectionTitleBn", "")
+                            ?.ifBlank { "আমাদের স্পন্সর পার্টনার" } ?: "আমাদের স্পন্সর পার্টনার",
+                        aboutUsSponsorTitleEn = aboutCfgObj?.optString("sectionTitleEn", "")
+                            ?.ifBlank { "Our Sponsor Partners" } ?: "Our Sponsor Partners",
+                        aboutUsSponsorMaxAds = (aboutCfgObj?.optInt("maxAds", 3) ?: 3).coerceIn(1, 10),
+                        aboutUsSponsorLayout = aboutCfgObj?.optString("layoutStyle", "CARDS")
+                            ?.ifBlank { "CARDS" } ?: "CARDS",
+                        aboutUsFeaturedAdId = aboutCfgObj?.optString("featuredAdId", "")?.trim().orEmpty(),
+                        updatedAt = maxOf(
+                            adCfgObj?.optLong("updatedAt", 0L) ?: 0L,
+                            aboutCfgObj?.optLong("updatedAt", 0L) ?: 0L,
+                            serverHeaderDateMs
+                        )
                     )
                 )
             }
 
-            // Direct Sponsor Campaigns (Preserves local cached image paths & never wipes valid cache when offline)
+            // Dynamic Advertising Packages (Never hardcoded!)
+            if (root.has("ad_packages")) {
+                val obj = root.optJSONObject("ad_packages")
+                val pkgList = if (obj != null) parseMap(obj) { id, o ->
+                    SponsorPackageEntity(
+                        id = id,
+                        name = o.optString("name", "").trim(),
+                        widthPx = o.optInt("widthPx", 300).coerceAtLeast(100),
+                        heightPx = o.optInt("heightPx", 200).coerceAtLeast(50),
+                        durationDays = o.optInt("durationDays", 30).coerceAtLeast(1),
+                        priceBdt = o.optInt("priceBdt", 0).coerceAtLeast(0),
+                        placementType = o.optString("placementType", SponsorCampaignSelector.PLACEMENT_BANNER_300x200)
+                            .ifBlank { SponsorCampaignSelector.PLACEMENT_BANNER_300x200 },
+                        description = o.optString("description", "").trim(),
+                        status = o.optString("status", "ACTIVE").ifBlank { "ACTIVE" },
+                        updatedAt = o.optLong("updatedAt", serverHeaderDateMs)
+                    )
+                } else emptyList()
+                db.sponsorPackageDao().deleteAll()
+                if (pkgList.isNotEmpty()) db.sponsorPackageDao().insertAll(pkgList)
+            }
+
+            // Manual Payment Settings (bKash & Nagad configured by Admin)
+            root.optJSONObject("payment_settings")?.let { p ->
+                db.paymentSettingsDao().save(
+                    PaymentSettingsEntity(
+                        id = "global",
+                        bkashNumber = p.optString("bkashNumber", "").trim(),
+                        bkashAccountType = p.optString("bkashAccountType", "Personal").ifBlank { "Personal" },
+                        nagadNumber = p.optString("nagadNumber", "").trim(),
+                        nagadAccountType = p.optString("nagadAccountType", "Personal").ifBlank { "Personal" },
+                        instructionsBn = p.optString("instructionsBn", "").trim(),
+                        instructionsEn = p.optString("instructionsEn", "").trim(),
+                        updatedAt = p.optLong("updatedAt", serverHeaderDateMs)
+                    )
+                )
+            }
+
+            // Direct Sponsor Advertisements (Server-authoritative status, activatedAt & expiryAt; removes expired after verified update)
             if (root.has("sponsors")) {
                 val obj = root.optJSONObject("sponsors")
                 val existingMap = db.sponsorDao().getAllOnce().associateBy { it.id }
@@ -319,30 +386,59 @@ object RtdbSyncService {
                     val startDate = o.optString("startDate", "").trim()
                     val endDate = o.optString("endDate", "").trim()
                     val (startTs, endTs) = SponsorCampaignSelector.parseCampaignBounds(startDate, endDate)
+                    val activatedAt = o.optLong("activatedAt", 0L).let { if (it > 0L) it else startTs }
+                    val rawExpiryAt = o.optLong("expiryAt", 0L)
+                    val expiryAt = if (rawExpiryAt > 0L) rawExpiryAt else endTs
+                    val rawStatus = o.optString("status", if (o.optBoolean("isActive", true)) "ACTIVE" else "PAUSED")
+                    val effectiveStatus = if (rawStatus.equals("ACTIVE", true) && expiryAt < Long.MAX_VALUE && serverHeaderDateMs > expiryAt) {
+                        SponsorCampaignSelector.STATUS_EXPIRED
+                    } else {
+                        rawStatus
+                    }
                     val logoUrl = o.optString("logoUrl", "").trim()
                     val bannerUrl = o.optString("bannerImageUrl", "").trim()
                     SponsorEntity(
                         id = id,
+                        advertiserId = o.optString("advertiserId", "").trim(),
+                        submittedBy = o.optString("submittedBy", "ADMIN").ifBlank { "ADMIN" },
+                        packageId = o.optString("packageId", "").trim(),
+                        packageName = o.optString("packageName", "").trim(),
+                        widthPx = o.optInt("widthPx", 320).coerceAtLeast(100),
+                        heightPx = o.optInt("heightPx", 100).coerceAtLeast(50),
+                        durationDays = o.optInt("durationDays", 30).coerceAtLeast(1),
+                        priceBdt = o.optInt("priceBdt", 0).coerceAtLeast(0),
+                        placementType = o.optString("placementType", SponsorCampaignSelector.PLACEMENT_ALL)
+                            .ifBlank { SponsorCampaignSelector.PLACEMENT_ALL },
+                        status = effectiveStatus,
                         name = o.optString("name", o.optString("sponsorName", "")).trim(),
                         logoUrl = logoUrl,
                         bannerImageUrl = bannerUrl,
                         localLogoPath = if (prev != null && prev.logoUrl == logoUrl) prev.localLogoPath else "",
                         localBannerPath = if (prev != null && prev.bannerImageUrl == bannerUrl) prev.localBannerPath else "",
-                        promoTitle = o.optString("promoTitle", "").trim(),
+                        promoTitle = o.optString("promoTitle", o.optString("title", "")).trim(),
                         description = o.optString("description", "").trim(),
                         websiteUrl = o.optString("websiteUrl", "").trim(),
                         contactNumber = o.optString("contactNumber", "").trim(),
                         startDate = startDate,
                         endDate = endDate,
+                        activatedAt = activatedAt,
+                        expiryAt = expiryAt,
                         startTimestamp = startTs,
                         endTimestamp = endTs,
                         targetPages = o.optString("targetPages", SponsorCampaignSelector.PAGE_ALL).ifBlank { SponsorCampaignSelector.PAGE_ALL },
                         displayPriority = o.optInt("displayPriority", 10).coerceIn(1, 100),
                         displayFrequency = o.optInt("displayFrequency", 1).coerceIn(1, 10),
-                        isActive = o.optBoolean("isActive", true),
+                        isActive = o.optBoolean("isActive", true) && effectiveStatus.equals("ACTIVE", true),
+                        renewalOfAdId = o.optString("renewalOfAdId", "").trim(),
+                        totalViews = o.optInt("totalViews", 0),
+                        uniqueViews = o.optInt("uniqueViews", 0),
                         cachedAt = prev?.cachedAt ?: 0L,
-                        updatedAt = o.optLong("updatedAt", System.currentTimeMillis())
+                        updatedAt = o.optLong("updatedAt", serverHeaderDateMs)
                     )
+                }.filter { sp ->
+                    // Verified server update: keep only active/non-expired ads in public offline cache
+                    sp.status.equals(SponsorCampaignSelector.STATUS_ACTIVE, true) &&
+                        !SponsorCampaignSelector.isCampaignExpired(sp, serverHeaderDateMs)
                 } else emptyList()
 
                 db.sponsorDao().deleteAll()

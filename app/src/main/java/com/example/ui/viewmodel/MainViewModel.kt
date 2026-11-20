@@ -42,6 +42,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val sponsors: StateFlow<List<SponsorEntity>> = repo.sponsors
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    val sponsorPackages: StateFlow<List<SponsorPackageEntity>> = repo.sponsorPackages
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val paymentSettings: StateFlow<PaymentSettingsEntity> = repo.paymentSettings
+        .stateIn(viewModelScope, SharingStarted.Eagerly, PaymentSettingsEntity())
+
+    val lastServerSyncAtMs: StateFlow<Long> = repo.prefs.lastServerSyncAtMs
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+
+    val pendingViewEventsCount: StateFlow<Int> = repo.pendingViewEventsCount
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val advertiserSession: StateFlow<AdvertiserSession> = repo.prefs.advertiserSession
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AdvertiserSession())
+
+    private val _authoritativeNowMs = MutableStateFlow(System.currentTimeMillis())
+    val authoritativeNowMs: StateFlow<Long> = _authoritativeNowMs.asStateFlow()
+
     val isOnline: StateFlow<Boolean> = ConnectivityMonitor.isOnline
 
     val lastAppOpenPopupDate: StateFlow<String> = repo.prefs.lastAppOpenPopupDate
@@ -140,20 +158,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         ConnectivityMonitor.start(application) {
-            // Automatically re-sync sponsors, ad config, and pending directory data upon internet reconnection
+            // Automatically re-sync Direct Sponsors, packages, settings & flush queued offline view events
             viewModelScope.launch {
                 _isSyncing.value = true
                 repo.syncFromAdminCloud()
-                flushPendingOfflineStatsIfOnline()
+                _authoritativeNowMs.value = repo.prefs.getAuthoritativeNowMs()
+                AdRevenueTracker.flushQueuedViewEvents(repo.db)
+                AdRevenueTracker.flushOfflineLocalCounters(repo.prefs)
                 _isSyncing.value = false
             }
         }
         viewModelScope.launch {
             _isSyncing.value = true
+            _authoritativeNowMs.value = repo.prefs.getAuthoritativeNowMs()
             repo.initializeAndSync()
+            _authoritativeNowMs.value = repo.prefs.getAuthoritativeNowMs()
             if (ConnectivityMonitor.isOnline.value) {
-                AdRevenueTracker.recordOnlineSession()
-                flushPendingOfflineStatsIfOnline()
+                AdRevenueTracker.trackOnlineSession()
+                AdRevenueTracker.flushQueuedViewEvents(repo.db)
+                AdRevenueTracker.flushOfflineLocalCounters(repo.prefs)
             } else {
                 repo.prefs.recordLocalOfflineSession()
             }
@@ -161,35 +184,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun flushPendingOfflineStatsIfOnline() {
-        if (!ConnectivityMonitor.isOnline.value) return
-        val (offlineDisplays, offlineSessions) = repo.prefs.consumePendingOfflineStats()
-        if (offlineDisplays > 0 || offlineSessions > 0) {
-            AdRevenueTracker.syncSeparatedOfflineStats(offlineDisplays, offlineSessions)
-        }
-    }
-
     fun markAppOpenPopupShown() {
         viewModelScope.launch {
-            repo.prefs.setLastAppOpenPopupDate(SponsorCampaignSelector.todayDateKey())
+            val now = repo.prefs.getAuthoritativeNowMs()
+            _authoritativeNowMs.value = now
+            repo.prefs.setLastAppOpenPopupDate(SponsorCampaignSelector.todayDateKey(now))
         }
     }
 
-    fun recordSponsorDisplay(sponsorId: String, onlineNow: Boolean) {
-        if (onlineNow) {
-            AdRevenueTracker.recordSponsorOnlineDisplay(sponsorId)
-        } else {
-            // Strictly record offline displays locally — never as verified ad network impressions
-            viewModelScope.launch {
+    fun recordSponsorDisplay(sponsorId: String, onlineNow: Boolean, slotKey: String = "banner") {
+        viewModelScope.launch {
+            val now = repo.prefs.getAuthoritativeNowMs()
+            _authoritativeNowMs.value = now
+            val sp = sponsors.value.firstOrNull { it.id == sponsorId }
+            // Never record impressions for expired ads
+            if (sp != null && !SponsorCampaignSelector.isCampaignValid(sp, now)) return@launch
+            if (!onlineNow) {
                 repo.prefs.recordLocalOfflineSponsorDisplay()
             }
+            AdRevenueTracker.recordVisibleImpression(
+                db = repo.db,
+                prefs = repo.prefs,
+                adId = sponsorId,
+                packageId = sp?.packageId.orEmpty(),
+                slotKey = slotKey,
+                isOnline = onlineNow,
+                nowMs = now
+            )
         }
     }
 
     fun recordSponsorClick(sponsorId: String, onlineNow: Boolean) {
-        if (onlineNow) {
-            AdRevenueTracker.recordSponsorOnlineClick(sponsorId)
+        viewModelScope.launch {
+            val now = repo.prefs.getAuthoritativeNowMs()
+            val sp = sponsors.value.firstOrNull { it.id == sponsorId }
+            AdRevenueTracker.recordSponsorClick(
+                db = repo.db,
+                prefs = repo.prefs,
+                adId = sponsorId,
+                packageId = sp?.packageId.orEmpty(),
+                isOnline = onlineNow,
+                nowMs = now
+            )
         }
+    }
+
+    fun saveAdvertiserSession(session: AdvertiserSession) {
+        viewModelScope.launch { repo.prefs.saveAdvertiserSession(session) }
+    }
+
+    fun logoutAdvertiser() {
+        viewModelScope.launch { repo.prefs.clearAdvertiserSession() }
     }
 
     fun refreshDirectory() {

@@ -259,9 +259,10 @@ data class ProfileChangeRequestEntity(
 data class AdConfigEntity(
     @PrimaryKey val id: String = "global",
     val adsEnabled: Boolean = true,
-    // UNITY | STARTIO | BOTH_UNITY_PRIMARY | BOTH_STARTIO_PRIMARY
+    // Online Ad Network Policy (ZERO AdMob; disabled completely in Offline Mode):
+    // BOTH_UNITY_PRIMARY | BOTH_STARTIO_PRIMARY | UNITY | STARTIO | SPONSORS_ONLY
     val activeNetwork: String = "BOTH_UNITY_PRIMARY",
-    val testMode: Boolean = false, // false = 100% REAL LIVE REVENUE ADS
+    val testMode: Boolean = false,
     val bannerEnabled: Boolean = true,
     val appOpenEnabled: Boolean = true,
     val nativeBannerEnabled: Boolean = true,
@@ -274,7 +275,7 @@ data class AdConfigEntity(
     val unityNativeBannerPlacement: String = "Banner_Android",
     val unityRewardedPlacement: String = "Rewarded_Android",
     val startIoAppId: String = "210630916",
-    // Hybrid Direct Sponsor Advertisement settings
+    // Custom Direct Sponsor Controls (Works ONLINE + OFFLINE Cached)
     val sponsorBannerEnabled: Boolean = true,
     val appOpenPopupEnabled: Boolean = true,
     // EVERY_LAUNCH | ONCE_DAILY
@@ -284,12 +285,33 @@ data class AdConfigEntity(
     val nativeSponsorEnabled: Boolean = true,
     // Configurable 4, 5, or 6 cards (default 5)
     val nativeSponsorInterval: Int = 5,
+    // About Us Page Administrator-Controlled Sponsor Advertisement Section
+    val aboutUsSponsorEnabled: Boolean = true,
+    val aboutUsSponsorTitleBn: String = "আমাদের স্পন্সর পার্টনার",
+    val aboutUsSponsorTitleEn: String = "Our Sponsor Partners",
+    val aboutUsSponsorMaxAds: Int = 3,
+    // CARDS | BANNER_300x200 | COMPACT
+    val aboutUsSponsorLayout: String = "CARDS",
+    val aboutUsFeaturedAdId: String = "",
     val updatedAt: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "sponsors")
 data class SponsorEntity(
     @PrimaryKey val id: String,
+    val advertiserId: String = "",
+    // ADVERTISER | ADMIN
+    val submittedBy: String = "ADMIN",
+    val packageId: String = "",
+    val packageName: String = "",
+    val widthPx: Int = 320,
+    val heightPx: Int = 100,
+    val durationDays: Int = 30,
+    val priceBdt: Int = 0,
+    // BANNER_300x200 | BANNER_320x100 | BANNER_728x90 | BANNER_CUSTOM | SPONSORED_NATIVE_CARD | POPUP_AD | ABOUT_US_SPONSOR | ALL
+    val placementType: String = "BANNER_320x100",
+    // PENDING_PAYMENT | PENDING_APPROVAL | ACTIVE | PAUSED | EXPIRED | REJECTED
+    val status: String = "ACTIVE",
     val name: String,
     val logoUrl: String = "",
     val bannerImageUrl: String = "",
@@ -301,13 +323,62 @@ data class SponsorEntity(
     val contactNumber: String = "",
     val startDate: String = "", // yyyy-MM-dd
     val endDate: String = "",   // yyyy-MM-dd
+    // Server-authoritative activation & expiry timestamps (ms since epoch)
+    val activatedAt: Long = 0L,
+    val expiryAt: Long = Long.MAX_VALUE,
     val startTimestamp: Long = 0L,
     val endTimestamp: Long = Long.MAX_VALUE,
     val targetPages: String = "ALL", // ALL or comma-separated page keys
     val displayPriority: Int = 10,
     val displayFrequency: Int = 1,
     val isActive: Boolean = true,
+    val renewalOfAdId: String = "",
+    val totalViews: Int = 0,
+    val uniqueViews: Int = 0,
     val cachedAt: Long = 0L,
     val updatedAt: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "ad_packages")
+data class SponsorPackageEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val widthPx: Int,
+    val heightPx: Int,
+    val durationDays: Int,
+    val priceBdt: Int,
+    // BANNER_300x200 | BANNER_320x100 | BANNER_728x90 | BANNER_CUSTOM | SPONSORED_NATIVE_CARD | POPUP_AD | ABOUT_US_SPONSOR
+    val placementType: String,
+    val description: String = "",
+    // ACTIVE | DISABLED
+    val status: String = "ACTIVE",
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "payment_settings")
+data class PaymentSettingsEntity(
+    @PrimaryKey val id: String = "global",
+    val bkashNumber: String = "",
+    val bkashAccountType: String = "Personal",
+    val nagadNumber: String = "",
+    val nagadAccountType: String = "Personal",
+    val instructionsBn: String = "",
+    val instructionsEn: String = "",
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "pending_ad_view_events")
+data class PendingAdViewEventEntity(
+    @PrimaryKey val eventKey: String,
+    val adId: String,
+    val packageId: String = "",
+    val dateKey: String,
+    val deviceHash: String,
+    val isUnique: Boolean = false,
+    // IMPRESSION | CLICK
+    val eventType: String = "IMPRESSION",
+    val wasOffline: Boolean = false,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
 

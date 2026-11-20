@@ -50,7 +50,8 @@ fun DirectoriesScreen(
     adConfig: AdConfigEntity,
     sponsors: List<SponsorEntity> = emptyList(),
     isOnline: Boolean = true,
-    onSponsorDisplayed: (String, Boolean) -> Unit = { _, _ -> },
+    nowMs: Long = System.currentTimeMillis(),
+    onSponsorDisplayed: (String, Boolean, String) -> Unit = { _, _, _ -> },
     onSponsorClicked: (String, Boolean) -> Unit = { _, _ -> },
     selectedTab: Int,
     onTabChange: (Int) -> Unit,
@@ -63,7 +64,6 @@ fun DirectoriesScreen(
     onDoctorClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val nativeInterval = adConfig.nativeAdInterval.coerceAtLeast(2)
     val tabs = listOf(
         AppStrings.hospitals(lang),
         AppStrings.diagnosticCenters(lang),
@@ -139,13 +139,17 @@ fun DirectoriesScreen(
                                     pageKey = SponsorCampaignSelector.PAGE_FACILITIES,
                                     slotIndex = idx / adConfig.nativeSponsorInterval.coerceIn(4, 6),
                                     isOnline = isOnline,
+                                    nowMs = nowMs,
                                     lang = lang,
                                     onSponsorDisplayed = onSponsorDisplayed,
                                     onSponsorClicked = onSponsorClicked
                                 )
-                            } else if ((idx + 1) % nativeInterval == 0) {
+                            } else if (isOnline && adConfig.nativeBannerEnabled && idx == 2) {
                                 Spacer(Modifier.height(10.dp))
-                                ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
+                                ManagedNativeBannerAd(
+                                    adConfig = adConfig,
+                                    isOnline = isOnline
+                                )
                             }
                         }
                     }
@@ -183,13 +187,17 @@ fun DirectoriesScreen(
                                     pageKey = SponsorCampaignSelector.PAGE_FACILITIES,
                                     slotIndex = idx / adConfig.nativeSponsorInterval.coerceIn(4, 6),
                                     isOnline = isOnline,
+                                    nowMs = nowMs,
                                     lang = lang,
                                     onSponsorDisplayed = onSponsorDisplayed,
                                     onSponsorClicked = onSponsorClicked
                                 )
-                            } else if ((idx + 1) % nativeInterval == 0) {
+                            } else if (isOnline && adConfig.nativeBannerEnabled && idx == 2) {
                                 Spacer(Modifier.height(10.dp))
-                                ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
+                                ManagedNativeBannerAd(
+                                    adConfig = adConfig,
+                                    isOnline = isOnline
+                                )
                             }
                         }
                     }
@@ -242,13 +250,11 @@ fun DirectoriesScreen(
                                 pageKey = SponsorCampaignSelector.PAGE_FACILITIES,
                                 slotIndex = idx / adConfig.nativeSponsorInterval.coerceIn(4, 6),
                                 isOnline = isOnline,
+                                nowMs = nowMs,
                                 lang = lang,
                                 onSponsorDisplayed = onSponsorDisplayed,
                                 onSponsorClicked = onSponsorClicked
                             )
-                        } else if ((idx + 1) % (nativeInterval + 1) == 0) {
-                            Spacer(Modifier.height(10.dp))
-                            ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
                         }
                     }
                 }
@@ -392,13 +398,11 @@ fun DirectoriesScreen(
                                     pageKey = SponsorCampaignSelector.PAGE_FACILITIES,
                                     slotIndex = idx / adConfig.nativeSponsorInterval.coerceIn(4, 6),
                                     isOnline = isOnline,
+                                    nowMs = nowMs,
                                     lang = lang,
                                     onSponsorDisplayed = onSponsorDisplayed,
                                     onSponsorClicked = onSponsorClicked
                                 )
-                            } else if ((idx + 1) % nativeInterval == 0) {
-                                Spacer(Modifier.height(10.dp))
-                                ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
                             }
                         }
                     }

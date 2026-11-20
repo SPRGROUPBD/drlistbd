@@ -367,3 +367,49 @@ interface SponsorDao {
     suspend fun deleteAll()
 }
 
+@Dao
+interface SponsorPackageDao {
+    @Query("SELECT * FROM ad_packages ORDER BY priceBdt ASC, durationDays ASC")
+    fun observeAll(): Flow<List<SponsorPackageEntity>>
+
+    @Query("SELECT * FROM ad_packages WHERE status = 'ACTIVE' ORDER BY priceBdt ASC")
+    suspend fun getActiveOnce(): List<SponsorPackageEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(packages: List<SponsorPackageEntity>)
+
+    @Query("DELETE FROM ad_packages")
+    suspend fun deleteAll()
+}
+
+@Dao
+interface PaymentSettingsDao {
+    @Query("SELECT * FROM payment_settings WHERE id = 'global' LIMIT 1")
+    fun observe(): Flow<PaymentSettingsEntity?>
+
+    @Query("SELECT * FROM payment_settings WHERE id = 'global' LIMIT 1")
+    suspend fun getOnce(): PaymentSettingsEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun save(settings: PaymentSettingsEntity)
+}
+
+@Dao
+interface PendingAdViewEventDao {
+    @Query("SELECT * FROM pending_ad_view_events ORDER BY createdAt ASC LIMIT 250")
+    suspend fun getPendingOnce(): List<PendingAdViewEventEntity>
+
+    @Query("SELECT COUNT(*) FROM pending_ad_view_events")
+    fun observePendingCount(): Flow<Int>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfAbsent(event: PendingAdViewEventEntity): Long
+
+    @Query("DELETE FROM pending_ad_view_events WHERE eventKey = :eventKey")
+    suspend fun deleteByKey(eventKey: String)
+
+    @Query("DELETE FROM pending_ad_view_events")
+    suspend fun deleteAll()
+}
+
+

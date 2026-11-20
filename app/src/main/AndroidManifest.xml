@@ -6,8 +6,6 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
-    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_AD_ID" />
-    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION" />
 
     <application
         android:name=".DoctorListApplication"
@@ -22,11 +20,10 @@
         android:theme="@style/Theme.MyApplication"
         android:usesCleartextTraffic="true">
 
-        <!-- Referenced via @string so Android PackageManager parses it as String, not Integer -->
+        <!-- Start.io Online SDK configuration (disabled automatically when offline; AdMob strictly removed) -->
         <meta-data
             android:name="com.startapp.sdk.APPLICATION_ID"
             android:value="@string/startio_app_id" />
-
         <meta-data
             android:name="com.startapp.sdk.RETURN_ADS_ENABLED"
             android:value="false" />

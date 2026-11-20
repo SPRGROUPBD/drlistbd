@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Doctor List BD — Advertiser Self-Service Portal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Noto Sans Bengali', 'Plus Jakarta Sans', sans-serif; background: #F5F9FC; color: #0F172A; }
+    .input { width: 100%; padding: 10px 14px; border: 1px solid #CBD5E1; border-radius: 12px; font-size: 14px; outline: none; background: #FFFFFF; }
+    .input:focus { border-color: #0284C7; box-shadow: 0 0 0 3px rgba(2,132,199,0.12); }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- Top Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-6xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-sky-600 to-teal-600 text-white flex items-center justify-center font-extrabold text-lg">+</div>
+        <div>
+          <div class="font-bold text-slate-900 text-base leading-tight">Doctor List BD</div>
+          <div id="hdrSubtitle" class="text-xs text-teal-700 font-semibold">Direct Sponsor Advertiser Portal</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="langBtn" onclick="toggleLang()" class="px-3 py-1.5 rounded-xl bg-sky-50 text-sky-800 border border-sky-200 text-xs font-bold hover:bg-sky-100">
+          বাংলা / EN
+        </button>
+        <button id="logoutBtn" onclick="logoutAdvertiser()" class="hidden px-3 py-1.5 rounded-xl bg-rose-50 text-rose-700 text-xs font-bold hover:bg-rose-100">
+          Logout
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 py-6">
+    <div id="toast" class="hidden fixed bottom-5 right-5 z-50 px-5 py-3 rounded-xl bg-slate-900 text-white text-sm shadow-xl"></div>
+    <div id="appRoot"></div>
+  </main>
+
+<script>
+const RTDB_BASE = "https://octor-aad88-default-rtdb.europe-west1.firebasedatabase.app/directory";
+let lang = localStorage.getItem("dlbd_adv_lang") || "bn";
+let session = JSON.parse(sessionStorage.getItem("dlbd_adv_session") || "null");
+let authMode = "login"; // login | register
+let activeTab = "dashboard"; // dashboard | submit | payments
+let renewSourceAd = null;
+let portalData = {
+  packages: [],
+  paymentSettings: { bkashNumber: "", bkashAccountType: "Personal", nagadNumber: "", nagadAccountType: "Personal", instructionsBn: "", instructionsEn: "" },
+  myAds: [],
+  myPayments: []
+};
+let draftForm = {
+  packageId: "",
+  title: "",
+  businessName: "",
+  description: "",
+  bannerImageUrl: "",
+  logoUrl: "",
+  imgWidth: 0,
+  imgHeight: 0,
+  websiteUrl: "",
+  contactNumber: "",
+  paymentMethod: "BKASH",
+  senderMobile: "",
+  transactionId: "",
+  amountBdt: "",
+  screenshotUrl: ""
+};
+
+function t(bn, en) { return lang === "bn" ? bn : en; }
+function esc(v) { return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function uid(prefix) { return prefix + "_" + Math.random().toString(36).slice(2, 12); }
+
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.remove("hidden");
+  setTimeout(() => el.classList.add("hidden"), 3200);
+}
+
+function toggleLang() {
+  lang = lang === "bn" ? "en" : "bn";
+  localStorage.setItem("dlbd_adv_lang", lang);
+  render();
+}
+
+// SHA-256(salt:password) — 100% identical to Android AdvertiserRemoteService
+async function sha256Hex(text) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function generateSaltHex() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function normalizeMobile(raw) {
+  const digits = String(raw || "").replace(/[^0-9]/g, "");
+  return digits.length >= 11 ? digits.slice(-11) : digits;
+}
+
+function isValidBdMobile(raw) {
+  const n = normalizeMobile(raw);
+  return /^01[3-9]\d{8}$/.test(n);
+}
+
+function normalizeTrx(raw) {
+  return String(raw || "").trim().toUpperCase().replace(/\s+/g, "");
+}
+
+function isValidImageSrc(url) {
+  const c = String(url || "").trim();
+  return c.startsWith("https://") || /^data:image\/(png|jpeg|jpg|webp);base64,/i.test(c);
+}
+
+function isValidWebUrl(url) {
+  const c = String(url || "").trim();
+  return !c || /^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(c);
+}
+
+function formatDate(ms) {
+  const n = Number(ms || 0);
+  return n > 0 ? new Date(n).toISOString().slice(0, 10) : "—";
+}
+
+function effectiveStatus(ad) {
+  const raw = String(ad.status || "PENDING_APPROVAL").toUpperCase();
+  if (raw === "ACTIVE" && Number(ad.expiryAt || 0) > 0 && Date.now() > Number(ad.expiryAt)) {
+    return "EXPIRED";
+  }
+  return raw;
+}
+
+function remainingDays(ad) {
+  if (effectiveStatus(ad) !== "ACTIVE") return 0;
+  const exp = Number(ad.expiryAt || 0);
+  if (!exp) return Number(ad.durationDays || 0);
+  const diff = exp - Date.now();
+  return diff <= 0 ? 0 : Math.ceil(diff / 86400000);
+}
+
+function badge(status) {
+  const map = {
+    ACTIVE: "bg-emerald-100 text-emerald-800",
+    VERIFIED: "bg-emerald-100 text-emerald-800",
+    PENDING: "bg-amber-100 text-amber-800",
+    PENDING_PAYMENT: "bg-amber-100 text-amber-800",
+    PENDING_APPROVAL: "bg-amber-100 text-amber-800",
+    EXPIRED: "bg-orange-100 text-orange-800",
+    REJECTED: "bg-rose-100 text-rose-800",
+    PAUSED: "bg-slate-200 text-slate-700"
+  };
+  return `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold ${map[status] || "bg-slate-100 text-slate-700"}">${esc(status)}</span>`;
+}
+
+// --- LOAD DASHBOARD DATA (STRICTLY ISOLATED TO AUTHENTICATED ADVERTISER) ---
+async function loadPortalData() {
+  if (!session) return;
+  try {
+    const res = await fetch(`${RTDB_BASE}.json`);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const root = (await res.json()) || {};
+
+    portalData.packages = Object.entries(root.ad_packages || {})
+      .map(([id, p]) => ({ id, ...p }))
+      .filter(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE")
+      .sort((a, b) => Number(a.priceBdt || 0) - Number(b.priceBdt || 0));
+
+    if (root.payment_settings) {
+      portalData.paymentSettings = { ...portalData.paymentSettings, ...root.payment_settings };
+    }
+
+    const totals = root.ad_analytics?.totals || {};
+    portalData.myAds = Object.entries(root.sponsors || {})
+      .map(([id, s]) => ({
+        id,
+        ...s,
+        totalViews: Number(totals[id]?.totalImpressions ?? s.totalViews ?? 0),
+        uniqueViews: Number(totals[id]?.uniqueViews ?? s.uniqueViews ?? 0),
+        clicks: Number(totals[id]?.clicks ?? 0)
+      }))
+      .filter(s => s.advertiserId === session.id)
+      .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+
+    portalData.myPayments = Object.entries(root.ad_payments || {})
+      .map(([id, p]) => ({ id, ...p }))
+      .filter(p => p.advertiserId === session.id)
+      .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+
+    if (!draftForm.businessName) draftForm.businessName = session.businessName || "";
+    if (!draftForm.contactNumber) draftForm.contactNumber = session.mobile || "";
+    if (!draftForm.senderMobile) draftForm.senderMobile = session.mobile || "";
+    if (!draftForm.packageId && portalData.packages.length > 0) {
+      draftForm.packageId = portalData.packages[0].id;
+      draftForm.amountBdt = String(portalData.packages[0].priceBdt);
+    }
+    render();
+  } catch (err) {
+    toast("Sync error: " + err.message);
+  }
+}
+
+// --- ADVERTISER AUTH ---
+async function handleRegister(e) {
+  e.preventDefault();
+  const businessName = document.getElementById("reg_biz").value.trim();
+  const ownerName = document.getElementById("reg_owner").value.trim();
+  const mobile = document.getElementById("reg_mobile").value.trim();
+  const email = document.getElementById("reg_email").value.trim().toLowerCase();
+  const address = document.getElementById("reg_address").value.trim();
+  const password = document.getElementById("reg_pass").value;
+
+  if (!isValidBdMobile(mobile)) return toast(t("সঠিক বাংলাদেশি মোবাইল নম্বর দিন (01XXXXXXXXX)", "Enter a valid Bangladesh mobile number (01XXXXXXXXX)"));
+  if (password.length < 6) return toast(t("পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে", "Password must be at least 6 characters"));
+
+  const existingRes = await fetch(`${RTDB_BASE}/advertisers.json`);
+  const existing = (existingRes.ok ? await existingRes.json() : {}) || {};
+  const norm = normalizeMobile(mobile);
+  for (const adv of Object.values(existing)) {
+    if (adv && normalizeMobile(adv.mobile) === norm) {
+      return toast(t("এই মোবাইল নম্বর দিয়ে আগেই অ্যাকাউন্ট তৈরি করা হয়েছে!", "An account with this mobile number already exists."));
+    }
+  }
+
+  const id = uid("adv");
+  const salt = generateSaltHex();
+  const passwordHash = await sha256Hex(`${salt}:${password}`);
+  const now = Date.now();
+  const record = { id, businessName, ownerName, mobile, email, address, salt, passwordHash, status: "ACTIVE", createdAt: now, updatedAt: now };
+
+  const putRes = await fetch(`${RTDB_BASE}/advertisers/${id}.json`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(record)
+  });
+  if (!putRes.ok) return toast("Registration failed. Please try again.");
+
+  session = { id, businessName, ownerName, mobile, email, address };
+  sessionStorage.setItem("dlbd_adv_session", JSON.stringify(session));
+  toast(t("অ্যাকাউন্ট সফলভাবে তৈরি হয়েছে!", "Advertiser account created successfully!"));
+  await loadPortalData();
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const identifier = document.getElementById("log_id").value.trim();
+  const password = document.getElementById("log_pass").value;
+
+  const res = await fetch(`${RTDB_BASE}/advertisers.json`);
+  const all = (res.ok ? await res.json() : {}) || {};
+  const normMob = normalizeMobile(identifier);
+  const lowId = identifier.toLowerCase();
+
+  let found = null;
+  for (const [id, adv] of Object.entries(all)) {
+    if (!adv) continue;
+    if ((normMob && normalizeMobile(adv.mobile) === normMob) || (adv.email && adv.email.toLowerCase() === lowId)) {
+      found = { id, ...adv };
+      break;
+    }
+  }
+  if (!found) return toast(t("অ্যাকাউন্ট পাওয়া যায়নি!", "Advertiser account not found."));
+  if (String(found.status || "ACTIVE").toUpperCase() !== "ACTIVE") {
+    return toast(t("আপনার অ্যাকাউন্টটি অ্যাডমিন কর্তৃক স্থগিত করা হয়েছে।", "This advertiser account is suspended by admin."));
+  }
+  const hash = await sha256Hex(`${found.salt}:${password}`);
+  if (hash !== found.passwordHash) return toast(t("ভুল পাসওয়ার্ড!", "Incorrect password."));
+
+  session = { id: found.id, businessName: found.businessName, ownerName: found.ownerName, mobile: found.mobile, email: found.email || "", address: found.address || "" };
+  sessionStorage.setItem("dlbd_adv_session", JSON.stringify(session));
+  toast(t("সফলভাবে লগইন হয়েছে!", "Logged in successfully!"));
+  await loadPortalData();
+}
+
+function logoutAdvertiser() {
+  session = null;
+  renewSourceAd = null;
+  sessionStorage.removeItem("dlbd_adv_session");
+  render();
+}
+
+// --- IMAGE UPLOAD VALIDATION (Format PNG/JPEG/WebP, <= 3MB, Dimension Check) ---
+function handleUploadImage(event, fieldName) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+    toast(t("শুধুমাত্র PNG, JPEG বা WebP ছবি অনুমোদিত।", "Only PNG, JPEG, or WebP images are allowed."));
+    event.target.value = "";
+    return;
+  }
+  if (file.size > 3 * 1024 * 1024) {
+    toast(t("ছবির সাইজ ৩ এমবি-র কম হতে হবে।", "Image size must be under 3 MB."));
+    event.target.value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      let dataUrl = reader.result;
+      const w = img.naturalWidth, h = img.naturalHeight;
+      if (w > 1080 || file.size > 350000) {
+        const scale = w > 1080 ? 1080 / w : 1;
+        const c = document.createElement("canvas");
+        c.width = Math.round(w * scale);
+        c.height = Math.round(h * scale);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        dataUrl = c.toDataURL("image/jpeg", 0.84);
+      }
+      draftForm[fieldName] = dataUrl;
+      if (fieldName === "bannerImageUrl") {
+        draftForm.imgWidth = w;
+        draftForm.imgHeight = h;
+      }
+      toast(t(`ছবি যাচাই সম্পন্ন (${w}×${h}px)`, `Image validated (${w}×${h}px)`));
+      render();
+    };
+    img.onerror = () => toast("Invalid or corrupted image file.");
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function startRenewAd(adId) {
+  const ad = portalData.myAds.find(a => a.id === adId);
+  if (!ad) return;
+  renewSourceAd = ad;
+  const matchingPkg = portalData.packages.find(p => p.id === ad.packageId) || portalData.packages[0];
+  draftForm = {
+    packageId: matchingPkg ? matchingPkg.id : "",
+    title: ad.promoTitle || "",
+    businessName: ad.name || session.businessName || "",
+    description: ad.description || "",
+    bannerImageUrl: ad.bannerImageUrl || "",
+    logoUrl: ad.logoUrl || "",
+    imgWidth: ad.widthPx || 0,
+    imgHeight: ad.heightPx || 0,
+    websiteUrl: ad.websiteUrl || "",
+    contactNumber: ad.contactNumber || session.mobile || "",
+    paymentMethod: "BKASH",
+    senderMobile: session.mobile || "",
+    transactionId: "",
+    amountBdt: matchingPkg ? String(matchingPkg.priceBdt) : "",
+    screenshotUrl: ""
+  };
+  activeTab = "submit";
+  render();
+}
+
+function onSelectPackage(pkgId) {
+  draftForm.packageId = pkgId;
+  const pk = portalData.packages.find(p => p.id === pkgId);
+  if (pk) draftForm.amountBdt = String(pk.priceBdt);
+  render();
+}
+
+async function handleSubmitAdAndPayment(e) {
+  e.preventDefault();
+  const pkg = portalData.packages.find(p => p.id === draftForm.packageId);
+  if (!pkg) return toast(t("একটি বিজ্ঞাপন প্যাকেজ নির্বাচন করুন", "Please select an advertising package."));
+  if (!draftForm.title.trim() || draftForm.title.trim().length < 3) return toast(t("বিজ্ঞাপনের শিরোনাম দিন", "Advertisement title is required."));
+  if (!isValidImageSrc(draftForm.bannerImageUrl)) return toast(t("বৈধ বিজ্ঞাপন ছবি আপলোড করুন অথবা HTTPS URL দিন", "Upload a valid ad image or enter an HTTPS image URL."));
+  if (!isValidWebUrl(draftForm.websiteUrl)) return toast(t("ওয়েবসাইট URL https:// দিয়ে শুরু হতে হবে", "Website URL must start with https:// or http://"));
+  if (!isValidBdMobile(draftForm.senderMobile)) return toast(t("সঠিক বিকাশ/নগদ প্রেরক মোবাইল নম্বর দিন", "Enter a valid sender bKash/Nagad mobile number."));
+
+  const normTrx = normalizeTrx(draftForm.transactionId);
+  if (normTrx.length < 5) return toast(t("সঠিক Transaction ID (TrxID) দিন", "Enter a valid Transaction ID (TrxID)."));
+  const paid = parseInt(draftForm.amountBdt, 10) || 0;
+  if (paid < Number(pkg.priceBdt || 0)) {
+    return toast(t(`প্যাকেজ মূল্য কমপক্ষে ৳${pkg.priceBdt} হতে হবে`, `Paid amount must be at least ৳${pkg.priceBdt}.`));
+  }
+
+  // Strict Duplicate TrxID Check across RTDB
+  const payRes = await fetch(`${RTDB_BASE}/ad_payments.json`);
+  const allPay = (payRes.ok ? await payRes.json() : {}) || {};
+  for (const p of Object.values(allPay)) {
+    if (!p || String(p.status).toUpperCase() === "REJECTED") continue;
+    if (normalizeTrx(p.transactionIdNormalized || p.transactionId) === normTrx) {
+      return toast(t(`এই TrxID (${draftForm.transactionId}) ইতিপূর্বে ব্যবহৃত হয়েছে!`, `Duplicate Transaction ID (${draftForm.transactionId}) already exists!`));
+    }
+  }
+
+  const now = Date.now();
+  const adId = uid("sp");
+  const payId = uid("pay");
+  const isRenewal = Boolean(renewSourceAd);
+
+  // Ad is created as PENDING_APPROVAL (NEVER active before Admin verifies payment)
+  const adPayload = {
+    id: adId,
+    advertiserId: session.id,
+    submittedBy: "ADVERTISER",
+    packageId: pkg.id,
+    packageName: pkg.name,
+    widthPx: pkg.widthPx,
+    heightPx: pkg.heightPx,
+    durationDays: pkg.durationDays,
+    priceBdt: pkg.priceBdt,
+    placementType: pkg.placementType,
+    status: "PENDING_APPROVAL",
+    isActive: false,
+    name: draftForm.businessName.trim(),
+    sponsorName: draftForm.businessName.trim(),
+    promoTitle: draftForm.title.trim(),
+    title: draftForm.title.trim(),
+    description: draftForm.description.trim(),
+    logoUrl: draftForm.logoUrl.trim(),
+    bannerImageUrl: draftForm.bannerImageUrl.trim(),
+    websiteUrl: draftForm.websiteUrl.trim(),
+    contactNumber: draftForm.contactNumber.trim(),
+    targetPages: pkg.placementType === "ABOUT_US_SPONSOR" ? "about_us" : "ALL",
+    displayPriority: 15,
+    displayFrequency: 1,
+    activatedAt: 0,
+    expiryAt: 0,
+    startDate: "",
+    endDate: "",
+    renewalOfAdId: renewSourceAd ? renewSourceAd.id : "",
+    totalViews: 0,
+    uniqueViews: 0,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  const payPayload = {
+    id: payId,
+    adId,
+    advertiserId: session.id,
+    packageId: pkg.id,
+    packageName: pkg.name,
+    isRenewal,
+    paymentMethod: draftForm.paymentMethod,
+    senderMobile: draftForm.senderMobile.trim(),
+    transactionId: draftForm.transactionId.trim(),
+    transactionIdNormalized: normTrx,
+    amountBdt: paid,
+    screenshotUrl: draftForm.screenshotUrl.trim(),
+    status: "PENDING",
+    adminNote: "",
+    createdAt: now,
+    verifiedAt: 0
+  };
+
+  const r1 = await fetch(`${RTDB_BASE}/sponsors/${adId}.json`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(adPayload) });
+  const r2 = await fetch(`${RTDB_BASE}/ad_payments/${payId}.json`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payPayload) });
+  if (!r1.ok || !r2.ok) return toast("Submission failed. Please check internet connection.");
+
+  renewSourceAd = null;
+  draftForm.title = "";
+  draftForm.description = "";
+  draftForm.transactionId = "";
+  draftForm.screenshotUrl = "";
+  activeTab = "dashboard";
+  toast(t("বিজ্ঞাপন ও পেমেন্ট সফলভাবে জমা হয়েছে! অ্যাডমিন যাচাইয়ের পর এটি স্বয়ংক্রিয়ভাবে চালু হবে।", "Advertisement & payment submitted! It will automatically activate after Admin verification."));
+  await loadPortalData();
+}
+
+// --- RENDERERS ---
+function render() {
+  document.getElementById("hdrSubtitle").textContent = t("ডিরেক্ট স্পন্সর বিজ্ঞাপনদাতা পোর্টাল", "Direct Sponsor Advertiser Portal");
+  document.getElementById("logoutBtn").classList.toggle("hidden", !session);
+  document.getElementById("logoutBtn").textContent = t("লগআউট", "Logout");
+  const root = document.getElementById("appRoot");
+
+  if (!session) {
+    root.innerHTML = renderAuth();
+    return;
+  }
+
+  root.innerHTML = `
+    <!-- Advertiser Header Banner -->
+    <div class="bg-gradient-to-r from-sky-800 via-sky-700 to-teal-700 text-white p-5 rounded-3xl shadow-sm mb-5 flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <div class="text-xs text-sky-200 font-semibold">${t("স্বাগতম বিজ্ঞাপনদাতা", "Welcome Advertiser")}</div>
+        <h1 class="text-xl font-bold">${esc(session.businessName)}</h1>
+        <div class="text-xs text-sky-100 mt-0.5">${esc(session.ownerName)} &bull; ${esc(session.mobile)}</div>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button onclick="renewSourceAd=null;activeTab='dashboard';render()" class="px-4 py-2 rounded-xl text-xs font-bold ${activeTab==='dashboard' ? 'bg-white text-sky-900' : 'bg-white/15 text-white'}">${t("ড্যাশবোর্ড", "Dashboard")}</button>
+        <button onclick="activeTab='submit';render()" class="px-4 py-2 rounded-xl text-xs font-bold ${activeTab==='submit' ? 'bg-white text-sky-900' : 'bg-white/15 text-white'}">${renewSourceAd ? t("বিজ্ঞাপন রিনিউ", "Renew Ad") : t("+ নতুন বিজ্ঞাপন", "+ Submit Ad")}</button>
+        <button onclick="activeTab='payments';render()" class="px-4 py-2 rounded-xl text-xs font-bold ${activeTab==='payments' ? 'bg-white text-sky-900' : 'bg-white/15 text-white'}">${t("পেমেন্ট ইতিহাস", "Payments")}</button>
+        <button onclick="loadPortalData()" class="px-3 py-2 rounded-xl bg-teal-500/30 text-white text-xs font-bold">${t("রিফ্রেশ", "Refresh")}</button>
+      </div>
+    </div>
+    ${activeTab === "dashboard" ? renderDashboardView() : activeTab === "submit" ? renderSubmitView() : renderPaymentsView()}
+  `;
+}
+
+function renderAuth() {
+  return `
+    <div class="max-w-lg mx-auto mt-6 bg-white rounded-3xl border border-slate-200 shadow-sm p-7">
+      <div class="flex gap-2 mb-6 p-1 rounded-2xl bg-slate-100">
+        <button onclick="authMode='login';render()" class="flex-1 py-2.5 rounded-xl text-xs font-bold ${authMode==='login' ? 'bg-white text-sky-800 shadow-sm' : 'text-slate-600'}">${t("বিজ্ঞাপনদাতা লগইন", "Advertiser Login")}</button>
+        <button onclick="authMode='register';render()" class="flex-1 py-2.5 rounded-xl text-xs font-bold ${authMode==='register' ? 'bg-white text-sky-800 shadow-sm' : 'text-slate-600'}">${t("নতুন রেজিস্ট্রেশন", "Register Business")}</button>
+      </div>
+
+      ${authMode === "login" ? `
+        <h2 class="text-lg font-bold text-slate-900 mb-1">${t("আপনার বিজ্ঞাপন অ্যাকাউন্টে লগইন করুন", "Sign In to Manage Your Advertisements")}</h2>
+        <p class="text-xs text-slate-500 mb-5">${t("শুধুমাত্র বিজ্ঞাপনদাতাদের জন্য অ্যাকাউন্ট প্রয়োজন। সাধারণ রোগীরা ফ্রি ও লগইন ছাড়াই অ্যাপ ব্যবহার করতে পারবেন।", "Only advertisers need accounts. Patients use Doctor List BD completely free without login.")}</p>
+        <form onsubmit="handleLogin(event)" class="space-y-3.5">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">${t("মোবাইল নম্বর বা ইমেইল *", "Mobile Number or Email *")}</label>
+            <input id="log_id" required placeholder="01XXXXXXXXX" class="input" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">${t("পাসওয়ার্ড *", "Password *")}</label>
+            <input id="log_pass" type="password" required class="input" />
+          </div>
+          <button type="submit" class="w-full py-3 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm">${t("লগইন করুন", "Sign In")}</button>
+        </form>
+      ` : `
+        <h2 class="text-lg font-bold text-slate-900 mb-1">${t("বিজ্ঞাপনদাতা রেজিস্ট্রেশন", "Advertiser Registration")}</h2>
+        <p class="text-xs text-slate-500 mb-5">${t("আপনার হাসপাতাল, ডায়াগনস্টিক সেন্টার বা ব্যবসার বিজ্ঞাপন দিন।", "Advertise your hospital, diagnostic center, pharmacy, or business.")}</p>
+        <form onsubmit="handleRegister(event)" class="space-y-3">
+          <div><label class="block text-xs font-semibold text-slate-700 mb-1">${t("প্রতিষ্ঠান / ব্যবসার নাম *", "Business / Institution Name *")}</label><input id="reg_biz" required class="input" /></div>
+          <div><label class="block text-xs font-semibold text-slate-700 mb-1">${t("মালিকের নাম *", "Owner Name *")}</label><input id="reg_owner" required class="input" /></div>
+          <div><label class="block text-xs font-semibold text-slate-700 mb-1">${t("মোবাইল নম্বর *", "Mobile Number *")}</label><input id="reg_mobile" required placeholder="01XXXXXXXXX" class="input" /></div>
+          <div><label class="block text-xs font-semibold text-slate-700 mb-1">${t("ইমেইল (ঐচ্ছিক)", "Email (Optional)")}</label><input id="reg_email" type="email" class="input" /></div>
+          <div><label class="block text-xs font-semibold text-slate-700 mb-1">${t("ঠিকানা *", "Address *")}</label><input id="reg_address" required class="input" /></div>
+          <div><label class="block text-xs font-semibold text-slate-700 mb-1">${t("পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর) *", "Password (min 6 chars) *")}</label><input id="reg_pass" type="password" required minlength="6" class="input" /></div>
+          <button type="submit" class="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-sm">${t("অ্যাকাউন্ট তৈরি করুন", "Create Advertiser Account")}</button>
+        </form>
+      `}
+    </div>
+  `;
+}
+
+function renderDashboardView() {
+  const ads = portalData.myAds;
+  const active = ads.filter(a => effectiveStatus(a) === "ACTIVE");
+  const pending = ads.filter(a => ["PENDING_APPROVAL", "PENDING_PAYMENT"].includes(effectiveStatus(a)));
+  const expired = ads.filter(a => effectiveStatus(a) === "EXPIRED");
+  const totalViews = ads.reduce((s, a) => s + Number(a.totalViews || 0), 0);
+
+  return `
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+      <div class="bg-white p-4 rounded-2xl border border-slate-200"><div class="text-xs text-slate-500">${t("মোট বিজ্ঞাপন", "Total Ads")}</div><div class="text-2xl font-extrabold text-slate-900 mt-1">${ads.length}</div></div>
+      <div class="bg-white p-4 rounded-2xl border border-emerald-200"><div class="text-xs text-emerald-700 font-semibold">${t("সক্রিয়", "Active Ads")}</div><div class="text-2xl font-extrabold text-emerald-700 mt-1">${active.length}</div></div>
+      <div class="bg-white p-4 rounded-2xl border border-amber-200"><div class="text-xs text-amber-700 font-semibold">${t("পেন্ডিং", "Pending")}</div><div class="text-2xl font-extrabold text-amber-700 mt-1">${pending.length}</div></div>
+      <div class="bg-white p-4 rounded-2xl border border-orange-200"><div class="text-xs text-orange-700 font-semibold">${t("মেয়াদোত্তীর্ণ", "Expired")}</div><div class="text-2xl font-extrabold text-orange-700 mt-1">${expired.length}</div></div>
+      <div class="bg-white p-4 rounded-2xl border border-sky-200"><div class="text-xs text-sky-700 font-semibold">${t("মোট ভিউ", "Total Views")}</div><div class="text-2xl font-extrabold text-sky-800 mt-1">${totalViews.toLocaleString()}</div></div>
+    </div>
+
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-bold text-base text-slate-900">${t("আপনার বিজ্ঞাপনসমূহ", "Your Advertisements")}</h3>
+        <button onclick="renewSourceAd=null;activeTab='submit';render()" class="px-4 py-2 rounded-xl bg-sky-600 text-white text-xs font-bold">${t("+ নতুন বিজ্ঞাপন দিন", "+ New Advertisement")}</button>
+      </div>
+      ${ads.length === 0 ? `
+        <div class="p-8 text-center rounded-2xl bg-slate-50 border border-dashed border-slate-300 text-sm text-slate-500">
+          ${t("এখনো কোনো বিজ্ঞাপন জমা দেওয়া হয়নি। উপরের বাটনে ক্লিক করে প্রথম বিজ্ঞাপন শুরু করুন।", "You have not submitted any advertisements yet. Click '+ New Advertisement' to get started.")}
+        </div>
+      ` : `
+        <div class="space-y-3">
+          ${ads.map(ad => {
+            const st = effectiveStatus(ad);
+            const rem = remainingDays(ad);
+            return `
+              <div class="p-4 rounded-2xl border border-slate-200 bg-slate-50/70 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div class="flex items-start gap-3">
+                  <div class="w-20 h-14 rounded-xl bg-sky-100 overflow-hidden flex-shrink-0 border border-slate-200">
+                    ${isValidImageSrc(ad.bannerImageUrl) ? `<img src="${esc(ad.bannerImageUrl)}" class="w-full h-full object-cover" alt="" />` : ""}
+                  </div>
+                  <div class="space-y-0.5">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <strong class="text-sm text-slate-900">${esc(ad.promoTitle || ad.name)}</strong>
+                      ${badge(st)}
+                    </div>
+                    <div class="text-xs text-slate-600">
+                      ${esc(ad.packageName || ad.placementType)} (${ad.widthPx}×${ad.heightPx}px &bull; ${ad.durationDays} ${t("দিন", "Days")} &bull; &#2547;${Number(ad.priceBdt || 0).toLocaleString()})
+                    </div>
+                    <div class="text-[11px] text-slate-500">
+                      ${t("শুরু", "Start")}: ${formatDate(ad.activatedAt)} &bull; ${t("মেয়াদ শেষ", "Expiry")}: ${formatDate(ad.expiryAt)}
+                      ${st === "ACTIVE" ? ` &bull; <strong class="text-emerald-700">${rem} ${t("দিন বাকি", "day(s) left")}</strong>` : ""}
+                    </div>
+                    <div class="text-[11px] text-sky-800 font-semibold">
+                      ${t("মোট ভিউ", "Impressions")}: ${Number(ad.totalViews || 0).toLocaleString()} &bull; ${t("ইউনিক ভিউ", "Unique Views")}: ${Number(ad.uniqueViews || 0).toLocaleString()} &bull; ${t("ক্লিক", "Clicks")}: ${Number(ad.clicks || 0).toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+                ${st === "EXPIRED" ? `
+                  <button onclick="startRenewAd('${esc(ad.id)}')" class="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold whitespace-nowrap">
+                    ${t("পুনরায় চালু (Renew)", "Renew Ad")}
+                  </button>
+                ` : ""}
+              </div>
+            `;
+          }).join("")}
+        </div>
+      `}
+    </div>
+  `;
+}
+
+function renderSubmitView() {
+  const ps = portalData.paymentSettings;
+  const selPkg = portalData.packages.find(p => p.id === draftForm.packageId) || null;
+  const dimWarning = selPkg && draftForm.imgWidth > 0 && (Math.abs(draftForm.imgWidth - selPkg.widthPx) > selPkg.widthPx * 0.5 || Math.abs(draftForm.imgHeight - selPkg.heightPx) > selPkg.heightPx * 0.5);
+
+  return `
+    ${renewSourceAd ? `
+      <div class="mb-4 p-4 rounded-2xl bg-purple-50 border border-purple-200 flex items-center justify-between gap-3 text-xs text-purple-900">
+        <div><strong>${t("রিনিউ মোড", "Renewing Expired Ad")}:</strong> ${esc(renewSourceAd.promoTitle)} (${t("পূর্বের ভিউ ইতিহাস সংরক্ষিত থাকবে", "Prior view history will remain preserved")})</div>
+        <button onclick="renewSourceAd=null;render()" class="font-bold underline">${t("বাতিল", "Cancel")}</button>
+      </div>
+    ` : ""}
+
+    <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+      <form onsubmit="handleSubmitAdAndPayment(event)" class="xl:col-span-7 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+        <h3 class="font-bold text-lg text-sky-900">${renewSourceAd ? t("মেয়াদোত্তীর্ণ বিজ্ঞাপন রিনিউ করুন", "Renew Advertisement") : t("নতুন বিজ্ঞাপন ও ম্যানুয়াল পেমেন্ট", "Submit New Advertisement & Payment")}</h3>
+
+        <!-- 1. Dynamic Package Selector -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1.5">${t("১. বিজ্ঞাপন প্যাকেজ নির্বাচন করুন *", "1. Select Advertising Package *")}</label>
+          ${portalData.packages.length === 0 ? `
+            <div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+              ${t("এখনো কোনো প্যাকেজ চালু নেই। অ্যাডমিনের সাথে যোগাযোগ করুন।", "No active packages available yet. Please contact Admin.")}
+            </div>
+          ` : `
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              ${portalData.packages.map(pk => `
+                <label class="p-3.5 rounded-xl border-2 cursor-pointer transition ${draftForm.packageId === pk.id ? "border-sky-600 bg-sky-50/70" : "border-slate-200 bg-white"}">
+                  <input type="radio" name="pkg" value="${esc(pk.id)}" ${draftForm.packageId === pk.id ? "checked" : ""} onchange="onSelectPackage('${esc(pk.id)}')" class="hidden" />
+                  <div class="font-bold text-xs text-slate-900">${esc(pk.name)}</div>
+                  <div class="text-xs font-extrabold text-teal-700 mt-0.5">&#2547;${Number(pk.priceBdt).toLocaleString()} &bull; ${pk.durationDays} ${t("দিন", "Days")}</div>
+                  <div class="text-[11px] text-slate-500">${pk.widthPx}×${pk.heightPx}px &bull; ${esc(pk.placementType)}</div>
+                </label>
+              `).join("")}
+            </div>
+          `}
+        </div>
+
+        <!-- 2. Advertisement Content -->
+        <div class="space-y-3 pt-2 border-t border-slate-100">
+          <div class="text-xs font-bold text-slate-700">${t("২. বিজ্ঞাপনের তথ্য ও ছবি", "2. Advertisement Content & Image")}</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">${t("বিজ্ঞাপনের শিরোনাম *", "Advertisement Title *")}</label>
+              <input required value="${esc(draftForm.title)}" oninput="draftForm.title=this.value;refreshPortalPreview()" class="input" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">${t("প্রতিষ্ঠান / ব্যবসার নাম *", "Business Name *")}</label>
+              <input required value="${esc(draftForm.businessName)}" oninput="draftForm.businessName=this.value;refreshPortalPreview()" class="input" />
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">${t("বিবরণ", "Advertisement Description")}</label>
+            <textarea rows="2" oninput="draftForm.description=this.value;refreshPortalPreview()" class="input">${esc(draftForm.description)}</textarea>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">${t("বিজ্ঞাপনের ছবি আপলোড (PNG/JPG/WebP, <3MB) *", "Upload Ad Image (PNG/JPG/WebP, <3MB) *")}</label>
+              <input type="file" accept="image/png,image/jpeg,image/webp" onchange="handleUploadImage(event, 'bannerImageUrl')" class="text-xs w-full mb-1.5" />
+              <input value="${esc(draftForm.bannerImageUrl.startsWith('data:') ? '' : draftForm.bannerImageUrl)}" oninput="draftForm.bannerImageUrl=this.value;refreshPortalPreview()" placeholder="Or paste https://... image URL" class="input text-xs" />
+              ${draftForm.imgWidth > 0 ? `<div class="text-[11px] mt-1 ${dimWarning ? 'text-amber-700 font-bold' : 'text-teal-700 font-semibold'}">Uploaded: ${draftForm.imgWidth}×${draftForm.imgHeight}px${dimWarning ? ` (Recommended: ${selPkg.widthPx}×${selPkg.heightPx}px)` : ""}</div>` : ""}
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">${t("লোগো (ঐচ্ছিক)", "Logo (Optional)")}</label>
+              <input type="file" accept="image/png,image/jpeg,image/webp" onchange="handleUploadImage(event, 'logoUrl')" class="text-xs w-full mb-1.5" />
+              <input value="${esc(draftForm.logoUrl.startsWith('data:') ? '' : draftForm.logoUrl)}" oninput="draftForm.logoUrl=this.value;refreshPortalPreview()" placeholder="Or paste https://... logo URL" class="input text-xs" />
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t("ওয়েবসাইট / ফেসবুক লিংক", "Website / Social URL")}</label><input type="url" value="${esc(draftForm.websiteUrl)}" oninput="draftForm.websiteUrl=this.value" placeholder="https://..." class="input text-xs" /></div>
+            <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t("যোগাযোগের নম্বর", "Contact Number")}</label><input value="${esc(draftForm.contactNumber)}" oninput="draftForm.contactNumber=this.value;refreshPortalPreview()" placeholder="01XXXXXXXXX" class="input text-xs" /></div>
+          </div>
+        </div>
+
+        <!-- 3. Manual bKash & Nagad Payment -->
+        <div class="space-y-3 pt-3 border-t border-slate-100">
+          <div class="text-xs font-bold text-slate-700">${t("৩. ম্যানুয়াল বিকাশ / নগদ পেমেন্ট", "3. Manual bKash / Nagad Payment")}</div>
+          <div class="p-4 rounded-2xl bg-sky-50 border border-sky-200 text-xs space-y-1.5">
+            <div><strong class="text-pink-700">bKash (${esc(ps.bkashAccountType)}):</strong> ${esc(ps.bkashNumber || "Contact Admin")}</div>
+            <div><strong class="text-orange-700">Nagad (${esc(ps.nagadAccountType)}):</strong> ${esc(ps.nagadNumber || "Contact Admin")}</div>
+            <div class="text-slate-600 pt-1">${esc(lang === "bn" ? (ps.instructionsBn || ps.instructionsEn || "প্যাকেজের নির্ধারিত টাকা পাঠিয়ে নিচে TrxID জমা দিন। অ্যাডমিন যাচাইয়ের পর বিজ্ঞাপন চালু হবে।") : (ps.instructionsEn || ps.instructionsBn || "Send package price via bKash or Nagad and submit your Transaction ID below. Your ad starts only after Admin approval."))}</div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">${t("পেমেন্ট মাধ্যম *", "Payment Method *")}</label>
+              <select onchange="draftForm.paymentMethod=this.value" class="input">
+                <option value="BKASH" ${draftForm.paymentMethod==="BKASH"?"selected":""}>bKash</option>
+                <option value="NAGAD" ${draftForm.paymentMethod==="NAGAD"?"selected":""}>Nagad</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">${t("প্রদত্ত টাকা (BDT) *", "Amount Paid (BDT) *")}</label>
+              <input type="number" required value="${esc(draftForm.amountBdt)}" oninput="draftForm.amountBdt=this.value" class="input" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">${t("প্রেরকের মোবাইল নম্বর *", "Sender Mobile Number *")}</label>
+              <input required value="${esc(draftForm.senderMobile)}" oninput="draftForm.senderMobile=this.value" placeholder="01XXXXXXXXX" class="input" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">${t("ট্রানজেকশন আইডি (TrxID) *", "Transaction ID (TrxID) *")}</label>
+              <input required value="${esc(draftForm.transactionId)}" oninput="draftForm.transactionId=this.value" placeholder="e.g. BKS8X92KLQ" class="input uppercase" />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">${t("পেমেন্ট স্ক্রিনশট (ঐচ্ছিক)", "Payment Screenshot (Optional)")}</label>
+            <input type="file" accept="image/png,image/jpeg,image/webp" onchange="handleUploadImage(event, 'screenshotUrl')" class="text-xs w-full" />
+            ${draftForm.screenshotUrl ? `<div class="text-[11px] text-emerald-700 font-semibold mt-1">${t("স্ক্রিনশট যুক্ত হয়েছে", "Screenshot attached")}</div>` : ""}
+          </div>
+        </div>
+
+        <button type="submit" class="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-sm">
+          ${t("বিজ্ঞাপন ও পেমেন্ট জমা দিন", "Submit Advertisement for Verification")}
+        </button>
+      </form>
+
+      <!-- Live Sponsored Preview -->
+      <div class="xl:col-span-5 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-fit sticky top-20">
+        <h4 class="font-bold text-slate-900 mb-1">${t("লাইভ বিজ্ঞাপন প্রিভিউ", "Live Sponsored Preview")}</h4>
+        <p class="text-xs text-slate-500 mb-4">${t("অ্যাপে আপনার বিজ্ঞাপনটি যেভাবে দেখাবে (অনলাইন ও অফলাইন):", "How your advertisement will appear in Doctor List BD:")}</p>
+        <div id="portalPreviewBox" class="p-4 rounded-2xl bg-slate-100 border border-dashed border-slate-300">
+          ${buildPreviewHtml()}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function buildPreviewHtml() {
+  const title = esc(draftForm.title || t("আপনার বিজ্ঞাপনের শিরোনাম", "Your Advertisement Title"));
+  const biz = esc(draftForm.businessName || session?.businessName || "Business Name");
+  const desc = esc(draftForm.description || t("বিজ্ঞাপনের সংক্ষিপ্ত বিবরণ এখানে দেখানো হবে।", "Your promotional message will appear here."));
+  const hasImg = isValidImageSrc(draftForm.bannerImageUrl);
+  return `
+    <div class="bg-white rounded-2xl border-2 border-teal-200 overflow-hidden shadow-sm">
+      <div class="p-3 bg-teal-50/50 flex items-center justify-between">
+        <div>
+          <div class="text-xs font-bold text-slate-900">${biz}</div>
+          <div class="text-[11px] font-semibold text-sky-800">${title}</div>
+        </div>
+        <span class="px-2 py-0.5 rounded bg-teal-600 text-white text-[10px] font-bold">${t("স্পন্সরড", "Sponsored")}</span>
+      </div>
+      ${hasImg ? `<img src="${esc(draftForm.bannerImageUrl)}" class="w-full h-40 object-cover" alt="" />` : `<div class="h-32 bg-slate-200 flex items-center justify-center text-xs text-slate-500">${t("বিজ্ঞাপনের ছবি প্রিভিউ", "Ad Image Preview")}</div>`}
+      <div class="p-3 space-y-2">
+        <p class="text-xs text-slate-600">${desc}</p>
+        <div class="flex gap-2">
+          <div class="flex-1 py-1.5 rounded-lg bg-sky-600 text-white text-center text-xs font-bold">${t("ভিজিট করুন", "Visit Sponsor")}</div>
+          ${draftForm.contactNumber ? `<div class="px-3 py-1.5 rounded-lg border border-teal-600 text-teal-700 text-xs font-bold">${t("কল", "Call")}</div>` : ""}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function refreshPortalPreview() {
+  const el = document.getElementById("portalPreviewBox");
+  if (el) el.innerHTML = buildPreviewHtml();
+}
+
+function renderPaymentsView() {
+  const pays = portalData.myPayments;
+  return `
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+      <h3 class="font-bold text-base text-slate-900 mb-4">${t("আপনার পেমেন্ট ইতিহাস", "Your Payment History")} (${pays.length})</h3>
+      ${pays.length === 0 ? `<div class="text-sm text-slate-400">${t("কোনো পেমেন্ট রেকর্ড নেই।", "No payment history yet.")}</div>` : `
+        <div class="space-y-3">
+          ${pays.map(p => `
+            <div class="p-4 rounded-2xl border border-slate-200 bg-slate-50/70 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div>
+                <div class="flex items-center gap-2">
+                  <strong class="text-sm text-slate-900">&#2547;${Number(p.amountBdt || 0).toLocaleString()} (${esc(p.paymentMethod)})</strong>
+                  ${badge(String(p.status || "PENDING").toUpperCase())}
+                </div>
+                <div class="text-slate-600 mt-1">TrxID: <strong>${esc(p.transactionId)}</strong> &bull; ${esc(p.packageName)} &bull; Sender: ${esc(p.senderMobile)}</div>
+                ${p.adminNote ? `<div class="text-slate-500 mt-0.5">Note: ${esc(p.adminNote)}</div>` : ""}
+              </div>
+              <div class="text-slate-400">${formatDate(p.createdAt)}</div>
+            </div>
+          `).join("")}
+        </div>
+      `}
+    </div>
+  `;
+}
+
+render();
+if (session) loadPortalData();
+</script>
+</body>
+</html>

@@ -44,7 +44,8 @@ fun FindDoctorsScreen(
     adConfig: AdConfigEntity,
     sponsors: List<SponsorEntity> = emptyList(),
     isOnline: Boolean = true,
-    onSponsorDisplayed: (String, Boolean) -> Unit = { _, _ -> },
+    nowMs: Long = System.currentTimeMillis(),
+    onSponsorDisplayed: (String, Boolean, String) -> Unit = { _, _, _ -> },
     onSponsorClicked: (String, Boolean) -> Unit = { _, _ -> },
     searchState: SearchFilterState,
     specialties: List<SpecialtyEntity>,
@@ -65,7 +66,6 @@ fun FindDoctorsScreen(
     val pagedDoctors = remember(filteredDoctors, visibleCount) {
         filteredDoctors.take(visibleCount)
     }
-    val nativeInterval = adConfig.nativeAdInterval.coerceAtLeast(2)
 
     Column(
         modifier = modifier
@@ -218,9 +218,6 @@ fun FindDoctorsScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                item {
-                    ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
-                }
                 itemsIndexed(pagedDoctors, key = { _, it -> it.doctor.id }) { index, doc ->
                     DoctorCard(
                         item = doc,
@@ -229,7 +226,7 @@ fun FindDoctorsScreen(
                         onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
                         onClick = { onDoctorClick(doc.doctor.id) }
                     )
-                    // Native Sponsor Ad Card every configured 4/5/6 cards (works Online + Offline)
+                    // 1. Native Sponsor Ad Card every configured 4/5/6 cards (works Online + Offline)
                     if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(index, adConfig.nativeSponsorInterval)) {
                         val slot = index / adConfig.nativeSponsorInterval.coerceIn(4, 6)
                         Spacer(Modifier.height(10.dp))
@@ -239,13 +236,18 @@ fun FindDoctorsScreen(
                             pageKey = SponsorCampaignSelector.PAGE_FIND_DOCTORS,
                             slotIndex = slot,
                             isOnline = isOnline,
+                            nowMs = nowMs,
                             lang = lang,
                             onSponsorDisplayed = onSponsorDisplayed,
                             onSponsorClicked = onSponsorClicked
                         )
-                    } else if ((index + 1) % nativeInterval == 0) {
+                    } else if (isOnline && adConfig.nativeBannerEnabled && (index + 1) % adConfig.nativeAdInterval.coerceIn(4, 8) == 2) {
+                        // 2. Online-ONLY Start.io / Unity Native Banner (auto-disabled offline)
                         Spacer(Modifier.height(10.dp))
-                        ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
+                        ManagedNativeBannerAd(
+                            adConfig = adConfig,
+                            isOnline = isOnline
+                        )
                     }
                 }
                 if (pagedDoctors.size < filteredDoctors.size) {

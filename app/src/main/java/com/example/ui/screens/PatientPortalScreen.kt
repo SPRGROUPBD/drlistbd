@@ -19,20 +19,16 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.local.AdConfigEntity
-import com.example.data.local.AppointmentRequestEntity
 import com.example.data.local.NotificationEntity
 import com.example.data.local.SponsorEntity
 import com.example.data.model.DoctorFullProfile
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
-import com.example.ui.ads.ManagedNativeBannerAd
 import com.example.ui.ads.NativeSponsorAdCard
-import com.example.ui.ads.RewardedAdCard
 import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.DoctorCard
 import com.example.ui.components.EmptyStateCard
-import com.example.ui.components.StatusPill
 import com.example.ui.theme.*
 
 @Composable
@@ -41,18 +37,17 @@ fun PatientPortalScreen(
     adConfig: AdConfigEntity,
     sponsors: List<SponsorEntity> = emptyList(),
     isOnline: Boolean = true,
-    onSponsorDisplayed: (String, Boolean) -> Unit = { _, _ -> },
+    nowMs: Long = System.currentTimeMillis(),
+    onSponsorDisplayed: (String, Boolean, String) -> Unit = { _, _, _ -> },
     onSponsorClicked: (String, Boolean) -> Unit = { _, _ -> },
     isSyncing: Boolean,
     favoriteDoctors: List<DoctorFullProfile>,
     notifications: List<NotificationEntity>,
-    isRewardedReady: Boolean,
-    isRewardedLoading: Boolean = false,
-    onWatchRewardedAd: () -> Unit,
     onRefreshDirectory: () -> Unit,
     onToggleFavorite: (String) -> Unit,
     onDoctorClick: (String) -> Unit,
     onMarkNotificationRead: (String) -> Unit,
+    onOpenAdvertiserPortal: () -> Unit = {},
     onNavigateInfo: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -74,28 +69,20 @@ fun PatientPortalScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                tr(lang, "আমার সেভড তালিকা", "My Saved Directory"),
-                                style = MaterialTheme.typography.titleLarge,
-                                color = TextPrimary
-                            )
-                            Text(
-                                tr(
-                                    lang,
-                                    "কোনো লগইন ছাড়াই আপনার প্রিয় ডাক্তার ও নোটিশ সংরক্ষিত থাকে।",
-                                    "Favorite doctors & alerts are saved locally on your device — no login required."
-                                ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                        }
-                    }
+                    Text(
+                        tr(lang, "আমার সেভড তালিকা", "My Saved Directory"),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = TextPrimary
+                    )
+                    Text(
+                        tr(
+                            lang,
+                            "কোনো লগইন ছাড়াই আপনার প্রিয় ডাক্তার ও নোটিশ সংরক্ষিত থাকে।",
+                            "Favorite doctors & alerts are saved locally on your device — no login required."
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
                     Spacer(Modifier.height(12.dp))
                     Button(
                         onClick = onRefreshDirectory,
@@ -114,18 +101,6 @@ fun PatientPortalScreen(
                         Text(tr(lang, "সর্বশেষ ডিরেক্টরি আপডেট করুন", "Sync Latest Directory"))
                     }
                 }
-            }
-        }
-
-        // Rewarded Ad Support Card (Online Only)
-        if (isOnline && adConfig.adsEnabled && adConfig.rewardedEnabled) {
-            item {
-                RewardedAdCard(
-                    lang = lang,
-                    isReady = isRewardedReady,
-                    isLoading = isRewardedLoading,
-                    onWatchClick = onWatchRewardedAd
-                )
             }
         }
 
@@ -172,6 +147,7 @@ fun PatientPortalScreen(
                                 pageKey = SponsorCampaignSelector.PAGE_PORTAL,
                                 slotIndex = idx / adConfig.nativeSponsorInterval.coerceIn(4, 6),
                                 isOnline = isOnline,
+                                nowMs = nowMs,
                                 lang = lang,
                                 onSponsorDisplayed = onSponsorDisplayed,
                                 onSponsorClicked = onSponsorClicked
@@ -210,7 +186,7 @@ fun PatientPortalScreen(
             }
         }
 
-        // Native Sponsor Card (Online + Offline Cached) & Network Native Banner (Online Only)
+        // Direct Sponsor Native Card (Online + Offline Cached)
         item {
             NativeSponsorAdCard(
                 sponsors = sponsors,
@@ -218,15 +194,14 @@ fun PatientPortalScreen(
                 pageKey = SponsorCampaignSelector.PAGE_PORTAL,
                 slotIndex = 0,
                 isOnline = isOnline,
+                nowMs = nowMs,
                 lang = lang,
                 onSponsorDisplayed = onSponsorDisplayed,
                 onSponsorClicked = onSponsorClicked
             )
-            Spacer(Modifier.height(8.dp))
-            ManagedNativeBannerAd(adConfig = adConfig, lang = lang)
         }
 
-        // Information Links
+        // Advertiser Portal Quick Entry + Information Links
         item {
             Surface(
                 shape = RoundedCornerShape(18.dp),
@@ -234,7 +209,15 @@ fun PatientPortalScreen(
                 border = BorderStroke(1.dp, OutlineSoft),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = onOpenAdvertiserPortal,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    ) {
+                        Icon(Icons.Rounded.Campaign, contentDescription = null, tint = MedicalBlue)
+                        Spacer(Modifier.width(8.dp))
+                        Text(tr(lang, "বিজ্ঞাপন দিন (অ্যাডভার্টাইজার পোর্টাল)", "Advertise With Us (Advertiser Portal)"))
+                    }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         TextButton(onClick = { onNavigateInfo("about") }) { Text(AppStrings.aboutUs(lang)) }
                         TextButton(onClick = { onNavigateInfo("contact") }) { Text(AppStrings.contactUs(lang)) }
