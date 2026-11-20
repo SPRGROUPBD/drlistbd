@@ -216,7 +216,9 @@ function getSponsorArrays() {
     .map(([id, a]) => ({ id, ...a }))
     .sort((a, b) => (Number(b.createdAt || 0) - Number(a.createdAt || 0)));
 
-  return { allAds, allPayments, allPackages, allAdvertisers };
+  const activeAds = allAds.filter(a => a.effectiveStatus === "ACTIVE");
+
+  return { allAds, activeAds, allPayments, allPackages, allAdvertisers };
 }
 
 function computeDirectSponsorMetrics() {
@@ -675,7 +677,7 @@ async function seedStarterPackages() {
 // MODULE 4, 6, 7, 8, 9: ADVERTISEMENT MANAGEMENT + ADMIN DIRECT AD UPLOAD
 // ============================================================================
 function renderAdvertisements(filterMode = "ALL") {
-  const { allAds, allPackages, allAdvertisers, adStatsMap } = getSponsorArrays();
+  const { allAds, allPackages, allAdvertisers, adStatsMap = {} } = computeDirectSponsorMetrics();
   const sp = editing.ad ? { id: editing.ad, ...(dbState.sponsors?.[editing.ad] || {}) } : null;
   const advMap = Object.fromEntries(allAdvertisers.map(a => [a.id, a]));
 
@@ -887,7 +889,7 @@ function renderAdvertisements(filterMode = "ALL") {
       ` : `
         <div class="space-y-3">
           ${list.map(ad => {
-            const st = adStatsMap[ad.id] || { impressions: ad.totalViews || 0, uniqueViews: ad.uniqueViews || 0, clicks: 0 };
+            const st = adStatsMap?.[ad.id] || { impressions: Number(ad.totalViews || 0), uniqueViews: Number(ad.uniqueViews || 0), clicks: 0 };
             const adv = advMap[ad.advertiserId];
             return `
               <div class="p-4 rounded-2xl border border-slate-200 bg-slate-50/70 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -1734,7 +1736,7 @@ function downloadCsv(content, filename) {
 function renderAboutUsAdSettings() {
   const a = dbState.ad_config || {};
   const ab = dbState.about_us_ad_settings || {};
-  const { activeAds } = getSponsorArrays();
+  const { activeAds = [] } = getSponsorArrays();
 
   return `
     <form onsubmit="submitAboutUsAndPlacementSettings(event)" class="space-y-6 max-w-4xl">

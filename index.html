@@ -599,11 +599,11 @@ function syncActiveNav(tabKey) {
 function updateNavBadges() {
   const allAds = Object.values(dbState.sponsors || {});
   const pendingAdsCount = allAds.filter(ad => {
-    const st = typeof computeAdStatus === "function" ? computeAdStatus(ad) : (ad.status || "");
+    const st = typeof getEffectiveAdStatus === "function" ? getEffectiveAdStatus(ad) : (ad.status || "");
     return st === "PENDING_APPROVAL" || st === "PENDING_PAYMENT";
   }).length;
   const activeAdsCount = allAds.filter(ad => {
-    const st = typeof computeAdStatus === "function" ? computeAdStatus(ad) : (ad.status || "");
+    const st = typeof getEffectiveAdStatus === "function" ? getEffectiveAdStatus(ad) : (ad.status || "");
     return st === "ACTIVE";
   }).length;
   const pendingPaymentsCount = Object.values(dbState.ad_payments || {}).filter(p => (p.status || "PENDING") === "PENDING").length;
@@ -2084,7 +2084,7 @@ function openTabQuick(tabId) {
 }
 
 function getSponsorCampaignStatus(sp) {
-  if (typeof computeAdStatus === "function") return computeAdStatus(sp);
+  if (typeof getEffectiveAdStatus === "function") return getEffectiveAdStatus(sp);
   if (!sp || sp.isActive === false) return "PAUSED";
   return sp.status || "ACTIVE";
 }

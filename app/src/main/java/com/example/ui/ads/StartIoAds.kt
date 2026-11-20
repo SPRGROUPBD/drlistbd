@@ -402,7 +402,7 @@ fun ManagedBannerAd(
     // Automatic cooldown recovery if initial cold-start request received NO FILL
     LaunchedEffect(attemptIdx, ordered.size, isOnline, retryCycle) {
         if (isOnline && attemptIdx >= ordered.size) {
-            delay(45_000L)
+            delay(120_000L)
             retryCycle++
         }
     }
@@ -505,7 +505,7 @@ fun ManagedNativeBannerAd(
 
     LaunchedEffect(attemptIdx, steps.size, isOnline, retryCycle) {
         if (isOnline && attemptIdx >= steps.size) {
-            delay(45_000L)
+            delay(120_000L)
             retryCycle++
         }
     }
@@ -600,14 +600,13 @@ private fun StartIoNativeAdSlot(
         }
         StartIoAdManager.ensureInitialized(activity, adConfig)
         AdRevenueTracker.trackNetworkRequest("startio", "native")
-        val nativeAd = StartAppNativeAd(activity.applicationContext)
+        val nativeAd = StartAppNativeAd(activity)
         val prefs = NativeAdPreferences()
             .setAdsNumber(1)
             .setAutoBitmapDownload(true)
-            .setPrimaryImageSize(4)
-            .setSecondaryImageSize(2)
+        nativeAd.setPreferences(prefs)
         runCatching {
-            nativeAd.loadAd(prefs, object : AdEventListener {
+            nativeAd.loadAd(object : AdEventListener {
                 override fun onReceiveAd(ad: Ad) {
                     val details = nativeAd.nativeAds?.firstOrNull()
                     if (details != null) {
@@ -833,6 +832,7 @@ private fun StartIoBannerViewSlot(
                     val listener = object : BannerListener {
                         override fun onReceiveAd(banner: View?) {
                             adLoaded = true
+                            (banner as? com.startapp.sdk.ads.banner.BannerInterface)?.showBanner()
                             AdRevenueTracker.trackNetworkLoad("startio", formatKey)
                             latestOnLoaded()
                         }
