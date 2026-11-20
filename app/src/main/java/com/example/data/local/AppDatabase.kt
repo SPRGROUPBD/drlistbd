@@ -32,9 +32,11 @@ import androidx.room.RoomDatabase
         PaymentSettingsEntity::class,
         PendingAdViewEventEntity::class,
         PlacementRateCardEntity::class,
-        RateCardSettingsEntity::class
+        RateCardSettingsEntity::class,
+        AppInstallationEntity::class,
+        PendingAppAnalyticsEventEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -64,6 +66,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun pendingAdViewEventDao(): PendingAdViewEventDao
     abstract fun placementRateCardDao(): PlacementRateCardDao
     abstract fun rateCardSettingsDao(): RateCardSettingsDao
+    abstract fun appInstallationDao(): AppInstallationDao
+    abstract fun pendingAppAnalyticsEventDao(): PendingAppAnalyticsEventDao
 
     companion object {
         @Volatile

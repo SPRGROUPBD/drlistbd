@@ -438,3 +438,36 @@ interface RateCardSettingsDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun save(settings: RateCardSettingsEntity)
 }
+
+@Dao
+interface AppInstallationDao {
+    @Query("SELECT * FROM app_installations WHERE installationId = :id LIMIT 1")
+    suspend fun getById(id: String): AppInstallationEntity?
+
+    @Query("SELECT * FROM app_installations ORDER BY lastActiveDate DESC LIMIT 1")
+    suspend fun getLatest(): AppInstallationEntity?
+
+    @Query("SELECT * FROM app_installations ORDER BY lastActiveDate DESC LIMIT 1")
+    fun observeLatest(): Flow<AppInstallationEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: AppInstallationEntity)
+}
+
+@Dao
+interface PendingAppAnalyticsEventDao {
+    @Query("SELECT * FROM pending_app_analytics_events ORDER BY createdAt ASC LIMIT 250")
+    suspend fun getPendingOnce(): List<PendingAppAnalyticsEventEntity>
+
+    @Query("SELECT COUNT(*) FROM pending_app_analytics_events")
+    fun observePendingCount(): Flow<Int>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfAbsent(event: PendingAppAnalyticsEventEntity): Long
+
+    @Query("DELETE FROM pending_app_analytics_events WHERE eventId = :eventId")
+    suspend fun deleteById(eventId: String)
+
+    @Query("DELETE FROM pending_app_analytics_events")
+    suspend fun deleteAll()
+}

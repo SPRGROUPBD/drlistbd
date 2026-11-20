@@ -120,6 +120,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 ConnectivityMonitor.refreshNow(appContext)
+                vm.recordForegroundActivity()
                 if (isOnline && adConfig.adsEnabled) {
                     HybridNetworkAdController.preloadRewardedForOnline(appContext, adConfig, isOnline = true)
                 }

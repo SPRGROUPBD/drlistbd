@@ -3,6 +3,7 @@ package com.example.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.analytics.AppInstallationTracker
 import com.example.data.local.*
 import com.example.data.model.*
 import com.example.data.repository.DirectoryRepository
@@ -164,21 +165,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         ConnectivityMonitor.start(application) {
-            // Automatically re-sync Direct Sponsors, packages, settings & flush queued offline view events
+            // Automatically re-sync Direct Sponsors, packages, settings & flush queued offline view & installation events
             viewModelScope.launch {
                 _isSyncing.value = true
                 repo.syncFromAdminCloud()
                 _authoritativeNowMs.value = repo.prefs.getAuthoritativeNowMs()
                 AdRevenueTracker.flushQueuedViewEvents(repo.db)
                 AdRevenueTracker.flushOfflineLocalCounters(repo.prefs)
+                AppInstallationTracker.syncPendingEvents(application, repo.db)
                 _isSyncing.value = false
             }
         }
         viewModelScope.launch {
             _isSyncing.value = true
             _authoritativeNowMs.value = repo.prefs.getAuthoritativeNowMs()
+            AppInstallationTracker.trackAppLaunch(application, repo.db)
             repo.initializeAndSync()
             _authoritativeNowMs.value = repo.prefs.getAuthoritativeNowMs()
+            AppInstallationTracker.syncPendingEvents(application, repo.db, _authoritativeNowMs.value)
             if (ConnectivityMonitor.isOnline.value) {
                 AdRevenueTracker.trackOnlineSession()
                 AdRevenueTracker.flushQueuedViewEvents(repo.db)
@@ -187,6 +191,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 repo.prefs.recordLocalOfflineSession()
             }
             _isSyncing.value = false
+        }
+    }
+
+    fun recordForegroundActivity() {
+        viewModelScope.launch {
+            val now = repo.prefs.getAuthoritativeNowMs()
+            AppInstallationTracker.recordForegroundActivity(getApplication(), repo.db, now)
         }
     }
 

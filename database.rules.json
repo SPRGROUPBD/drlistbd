@@ -1,0 +1,39 @@
+{
+  "rules": {
+    "directory": {
+      ".read": true,
+      ".write": true,
+
+      "app_installations": {
+        ".indexOn": ["firstInstallDate", "lastActiveDate", "status", "appVersion"],
+        "$installationId": {
+          ".validate": "newData.hasChildren(['installationId', 'appVersion', 'androidVersion', 'deviceManufacturer', 'deviceModel', 'status']) && newData.child('installationId').val() == $installationId && $installationId.matches(/^inst_[a-zA-Z0-9_-]{8,64}$/) && !newData.child('imei').exists() && !newData.child('phoneNumber').exists() && !newData.child('contacts').exists() && !newData.child('email').exists()",
+          "firstInstallDate": {
+            ".validate": "newData.isNumber() && (!data.exists() || newData.val() == data.val())"
+          },
+          "lastActiveDate": {
+            ".validate": "newData.isNumber()"
+          },
+          "appVersion": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 40"
+          },
+          "status": {
+            ".validate": "newData.isString() && (newData.val() == 'ACTIVE' || newData.val() == 'INACTIVE' || newData.val() == 'UNINSTALLED_ESTIMATE')"
+          }
+        }
+      },
+
+      "app_analytics": {
+        ".indexOn": ["eventTimestamp", "eventDateKey", "installationId", "eventType"],
+        "$eventId": {
+          ".write": "!data.exists() && newData.exists()",
+          ".validate": "newData.hasChildren(['eventId', 'installationId', 'eventType', 'eventTimestamp', 'appVersion']) && newData.child('eventId').val() == $eventId && $eventId.matches(/^evt_[a-zA-Z0-9_-]{6,80}$/) && newData.child('installationId').isString() && (newData.child('eventType').val() == 'FIRST_INSTALL' || newData.child('eventType').val() == 'APP_OPEN' || newData.child('eventType').val() == 'APP_ACTIVE' || newData.child('eventType').val() == 'VERSION_UPDATE' || newData.child('eventType').val() == 'FCM_TOKEN_REFRESH') && newData.child('eventTimestamp').isNumber()"
+        }
+      },
+
+      "installation_settings": {
+        ".validate": "newData.hasChildren(['inactiveThresholdDays', 'uninstallEstimateThresholdDays']) && newData.child('inactiveThresholdDays').isNumber() && newData.child('uninstallEstimateThresholdDays').isNumber()"
+      }
+    }
+  }
+}

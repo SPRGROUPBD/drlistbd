@@ -424,4 +424,42 @@ data class PendingAdViewEventEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "app_installations")
+data class AppInstallationEntity(
+    @PrimaryKey val installationId: String,
+    val packageFirstInstallTime: Long = 0L,
+    val firstInstallDate: Long = 0L,
+    val firstInstallDateKey: String = "",
+    val lastActiveDate: Long = 0L,
+    val lastActiveDateKey: String = "",
+    val appVersion: String = "",
+    val appVersionCode: Int = 1,
+    val androidVersion: String = "",
+    val deviceManufacturer: String = "",
+    val deviceModel: String = "",
+    // ACTIVE | INACTIVE | UNINSTALLED_ESTIMATE
+    val status: String = "ACTIVE",
+    val fcmToken: String = "",
+    // NOT_CONFIGURED | VALID | UNREGISTERED
+    val fcmTokenStatus: String = "NOT_CONFIGURED",
+    val uninstallEvidence: String = "",
+    val totalAppOpens: Int = 0,
+    val syncedFirstInstall: Boolean = false,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "pending_app_analytics_events")
+data class PendingAppAnalyticsEventEntity(
+    @PrimaryKey val eventId: String,
+    val installationId: String,
+    // FIRST_INSTALL | APP_OPEN | APP_ACTIVE | VERSION_UPDATE | FCM_TOKEN_REFRESH
+    val eventType: String,
+    val eventTimestamp: Long = System.currentTimeMillis(),
+    val eventDateKey: String = "",
+    val appVersion: String = "",
+    val wasOffline: Boolean = false,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+
 
