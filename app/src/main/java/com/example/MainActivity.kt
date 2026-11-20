@@ -106,6 +106,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     val snackbarMsg by vm.snackbar.collectAsStateWithLifecycle()
 
     var facilitiesTab by remember { mutableIntStateOf(0) }
+    var loadingDoctorRewardAd by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(snackbarMsg) {
@@ -124,6 +125,12 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                     else "Thank you! Reward earned & directory refreshed."
                 )
             },
+            onDismissedWithoutReward = {
+                vm.showMessage(
+                    if (lang == AppLang.BN) "রিওয়ার্ড পেতে সম্পূর্ণ বিজ্ঞাপনটি দেখুন।"
+                    else "Please finish watching the ad to earn your reward."
+                )
+            },
             onUnavailable = {
                 vm.showMessage(
                     if (lang == AppLang.BN) "ভিডিও বিজ্ঞাপন লোড হচ্ছে, অনুগ্রহ করে একটু পর আবার চেষ্টা করুন।"
@@ -131,6 +138,34 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                 )
             }
         )
+    }
+
+    // Show Rewarded Ad before opening any Doctor Profile; navigate once reward completes
+    val openDoctorAfterReward: (String) -> Unit = { doctorId ->
+        if (adConfig.adsEnabled && adConfig.rewardedEnabled) {
+            if (!loadingDoctorRewardAd) {
+                loadingDoctorRewardAd = true
+                rewardedHelper.show(
+                    onRewarded = {
+                        loadingDoctorRewardAd = false
+                        navController.navigate(Routes.doctorProfile(doctorId))
+                    },
+                    onDismissedWithoutReward = {
+                        loadingDoctorRewardAd = false
+                        vm.showMessage(
+                            if (lang == AppLang.BN) "ডাক্তারের প্রোফাইল দেখতে সম্পূর্ণ রিওয়ার্ড অ্যাডটি দেখুন।"
+                            else "Please complete the rewarded ad to view the doctor profile."
+                        )
+                    },
+                    onUnavailable = {
+                        loadingDoctorRewardAd = false
+                        navController.navigate(Routes.doctorProfile(doctorId))
+                    }
+                )
+            }
+        } else {
+            navController.navigate(Routes.doctorProfile(doctorId))
+        }
     }
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -285,7 +320,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                                 navigateToTab(Routes.FIND_DOCTORS)
                             },
                             onToggleFavorite = vm::toggleFavorite,
-                            onDoctorClick = { id -> navController.navigate(Routes.doctorProfile(id)) },
+                            onDoctorClick = openDoctorAfterReward,
                             onNavigateFindDoctors = { todayOnly ->
                                 vm.updateSearch { it.copy(availableTodayOnly = todayOnly) }
                                 navigateToTab(Routes.FIND_DOCTORS)
@@ -311,7 +346,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             onResetFilters = vm::resetFilters,
                             onLoadMore = vm::loadMoreDoctors,
                             onToggleFavorite = vm::toggleFavorite,
-                            onDoctorClick = { id -> navController.navigate(Routes.doctorProfile(id)) }
+                            onDoctorClick = openDoctorAfterReward
                         )
                     }
 
@@ -333,7 +368,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                                 vm.updateSearch { it.copy(facilityQuery = facName) }
                                 navigateToTab(Routes.FIND_DOCTORS)
                             },
-                            onDoctorClick = { id -> navController.navigate(Routes.doctorProfile(id)) }
+                            onDoctorClick = openDoctorAfterReward
                         )
                     }
 
@@ -350,7 +385,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             onWatchRewardedAd = triggerRewardedAd,
                             onRefreshDirectory = vm::refreshDirectory,
                             onToggleFavorite = vm::toggleFavorite,
-                            onDoctorClick = { id -> navController.navigate(Routes.doctorProfile(id)) },
+                            onDoctorClick = openDoctorAfterReward,
                             onMarkNotificationRead = vm::markNotificationRead,
                             onNavigateInfo = { key ->
                                 if (key == "about") {
@@ -403,6 +438,33 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                     }
                 }
             }
+        }
+
+        if (loadingDoctorRewardAd) {
+            AlertDialog(
+                onDismissRequest = {},
+                confirmButton = {},
+                title = {
+                    Text(
+                        if (lang == AppLang.BN) "রিওয়ার্ড বিজ্ঞাপন লোড হচ্ছে..."
+                        else "Loading Rewarded Ad..."
+                    )
+                },
+                text = {
+                    Row(
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(28.dp), color = MedicalBlue)
+                        Text(
+                            if (lang == AppLang.BN) "রিওয়ার্ড অ্যাড সম্পন্ন হলে ডাক্তারের সম্পূর্ণ প্রোফাইল ও চেম্বার সময়সূচী ওপেন হবে।"
+                            else "Doctor profile & chamber schedule will open as soon as the rewarded ad completes.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                }
+            )
         }
     }
 }

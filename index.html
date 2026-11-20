@@ -67,7 +67,8 @@
         <button data-tab="locations" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">7. Locations (64 Districts)</button>
         <button data-tab="notifications" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">8. Notifications</button>
         <button data-tab="ad_network" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">9. Ad Network Setup</button>
-        <button data-tab="settings" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">10. Settings & CSV</button>
+        <button data-tab="ad_revenue" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">10. Ad Revenue (Start.io &amp; Unity)</button>
+        <button data-tab="settings" class="nav-item text-left px-3 py-2.5 rounded-xl text-sm whitespace-nowrap">11. Settings & CSV</button>
       </nav>
     </aside>
 
@@ -366,12 +367,31 @@ let dbState = {
     unityRewardedPlacement: "Rewarded_Android",
     startIoAppId: "210630916",
     updatedAt: Date.now()
+  },
+  ad_metrics: {},
+  ad_revenue_official: {},
+  ad_revenue_settings: {
+    usdToBdt: 120,
+    payoutThresholdUsd: 50,
+    startIoPartnerId: "",
+    startIoApiToken: "",
+    unityOrgId: "",
+    unityApiKey: "",
+    ecpmStartIoBanner: 0.35,
+    ecpmStartIoNative: 0.75,
+    ecpmStartIoAppOpen: 1.40,
+    ecpmStartIoRewarded: 2.80,
+    ecpmUnityBanner: 0.40,
+    ecpmUnityNative: 0.85,
+    ecpmUnityAppOpen: 1.80,
+    ecpmUnityRewarded: 3.50
   }
 };
 
 let activeTab = "dashboard";
 let editing = {};
 let chamberFormState = { district: "", upazila: "", isActive: true };
+let revenueRange = "30D"; // TODAY | 7D | 30D | ALL
 
 // Auth (admin / admin only)
 document.getElementById("loginForm").addEventListener("submit", (e) => {
@@ -434,7 +454,7 @@ async function loadAllData() {
     const data = await res.json();
     if (data) {
       for (const k of Object.keys(dbState)) {
-        if (k === "settings" || k === "ad_config") {
+        if (k === "settings" || k === "ad_config" || k === "ad_revenue_settings") {
           if (data[k]) dbState[k] = { ...dbState[k], ...data[k] };
         } else {
           dbState[k] = data[k] || {};
@@ -498,6 +518,7 @@ function renderTab() {
     locations: "Bangladesh 8 Divisions & 64 Districts",
     notifications: "App Notifications",
     ad_network: "Ad Network Setup (Unity Ads + Start.io)",
+    ad_revenue: "Ad Revenue Analytics (Start.io & Unity Ads)",
     settings: "App Settings & CSV Export"
   };
   document.getElementById("pageTitle").textContent = titles[activeTab] || "Admin";
@@ -511,6 +532,7 @@ function renderTab() {
   else if (activeTab === "locations") el.innerHTML = renderLocations();
   else if (activeTab === "notifications") el.innerHTML = renderNotifications();
   else if (activeTab === "ad_network") el.innerHTML = renderAdNetwork();
+  else if (activeTab === "ad_revenue") el.innerHTML = renderAdRevenue();
   else if (activeTab === "settings") el.innerHTML = renderSettings();
 }
 
@@ -518,6 +540,7 @@ function renderDashboard() {
   const docs = Object.values(dbState.doctors);
   const chambers = Object.values(dbState.chambers);
   const activeChambers = chambers.filter(c => c.isActive !== false).length;
+  const rev = computeAdRevenueSummary("ALL");
   const stats = [
     ["Total Doctors", docs.length, "text-sky-700"],
     ["Active Chambers", activeChambers, "text-emerald-600"],
@@ -529,6 +552,36 @@ function renderDashboard() {
     ["Custom Locations", Object.keys(dbState.locations).length, "text-amber-700"]
   ];
   return `
+    <!-- Live Ad Revenue Overview Banner -->
+    <div class="bg-gradient-to-r from-sky-900 via-sky-800 to-teal-800 text-white p-5 rounded-2xl shadow-sm mb-6">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <div class="text-xs uppercase tracking-wider text-sky-200 font-semibold">Monetization Revenue Summary (All Time)</div>
+          <h3 class="text-lg font-bold">Start.io &amp; Unity Ads Revenue Overview</h3>
+        </div>
+        <button onclick="switchTab('ad_revenue')" class="px-4 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-semibold backdrop-blur">
+          Open Full Ad Revenue View &rarr;
+        </button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div class="p-4 rounded-xl bg-white/10 border border-white/15">
+          <div class="text-xs text-teal-200 font-semibold">Start.io Revenue</div>
+          <div class="text-2xl font-bold mt-1">$${rev.startio.displayUsd.toFixed(2)}</div>
+          <div class="text-xs text-sky-100 mt-0.5">&#2547;${Math.round(rev.startio.displayUsd * rev.usdToBdt).toLocaleString()} BDT &bull; ${rev.startio.impressions.toLocaleString()} impr</div>
+        </div>
+        <div class="p-4 rounded-xl bg-white/10 border border-white/15">
+          <div class="text-xs text-sky-200 font-semibold">Unity Ads Revenue</div>
+          <div class="text-2xl font-bold mt-1">$${rev.unity.displayUsd.toFixed(2)}</div>
+          <div class="text-xs text-sky-100 mt-0.5">&#2547;${Math.round(rev.unity.displayUsd * rev.usdToBdt).toLocaleString()} BDT &bull; ${rev.unity.impressions.toLocaleString()} impr</div>
+        </div>
+        <div class="p-4 rounded-xl bg-emerald-500/20 border border-emerald-300/30">
+          <div class="text-xs text-emerald-200 font-semibold">Total Combined Revenue</div>
+          <div class="text-2xl font-bold mt-1">$${rev.totalDisplayUsd.toFixed(2)}</div>
+          <div class="text-xs text-emerald-100 mt-0.5">&#2547;${Math.round(rev.totalDisplayUsd * rev.usdToBdt).toLocaleString()} BDT &bull; ${(rev.startio.impressions + rev.unity.impressions).toLocaleString()} total impr</div>
+        </div>
+      </div>
+    </div>
+
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
       ${stats.map(([label, count, cls]) => `
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
@@ -1836,6 +1889,688 @@ async function submitAdConfig(e) {
   };
   await saveNode("ad_config", null, payload);
   toast("Ad Network Setup saved! Android app will sync live automatically.");
+}
+
+// --- AD REVENUE VIEW (START.IO REVENUE + UNITY ADS REVENUE) ---
+function setRevenueRange(range) {
+  revenueRange = range;
+  renderTab();
+}
+
+function getDhakaTodayStr() {
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const dhaka = new Date(utc + 6 * 3600000);
+  const y = dhaka.getFullYear();
+  const m = String(dhaka.getMonth() + 1).padStart(2, "0");
+  const d = String(dhaka.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function isDateInRange(dateStr, range) {
+  if (!dateStr || range === "ALL") return true;
+  const todayStr = getDhakaTodayStr();
+  if (range === "TODAY") return dateStr === todayStr;
+  const days = range === "7D" ? 7 : 30;
+  const d1 = new Date(todayStr + "T00:00:00Z");
+  const d2 = new Date(dateStr + "T00:00:00Z");
+  if (isNaN(d2.getTime())) return false;
+  const diffDays = Math.floor((d1 - d2) / 86400000);
+  return diffDays >= 0 && diffDays < days;
+}
+
+function computeAdRevenueSummary(range) {
+  const rs = dbState.ad_revenue_settings || {};
+  const usdToBdt = Number(rs.usdToBdt) > 0 ? Number(rs.usdToBdt) : 120;
+  const ecpm = {
+    startio: {
+      banner: Number(rs.ecpmStartIoBanner ?? 0.35),
+      native: Number(rs.ecpmStartIoNative ?? 0.75),
+      app_open: Number(rs.ecpmStartIoAppOpen ?? 1.40),
+      rewarded: Number(rs.ecpmStartIoRewarded ?? 2.80)
+    },
+    unity: {
+      banner: Number(rs.ecpmUnityBanner ?? 0.40),
+      native: Number(rs.ecpmUnityNative ?? 0.85),
+      app_open: Number(rs.ecpmUnityAppOpen ?? 1.80),
+      rewarded: Number(rs.ecpmUnityRewarded ?? 3.50)
+    }
+  };
+
+  const makeEmpty = () => ({
+    impressions: 0,
+    clicks: 0,
+    completed: 0,
+    estUsd: 0,
+    officialUsd: 0,
+    displayUsd: 0,
+    formats: {
+      banner: { impressions: 0, clicks: 0, estUsd: 0 },
+      native: { impressions: 0, clicks: 0, estUsd: 0 },
+      app_open: { impressions: 0, clicks: 0, estUsd: 0 },
+      rewarded: { impressions: 0, clicks: 0, completed: 0, estUsd: 0 }
+    }
+  });
+
+  const startio = makeEmpty();
+  const unity = makeEmpty();
+  const dailyMap = {};
+
+  const ensureDay = (dateStr) => {
+    if (!dailyMap[dateStr]) {
+      dailyMap[dateStr] = {
+        date: dateStr,
+        startioImpr: 0, startioClicks: 0, startioEstUsd: 0, startioOfficialUsd: 0,
+        unityImpr: 0, unityClicks: 0, unityEstUsd: 0, unityOfficialUsd: 0
+      };
+    }
+    return dailyMap[dateStr];
+  };
+
+  // 1. Live SDK telemetry metrics from Android app (/directory/ad_metrics/{YYYY-MM-DD}/{network}/{format})
+  const metrics = dbState.ad_metrics || {};
+  for (const [dateStr, dayNode] of Object.entries(metrics)) {
+    if (!dayNode || typeof dayNode !== "object" || !isDateInRange(dateStr, range)) continue;
+    const row = ensureDay(dateStr);
+    for (const [netKey, target] of [["startio", startio], ["unity", unity]]) {
+      const netNode = dayNode[netKey];
+      if (!netNode || typeof netNode !== "object") continue;
+      for (const fmt of ["banner", "native", "app_open", "rewarded"]) {
+        const fNode = netNode[fmt];
+        if (!fNode) continue;
+        const impr = Number(fNode.impressions || 0);
+        const clk = Number(fNode.clicks || 0);
+        const comp = Number(fNode.completed || 0);
+        const est = (impr / 1000) * (ecpm[netKey][fmt] || 0);
+        target.impressions += impr;
+        target.clicks += clk;
+        target.completed += comp;
+        target.estUsd += est;
+        target.formats[fmt].impressions += impr;
+        target.formats[fmt].clicks += clk;
+        if (fmt === "rewarded") target.formats[fmt].completed += comp;
+        target.formats[fmt].estUsd += est;
+
+        if (netKey === "startio") {
+          row.startioImpr += impr;
+          row.startioClicks += clk;
+          row.startioEstUsd += est;
+        } else {
+          row.unityImpr += impr;
+          row.unityClicks += clk;
+          row.unityEstUsd += est;
+        }
+      }
+    }
+  }
+
+  // 2. Official confirmed revenue records (from Start.io / Unity Reporting API or manual verified entry)
+  const official = dbState.ad_revenue_official || {};
+  const officialList = [];
+  for (const [id, rec] of Object.entries(official)) {
+    if (!rec || !isDateInRange(rec.date, range)) continue;
+    officialList.push({ id, ...rec });
+    const row = ensureDay(rec.date || getDhakaTodayStr());
+    const usd = Number(rec.revenueUsd || 0);
+    const impr = Number(rec.impressions || 0);
+    const clk = Number(rec.clicks || 0);
+    if (rec.network === "startio") {
+      startio.officialUsd += usd;
+      row.startioOfficialUsd += usd;
+      if (row.startioImpr === 0 && impr > 0) {
+        startio.impressions += impr;
+        row.startioImpr += impr;
+      }
+      if (row.startioClicks === 0 && clk > 0) {
+        startio.clicks += clk;
+        row.startioClicks += clk;
+      }
+    } else if (rec.network === "unity") {
+      unity.officialUsd += usd;
+      row.unityOfficialUsd += usd;
+      if (row.unityImpr === 0 && impr > 0) {
+        unity.impressions += impr;
+        row.unityImpr += impr;
+      }
+      if (row.unityClicks === 0 && clk > 0) {
+        unity.clicks += clk;
+        row.unityClicks += clk;
+      }
+    }
+  }
+
+  // Display USD prefers official verified revenue when logged for a network, otherwise live SDK eCPM estimate
+  startio.displayUsd = startio.officialUsd > 0 ? startio.officialUsd : startio.estUsd;
+  unity.displayUsd = unity.officialUsd > 0 ? unity.officialUsd : unity.estUsd;
+  const totalDisplayUsd = startio.displayUsd + unity.displayUsd;
+  const dailyRows = Object.values(dailyMap).sort((a, b) => b.date.localeCompare(a.date));
+  officialList.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+  return { usdToBdt, ecpm, startio, unity, totalDisplayUsd, dailyRows, officialList };
+}
+
+function renderAdRevenue() {
+  const rs = dbState.ad_revenue_settings || {};
+  const rev = computeAdRevenueSummary(revenueRange);
+  const s = rev.startio;
+  const u = rev.unity;
+  const totalUsd = rev.totalDisplayUsd;
+  const totalBdt = Math.round(totalUsd * rev.usdToBdt);
+  const sPct = totalUsd > 0 ? Math.round((s.displayUsd / totalUsd) * 100) : 50;
+  const uPct = totalUsd > 0 ? (100 - sPct) : 50;
+  const sCtr = s.impressions > 0 ? ((s.clicks / s.impressions) * 100).toFixed(2) : "0.00";
+  const uCtr = u.impressions > 0 ? ((u.clicks / u.impressions) * 100).toFixed(2) : "0.00";
+  const todayStr = getDhakaTodayStr();
+  const payoutThresholdUsd = Math.max(1, Number(rs.payoutThresholdUsd) || 50);
+  const payoutThresholdBdt = Math.round(payoutThresholdUsd * rev.usdToBdt);
+  const thresholdProgressRaw = (totalUsd / payoutThresholdUsd) * 100;
+  const thresholdProgressPct = Math.min(100, Math.max(0, thresholdProgressRaw));
+  const remainingUsd = Math.max(0, payoutThresholdUsd - totalUsd);
+  const remainingBdt = Math.round(remainingUsd * rev.usdToBdt);
+  const isThresholdReached = totalUsd >= payoutThresholdUsd;
+  const allTimeRev = revenueRange === "ALL" ? rev : computeAdRevenueSummary("ALL");
+  const rangeLabel = ({ TODAY: "Today", "7D": "Last 7 Days", "30D": "Last 30 Days", ALL: "All Time" })[revenueRange] || "All Time";
+
+  return `
+    <!-- Range Filter Bar -->
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+      <div class="flex flex-wrap gap-2">
+        ${[["TODAY", "Today"], ["7D", "Last 7 Days"], ["30D", "Last 30 Days"], ["ALL", "All Time"]].map(([k, lbl]) => `
+          <button onclick="setRevenueRange('${k}')" class="px-4 py-2 rounded-xl text-xs font-bold border ${revenueRange === k ? "bg-sky-600 text-white border-sky-600 shadow-sm" : "bg-white text-slate-700 border-slate-200 hover:bg-sky-50"}">
+            ${lbl}
+          </button>
+        `).join("")}
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="exportRevenueCsv()" class="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold">
+          Export Revenue CSV
+        </button>
+      </div>
+    </div>
+
+    <!-- Top 3 Revenue Hero Cards: Start.io | Unity Ads | Total Combined -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
+      <!-- Start.io Revenue Card -->
+      <div class="bg-white p-5 rounded-2xl border-2 border-teal-200 shadow-sm">
+        <div class="flex items-center justify-between mb-2">
+          <span class="px-2.5 py-1 rounded-lg bg-teal-50 text-teal-800 text-xs font-bold">Start.io Revenue</span>
+          <span class="text-[11px] font-semibold text-slate-500">App ID: ${esc((dbState.ad_config || {}).startIoAppId || "210630916")}</span>
+        </div>
+        <div class="text-3xl font-extrabold text-slate-900">$${s.displayUsd.toFixed(2)}</div>
+        <div class="text-sm font-bold text-teal-700 mt-0.5">&#2547;${Math.round(s.displayUsd * rev.usdToBdt).toLocaleString()} BDT</div>
+        <div class="text-[11px] text-slate-500 mt-1">
+          ${s.officialUsd > 0
+            ? `Verified Official: $${s.officialUsd.toFixed(2)} &bull; Live SDK Est: $${s.estUsd.toFixed(2)}`
+            : `Live SDK Estimate (eCPM) &bull; Official: $0.00`}
+        </div>
+        <div class="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100 text-center">
+          <div><div class="text-sm font-bold text-slate-800">${s.impressions.toLocaleString()}</div><div class="text-[10px] text-slate-500">Impressions</div></div>
+          <div><div class="text-sm font-bold text-slate-800">${s.clicks.toLocaleString()}</div><div class="text-[10px] text-slate-500">Clicks</div></div>
+          <div><div class="text-sm font-bold text-teal-700">${sCtr}%</div><div class="text-[10px] text-slate-500">CTR</div></div>
+        </div>
+        <div class="mt-3 pt-3 border-t border-slate-100 space-y-1 text-xs">
+          <div class="flex justify-between"><span class="text-slate-600">Banner</span><span class="font-semibold">${s.formats.banner.impressions.toLocaleString()} impr &bull; $${s.formats.banner.estUsd.toFixed(2)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-600">Native Banner</span><span class="font-semibold">${s.formats.native.impressions.toLocaleString()} impr &bull; $${s.formats.native.estUsd.toFixed(2)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-600">App Open</span><span class="font-semibold">${s.formats.app_open.impressions.toLocaleString()} impr &bull; $${s.formats.app_open.estUsd.toFixed(2)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-600">Rewarded Video</span><span class="font-semibold">${s.formats.rewarded.impressions.toLocaleString()} impr &bull; $${s.formats.rewarded.estUsd.toFixed(2)}</span></div>
+        </div>
+      </div>
+
+      <!-- Unity Ads Revenue Card -->
+      <div class="bg-white p-5 rounded-2xl border-2 border-sky-200 shadow-sm">
+        <div class="flex items-center justify-between mb-2">
+          <span class="px-2.5 py-1 rounded-lg bg-sky-50 text-sky-800 text-xs font-bold">Unity Ads Revenue</span>
+          <span class="text-[11px] font-semibold text-slate-500">Game ID: ${esc((dbState.ad_config || {}).unityGameId || "Not set")}</span>
+        </div>
+        <div class="text-3xl font-extrabold text-slate-900">$${u.displayUsd.toFixed(2)}</div>
+        <div class="text-sm font-bold text-sky-700 mt-0.5">&#2547;${Math.round(u.displayUsd * rev.usdToBdt).toLocaleString()} BDT</div>
+        <div class="text-[11px] text-slate-500 mt-1">
+          ${u.officialUsd > 0
+            ? `Verified Official: $${u.officialUsd.toFixed(2)} &bull; Live SDK Est: $${u.estUsd.toFixed(2)}`
+            : `Live SDK Estimate (eCPM) &bull; Official: $0.00`}
+        </div>
+        <div class="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100 text-center">
+          <div><div class="text-sm font-bold text-slate-800">${u.impressions.toLocaleString()}</div><div class="text-[10px] text-slate-500">Impressions</div></div>
+          <div><div class="text-sm font-bold text-slate-800">${u.clicks.toLocaleString()}</div><div class="text-[10px] text-slate-500">Clicks</div></div>
+          <div><div class="text-sm font-bold text-sky-700">${uCtr}%</div><div class="text-[10px] text-slate-500">CTR</div></div>
+        </div>
+        <div class="mt-3 pt-3 border-t border-slate-100 space-y-1 text-xs">
+          <div class="flex justify-between"><span class="text-slate-600">Banner</span><span class="font-semibold">${u.formats.banner.impressions.toLocaleString()} impr &bull; $${u.formats.banner.estUsd.toFixed(2)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-600">Native Banner</span><span class="font-semibold">${u.formats.native.impressions.toLocaleString()} impr &bull; $${u.formats.native.estUsd.toFixed(2)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-600">App Open / Interstitial</span><span class="font-semibold">${u.formats.app_open.impressions.toLocaleString()} impr &bull; $${u.formats.app_open.estUsd.toFixed(2)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-600">Rewarded Video</span><span class="font-semibold">${u.formats.rewarded.impressions.toLocaleString()} impr &bull; $${u.formats.rewarded.estUsd.toFixed(2)}</span></div>
+        </div>
+      </div>
+
+      <!-- Total Combined Revenue Card -->
+      <div class="bg-gradient-to-br from-slate-900 to-sky-900 text-white p-5 rounded-2xl shadow-sm flex flex-col justify-between">
+        <div>
+          <span class="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-200 text-xs font-bold">Total Combined Earnings</span>
+          <div class="text-4xl font-extrabold mt-3">$${totalUsd.toFixed(2)}</div>
+          <div class="text-lg font-bold text-emerald-300 mt-1">&#2547;${totalBdt.toLocaleString()} BDT</div>
+          <div class="text-xs text-sky-200 mt-1">Exchange Rate: $1 = &#2547;${rev.usdToBdt} BDT</div>
+        </div>
+        <div class="mt-5">
+          <div class="flex justify-between text-xs font-semibold mb-1.5">
+            <span class="text-teal-300">Start.io (${sPct}%)</span>
+            <span class="text-sky-300">Unity Ads (${uPct}%)</span>
+          </div>
+          <div class="w-full h-3 rounded-full bg-white/15 overflow-hidden flex">
+            <div style="width:${sPct}%" class="bg-teal-400 h-full"></div>
+            <div style="width:${uPct}%" class="bg-sky-400 h-full"></div>
+          </div>
+          <div class="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-white/15 text-xs">
+            <div><span class="text-sky-200">Total Impressions:</span> <strong class="block text-sm">${(s.impressions + u.impressions).toLocaleString()}</strong></div>
+            <div><span class="text-sky-200">Total Clicks:</span> <strong class="block text-sm">${(s.clicks + u.clicks).toLocaleString()}</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Custom Payout Threshold (USD) & Progress Bar -->
+    <div class="bg-white p-5 rounded-2xl border-2 ${isThresholdReached ? "border-emerald-300" : "border-slate-200"} shadow-sm mb-6">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4">
+        <div>
+          <div class="flex flex-wrap items-center gap-2">
+            <h3 class="font-bold text-slate-900 text-base">Payout Threshold Goal (USD)</h3>
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-bold ${isThresholdReached ? "bg-emerald-100 text-emerald-800" : "bg-sky-100 text-sky-800"}">
+              ${isThresholdReached ? "Threshold Reached - Ready for Payout!" : `${thresholdProgressPct.toFixed(1)}% of Goal`}
+            </span>
+          </div>
+          <p class="text-xs text-slate-500 mt-0.5">
+            Tracks combined Start.io + Unity Ads earnings (${rangeLabel}) against your custom payout threshold.${revenueRange !== "ALL" ? ` All-Time Combined: <strong>$${allTimeRev.totalDisplayUsd.toFixed(2)}</strong>` : ""}
+          </p>
+        </div>
+
+        <form onsubmit="savePayoutThreshold(event)" class="flex flex-wrap items-center gap-2">
+          <div class="flex items-center rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-1.5">
+            <span class="text-xs font-bold text-slate-500 mr-1">$</span>
+            <input id="rv_payout_threshold" type="number" step="0.5" min="1" required value="${esc(payoutThresholdUsd)}" class="w-24 bg-transparent text-sm font-bold text-slate-900 focus:outline-none" aria-label="Custom Payout Threshold in USD" />
+            <span class="text-[11px] font-semibold text-slate-400 ml-1">USD</span>
+          </div>
+          <button type="submit" class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-sm">
+            Save Threshold
+          </button>
+          <div class="flex items-center gap-1">
+            ${[50, 100, 200].map(preset => `
+              <button type="button" onclick="setQuickPayoutThreshold(${preset})" class="px-2.5 py-1.5 rounded-lg text-[11px] font-bold border ${payoutThresholdUsd === preset ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"}">
+                $${preset}
+              </button>
+            `).join("")}
+          </div>
+        </form>
+      </div>
+
+      <!-- Progress Bar -->
+      <div class="mb-3">
+        <div class="flex items-center justify-between text-xs font-bold mb-1.5">
+          <span class="text-slate-700">Current Combined Total: <span class="text-slate-900">$${totalUsd.toFixed(2)}</span> <span class="text-slate-500 font-semibold">(&#2547;${totalBdt.toLocaleString()})</span></span>
+          <span class="${isThresholdReached ? "text-emerald-700" : "text-sky-700"}">${thresholdProgressPct.toFixed(1)}% &bull; Goal: $${payoutThresholdUsd.toFixed(2)}</span>
+        </div>
+        <div class="w-full h-4 rounded-full bg-slate-100 border border-slate-200 overflow-hidden p-0.5">
+          <div style="width:${thresholdProgressPct.toFixed(2)}%" class="h-full rounded-full transition-all duration-500 ${isThresholdReached ? "bg-gradient-to-r from-emerald-500 to-teal-500" : "bg-gradient-to-r from-sky-500 to-teal-500"}"></div>
+        </div>
+      </div>
+
+      <!-- Summary Footer -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100 text-xs">
+        <div class="p-2.5 rounded-xl bg-slate-50">
+          <div class="text-slate-500 text-[11px]">Combined Revenue (${rangeLabel})</div>
+          <div class="font-extrabold text-slate-900 text-sm mt-0.5">$${totalUsd.toFixed(2)} <span class="text-xs font-semibold text-teal-700">(&#2547;${totalBdt.toLocaleString()})</span></div>
+        </div>
+        <div class="p-2.5 rounded-xl bg-slate-50">
+          <div class="text-slate-500 text-[11px]">Custom Payout Threshold</div>
+          <div class="font-extrabold text-slate-900 text-sm mt-0.5">$${payoutThresholdUsd.toFixed(2)} <span class="text-xs font-semibold text-slate-500">(&#2547;${payoutThresholdBdt.toLocaleString()})</span></div>
+        </div>
+        <div class="p-2.5 rounded-xl ${isThresholdReached ? "bg-emerald-50" : "bg-amber-50"}">
+          <div class="${isThresholdReached ? "text-emerald-700" : "text-amber-800"} text-[11px]">${isThresholdReached ? "Payout Status" : "Remaining to Reach Payout"}</div>
+          <div class="font-extrabold ${isThresholdReached ? "text-emerald-800" : "text-amber-900"} text-sm mt-0.5">
+            ${isThresholdReached
+              ? `Eligible (+$${(totalUsd - payoutThresholdUsd).toFixed(2)} above goal)`
+              : `$${remainingUsd.toFixed(2)} left (&#2547;${remainingBdt.toLocaleString()})`}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Daily Breakdown Table (Start.io vs Unity Ads) -->
+    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm mb-6">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div>
+          <h3 class="font-bold text-slate-800 text-base">Daily Revenue Breakdown (Start.io vs Unity Ads)</h3>
+          <p class="text-xs text-slate-500">Live impressions recorded directly from real Android app ad callbacks + confirmed network earnings.</p>
+        </div>
+      </div>
+      ${rev.dailyRows.length === 0 ? `
+        <div class="p-8 text-center rounded-xl bg-slate-50 border border-dashed border-slate-300 text-sm text-slate-500">
+          No ad impressions or official revenue records yet for this date range. As soon as users open Doctor List BD and view Start.io or Unity ads (or when you sync/log official earnings below), real revenue figures appear here automatically.
+        </div>
+      ` : `
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-left border-collapse">
+            <thead>
+              <tr class="border-b border-slate-200 text-slate-500 uppercase">
+                <th class="py-2.5 px-2">Date</th>
+                <th class="py-2.5 px-2 text-teal-700">Start.io Impr / Clicks</th>
+                <th class="py-2.5 px-2 text-teal-700">Start.io Revenue</th>
+                <th class="py-2.5 px-2 text-sky-700">Unity Impr / Clicks</th>
+                <th class="py-2.5 px-2 text-sky-700">Unity Revenue</th>
+                <th class="py-2.5 px-2 text-slate-900">Daily Total</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              ${rev.dailyRows.map(r => {
+                const sUsd = r.startioOfficialUsd > 0 ? r.startioOfficialUsd : r.startioEstUsd;
+                const uUsd = r.unityOfficialUsd > 0 ? r.unityOfficialUsd : r.unityEstUsd;
+                const tot = sUsd + uUsd;
+                return `
+                  <tr class="hover:bg-slate-50">
+                    <td class="py-2.5 px-2 font-bold text-slate-800">${esc(r.date)}</td>
+                    <td class="py-2.5 px-2">${r.startioImpr.toLocaleString()} / ${r.startioClicks.toLocaleString()}</td>
+                    <td class="py-2.5 px-2 font-bold text-teal-700">$${sUsd.toFixed(2)} <span class="text-[10px] font-normal text-slate-400">${r.startioOfficialUsd > 0 ? "(Official)" : "(Est)"}</span></td>
+                    <td class="py-2.5 px-2">${r.unityImpr.toLocaleString()} / ${r.unityClicks.toLocaleString()}</td>
+                    <td class="py-2.5 px-2 font-bold text-sky-700">$${uUsd.toFixed(2)} <span class="text-[10px] font-normal text-slate-400">${r.unityOfficialUsd > 0 ? "(Official)" : "(Est)"}</span></td>
+                    <td class="py-2.5 px-2 font-extrabold text-slate-900">$${tot.toFixed(2)} <span class="text-emerald-700 font-semibold">(&#2547;${Math.round(tot * rev.usdToBdt).toLocaleString()})</span></td>
+                  </tr>
+                `;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>
+      `}
+    </div>
+
+    <!-- Two-Column: Official Reporting API Sync + Verified Daily Payout Logger -->
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+      <!-- Official Start.io & Unity Reporting API Sync -->
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="font-bold text-sky-900 text-base mb-1">Official Ad Network Reporting APIs</h3>
+        <p class="text-xs text-slate-500 mb-4">Connect your real Start.io Publisher Reporting API &amp; Unity Monetization Stats API credentials to pull official earnings.</p>
+        <form onsubmit="saveRevenueSettings(event)" class="space-y-3">
+          <div class="p-3.5 rounded-xl bg-teal-50/60 border border-teal-200 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-teal-900">Start.io Reporting API (v1.0)</span>
+              <button type="button" onclick="syncStartIoApi()" class="px-3 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-semibold">Fetch Start.io API</button>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input id="rv_si_partner" value="${esc(rs.startIoPartnerId || "")}" placeholder="Start.io Partner ID" class="input bg-white text-xs" />
+              <input id="rv_si_token" type="password" value="${esc(rs.startIoApiToken || "")}" placeholder="Start.io Reporting API Token" class="input bg-white text-xs" />
+            </div>
+          </div>
+
+          <div class="p-3.5 rounded-xl bg-sky-50/60 border border-sky-200 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-sky-900">Unity Monetization Stats API (v2)</span>
+              <button type="button" onclick="syncUnityApi()" class="px-3 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-semibold">Fetch Unity API</button>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input id="rv_un_org" value="${esc(rs.unityOrgId || "")}" placeholder="Unity Organization Core ID" class="input bg-white text-xs" />
+              <input id="rv_un_key" type="password" value="${esc(rs.unityApiKey || "")}" placeholder="Unity Monetization Stats API Key" class="input bg-white text-xs" />
+            </div>
+          </div>
+
+          <div id="apiSyncMessage" class="hidden text-xs p-3 rounded-xl border"></div>
+
+          <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-slate-800">eCPM Rates (USD per 1,000 impr) &amp; BDT Rate</span>
+              <div class="flex items-center gap-1.5">
+                <label class="text-[11px] font-semibold text-slate-600">$1 = &#2547;</label>
+                <input id="rv_bdt" type="number" step="0.5" value="${esc(rev.usdToBdt)}" class="w-20 px-2 py-1 border border-slate-300 rounded-lg text-xs bg-white" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+              <div><label class="text-teal-800 font-semibold">SI Banner</label><input id="rv_si_b" type="number" step="0.05" value="${esc(rev.ecpm.startio.banner)}" class="input bg-white text-xs mt-0.5" /></div>
+              <div><label class="text-teal-800 font-semibold">SI Native</label><input id="rv_si_n" type="number" step="0.05" value="${esc(rev.ecpm.startio.native)}" class="input bg-white text-xs mt-0.5" /></div>
+              <div><label class="text-teal-800 font-semibold">SI AppOpen</label><input id="rv_si_a" type="number" step="0.05" value="${esc(rev.ecpm.startio.app_open)}" class="input bg-white text-xs mt-0.5" /></div>
+              <div><label class="text-teal-800 font-semibold">SI Rewarded</label><input id="rv_si_r" type="number" step="0.05" value="${esc(rev.ecpm.startio.rewarded)}" class="input bg-white text-xs mt-0.5" /></div>
+              <div><label class="text-sky-800 font-semibold">Unity Banner</label><input id="rv_un_b" type="number" step="0.05" value="${esc(rev.ecpm.unity.banner)}" class="input bg-white text-xs mt-0.5" /></div>
+              <div><label class="text-sky-800 font-semibold">Unity Native</label><input id="rv_un_n" type="number" step="0.05" value="${esc(rev.ecpm.unity.native)}" class="input bg-white text-xs mt-0.5" /></div>
+              <div><label class="text-sky-800 font-semibold">Unity AppOpen</label><input id="rv_un_a" type="number" step="0.05" value="${esc(rev.ecpm.unity.app_open)}" class="input bg-white text-xs mt-0.5" /></div>
+              <div><label class="text-sky-800 font-semibold">Unity Reward</label><input id="rv_un_r" type="number" step="0.05" value="${esc(rev.ecpm.unity.rewarded)}" class="input bg-white text-xs mt-0.5" /></div>
+            </div>
+          </div>
+
+          <button type="submit" class="w-full py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs">
+            Save API Credentials &amp; eCPM Settings
+          </button>
+        </form>
+      </div>
+
+      <!-- Record Verified Official Dashboard Revenue (Start.io / Unity) -->
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="font-bold text-sky-900 text-base mb-1">Log Verified Official Revenue (Start.io / Unity Dashboard)</h3>
+        <p class="text-xs text-slate-500 mb-4">Record confirmed USD earnings from your Start.io or Unity Dashboard to track exact payouts alongside live app impressions.</p>
+        <form onsubmit="submitOfficialRevenue(event)" class="space-y-3 mb-5">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Date *</label>
+              <input id="or_date" type="date" required value="${esc(todayStr)}" class="input bg-white" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Ad Network *</label>
+              <select id="or_net" required class="input bg-white">
+                <option value="startio">Start.io</option>
+                <option value="unity">Unity Ads</option>
+              </select>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Revenue (USD $) *</label>
+              <input id="or_usd" type="number" step="0.01" min="0" required placeholder="e.g. 14.50" class="input bg-white" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Impressions</label>
+              <input id="or_impr" type="number" min="0" placeholder="0" class="input bg-white" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Clicks</label>
+              <input id="or_clicks" type="number" min="0" placeholder="0" class="input bg-white" />
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Notes (Optional)</label>
+            <input id="or_notes" placeholder="e.g. Verified from Start.io / Unity Publisher Dashboard" class="input bg-white" />
+          </div>
+          <button type="submit" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs">
+            Save Verified Revenue Record
+          </button>
+        </form>
+
+        <h4 class="font-bold text-slate-700 text-xs uppercase tracking-wider mb-2">Recent Verified Entries (${rev.officialList.length})</h4>
+        <div class="space-y-2 max-h-60 overflow-y-auto">
+          ${rev.officialList.length === 0 ? `<div class="text-xs text-slate-400">No verified dashboard entries logged yet.</div>` : rev.officialList.map(rec => `
+            <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2 text-xs">
+              <div>
+                <span class="px-2 py-0.5 rounded font-bold ${rec.network === "startio" ? "bg-teal-100 text-teal-800" : "bg-sky-100 text-sky-800"}">${rec.network === "startio" ? "Start.io" : "Unity Ads"}</span>
+                <strong class="ml-1.5 text-slate-800">${esc(rec.date)}</strong>
+                <span class="ml-2 font-extrabold text-emerald-700">$${Number(rec.revenueUsd || 0).toFixed(2)}</span>
+                ${rec.notes ? `<div class="text-[11px] text-slate-500 mt-0.5">${esc(rec.notes)}</div>` : ""}
+              </div>
+              <button onclick="deleteNode('ad_revenue_official','${rec.id}')" class="text-rose-600 font-semibold text-[11px]">Delete</button>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function savePayoutThreshold(e) {
+  e.preventDefault();
+  const inputVal = Number(document.getElementById("rv_payout_threshold")?.value || 0);
+  if (!Number.isFinite(inputVal) || inputVal <= 0) {
+    toast("Please enter a valid Payout Threshold greater than $0.", true);
+    return;
+  }
+  const current = dbState.ad_revenue_settings || {};
+  const payload = {
+    ...current,
+    payoutThresholdUsd: Number(inputVal.toFixed(2))
+  };
+  await saveNode("ad_revenue_settings", null, payload);
+  toast(`Payout Threshold updated to $${payload.payoutThresholdUsd.toFixed(2)} USD!`);
+}
+
+async function setQuickPayoutThreshold(amount) {
+  const inputEl = document.getElementById("rv_payout_threshold");
+  if (inputEl) inputEl.value = amount;
+  const current = dbState.ad_revenue_settings || {};
+  const payload = {
+    ...current,
+    payoutThresholdUsd: Number(amount)
+  };
+  await saveNode("ad_revenue_settings", null, payload);
+  toast(`Payout Threshold set to $${Number(amount).toFixed(2)} USD!`);
+}
+
+async function saveRevenueSettings(e) {
+  e.preventDefault();
+  const thresholdFromInput = Number(document.getElementById("rv_payout_threshold")?.value || 0);
+  const existingThreshold = Number((dbState.ad_revenue_settings || {}).payoutThresholdUsd) || 50;
+  const payload = {
+    usdToBdt: Number(document.getElementById("rv_bdt").value) || 120,
+    payoutThresholdUsd: thresholdFromInput > 0 ? Number(thresholdFromInput.toFixed(2)) : existingThreshold,
+    startIoPartnerId: document.getElementById("rv_si_partner").value.trim(),
+    startIoApiToken: document.getElementById("rv_si_token").value.trim(),
+    unityOrgId: document.getElementById("rv_un_org").value.trim(),
+    unityApiKey: document.getElementById("rv_un_key").value.trim(),
+    ecpmStartIoBanner: Number(document.getElementById("rv_si_b").value) || 0.35,
+    ecpmStartIoNative: Number(document.getElementById("rv_si_n").value) || 0.75,
+    ecpmStartIoAppOpen: Number(document.getElementById("rv_si_a").value) || 1.40,
+    ecpmStartIoRewarded: Number(document.getElementById("rv_si_r").value) || 2.80,
+    ecpmUnityBanner: Number(document.getElementById("rv_un_b").value) || 0.40,
+    ecpmUnityNative: Number(document.getElementById("rv_un_n").value) || 0.85,
+    ecpmUnityAppOpen: Number(document.getElementById("rv_un_a").value) || 1.80,
+    ecpmUnityRewarded: Number(document.getElementById("rv_un_r").value) || 3.50
+  };
+  await saveNode("ad_revenue_settings", null, payload);
+  toast("Ad Revenue API & eCPM settings saved!");
+}
+
+async function submitOfficialRevenue(e) {
+  e.preventDefault();
+  const date = document.getElementById("or_date").value;
+  const network = document.getElementById("or_net").value;
+  const revenueUsd = Number(document.getElementById("or_usd").value || 0);
+  const impressions = Number(document.getElementById("or_impr").value || 0);
+  const clicks = Number(document.getElementById("or_clicks").value || 0);
+  const notes = document.getElementById("or_notes").value.trim();
+  const id = `rev_${network}_${date.replace(/-/g, "")}_${Math.random().toString(36).slice(2, 6)}`;
+  await saveNode("ad_revenue_official", id, {
+    date, network, revenueUsd, impressions, clicks, source: "MANUAL", notes, updatedAt: Date.now()
+  });
+}
+
+function showApiSyncFeedback(msg, isError) {
+  const el = document.getElementById("apiSyncMessage");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = `text-xs p-3 rounded-xl border ${isError ? "bg-amber-50 border-amber-200 text-amber-900" : "bg-emerald-50 border-emerald-200 text-emerald-900"}`;
+}
+
+async function syncStartIoApi() {
+  const partner = (document.getElementById("rv_si_partner")?.value || "").trim();
+  const token = (document.getElementById("rv_si_token")?.value || "").trim();
+  if (!partner || !token) return showApiSyncFeedback("Enter Start.io Partner ID & Reporting API Token first.", true);
+  const end = getDhakaTodayStr().replace(/-/g, "");
+  const startD = new Date(Date.now() - 29 * 86400000);
+  const start = `${startD.getFullYear()}${String(startD.getMonth()+1).padStart(2,"0")}${String(startD.getDate()).padStart(2,"0")}`;
+  const url = `https://api.start.io/pub/report/1.0?partner=${encodeURIComponent(partner)}&token=${encodeURIComponent(token)}&startDate=${start}&endDate=${end}&dimension=date`;
+  showApiSyncFeedback("Contacting Start.io Reporting API...", false);
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    const rows = Array.isArray(json.data) ? json.data : (Array.isArray(json) ? json : []);
+    let saved = 0;
+    const batch = {};
+    rows.forEach(r => {
+      const rawDate = String(r.date || r.day || "").replace(/[^0-9]/g, "");
+      if (rawDate.length !== 8) return;
+      const iso = `${rawDate.slice(0,4)}-${rawDate.slice(4,6)}-${rawDate.slice(6,8)}`;
+      batch[`api_startio_${rawDate}`] = {
+        date: iso,
+        network: "startio",
+        revenueUsd: Number(r.revenue || r.earnings || 0),
+        impressions: Number(r.impressions || 0),
+        clicks: Number(r.clicks || 0),
+        source: "API",
+        notes: "Synced from Start.io Reporting API",
+        updatedAt: Date.now()
+      };
+      saved++;
+    });
+    if (saved > 0) {
+      await patchCollectionNodes("ad_revenue_official", batch, `Synced ${saved} days from Start.io API!`);
+      showApiSyncFeedback(`Successfully synced ${saved} days of official Start.io revenue!`, false);
+    } else {
+      showApiSyncFeedback("Start.io API responded with 0 daily rows for the last 30 days.", true);
+    }
+  } catch (err) {
+    showApiSyncFeedback("Direct browser CORS blocked Start.io API (" + err.message + "). Live SDK impressions continue tracking automatically — or log verified daily totals in the right panel.", true);
+  }
+}
+
+async function syncUnityApi() {
+  const orgId = (document.getElementById("rv_un_org")?.value || "").trim();
+  const apiKey = (document.getElementById("rv_un_key")?.value || "").trim();
+  if (!orgId || !apiKey) return showApiSyncFeedback("Enter Unity Organization Core ID & Monetization Stats API Key first.", true);
+  const endIso = new Date().toISOString();
+  const startIso = new Date(Date.now() - 29 * 86400000).toISOString();
+  const url = `https://monetization.api.unity.com/stats/v2/organizations/${encodeURIComponent(orgId)}/reports/monetization?start=${encodeURIComponent(startIso)}&end=${encodeURIComponent(endIso)}&scale=day&fields=revenue_sum,views,clicks`;
+  showApiSyncFeedback("Contacting Unity Monetization Stats API...", false);
+  try {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    const rows = Array.isArray(json.results) ? json.results : (Array.isArray(json) ? json : []);
+    let saved = 0;
+    const batch = {};
+    rows.forEach(r => {
+      const iso = String(r.timestamp || r.date || "").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+      const compact = iso.replace(/-/g, "");
+      batch[`api_unity_${compact}`] = {
+        date: iso,
+        network: "unity",
+        revenueUsd: Number(r.revenue_sum ?? r.revenue ?? 0),
+        impressions: Number(r.views ?? r.impressions ?? 0),
+        clicks: Number(r.clicks ?? 0),
+        source: "API",
+        notes: "Synced from Unity Monetization Stats API",
+        updatedAt: Date.now()
+      };
+      saved++;
+    });
+    if (saved > 0) {
+      await patchCollectionNodes("ad_revenue_official", batch, `Synced ${saved} days from Unity Ads API!`);
+      showApiSyncFeedback(`Successfully synced ${saved} days of official Unity Ads revenue!`, false);
+    } else {
+      showApiSyncFeedback("Unity API responded with 0 daily rows for the last 30 days.", true);
+    }
+  } catch (err) {
+    showApiSyncFeedback("Direct browser CORS blocked Unity API (" + err.message + "). Live SDK impressions continue tracking automatically — or log verified daily totals in the right panel.", true);
+  }
+}
+
+function exportRevenueCsv() {
+  const rev = computeAdRevenueSummary(revenueRange);
+  if (!rev.dailyRows.length) return toast("No revenue rows to export yet.");
+  const header = ["date", "startio_impressions", "startio_clicks", "startio_usd", "unity_impressions", "unity_clicks", "unity_usd", "total_usd", "total_bdt"];
+  const lines = [header.join(",")];
+  rev.dailyRows.forEach(r => {
+    const sUsd = r.startioOfficialUsd > 0 ? r.startioOfficialUsd : r.startioEstUsd;
+    const uUsd = r.unityOfficialUsd > 0 ? r.unityOfficialUsd : r.unityEstUsd;
+    const tot = sUsd + uUsd;
+    lines.push([r.date, r.startioImpr, r.startioClicks, sUsd.toFixed(4), r.unityImpr, r.unityClicks, uUsd.toFixed(4), tot.toFixed(4), Math.round(tot * rev.usdToBdt)].join(","));
+  });
+  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `doctor_list_bd_ad_revenue_${revenueRange.toLowerCase()}.csv`;
+  a.click();
 }
 
 // --- NOTIFICATIONS ---

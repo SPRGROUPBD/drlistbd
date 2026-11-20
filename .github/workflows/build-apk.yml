@@ -18,10 +18,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -36,7 +36,7 @@ jobs:
           "$SDKMANAGER" "platforms;android-36.1" || true
 
       - name: Set up Gradle 9.3.1
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '9.3.1'
 
@@ -90,9 +90,13 @@ jobs:
           # 3. Ensure .env file exists for Secrets Gradle Plugin
           touch .env
 
-      - name: Build Signed Release & Debug APKs
+      - name: Build Signed Release APK
         run: |
-          gradle :app:assembleRelease :app:assembleDebug --no-daemon --stacktrace
+          gradle :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Build Debug APK
+        run: |
+          gradle :app:assembleDebug --no-daemon --stacktrace
 
       - name: Prepare APK Outputs
         run: |
@@ -102,14 +106,14 @@ jobs:
           ls -lh dist/
 
       - name: Upload Release APK Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Doctor-List-BD-Release-APK
           path: dist/Doctor-List-BD-release.apk
           retention-days: 30
 
       - name: Upload Debug APK Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Doctor-List-BD-Debug-APK
           path: dist/Doctor-List-BD-debug.apk
@@ -129,5 +133,5 @@ jobs:
           echo "### Doctor List BD — APK Build Complete" >> "$GITHUB_STEP_SUMMARY"
           echo "- **App Name:** Doctor List BD" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Package Name:** \`com.doctorlist.bd\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Start.io App ID:** \`210630916\` (Live Production Ads)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Ad Networks:** Unity Ads SDK v4.14.1 + Start.io App ID \`210630916\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Artifacts:** \`Doctor-List-BD-release.apk\` & \`Doctor-List-BD-debug.apk\`" >> "$GITHUB_STEP_SUMMARY"
