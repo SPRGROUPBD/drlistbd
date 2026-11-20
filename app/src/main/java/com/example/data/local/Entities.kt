@@ -336,7 +336,14 @@ data class SponsorEntity(
     val totalViews: Int = 0,
     val uniqueViews: Int = 0,
     val cachedAt: Long = 0L,
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    // Screen-Based Placement & Multi-Placement Rate Card metadata
+    val placementIds: String = "", // Comma-separated e.g. "HOME-01,DOC-01,HOS-01"
+    val moduleNames: String = "",  // Comma-separated e.g. "HOME,DOCTOR,HOSPITAL"
+    val adSizeKey: String = "",    // 320x50 | 320x100 | 300x200 | 300x250 | 336x280 | 300x300 | RESPONSIVE | FULL_WIDTH | CUSTOM
+    val placementBreakdownJson: String = "", // {"HOME-01":500,"DOC-01":300}
+    val subtotalBdt: Int = 0,
+    val bundleDiscountBdt: Int = 0
 )
 
 @Entity(tableName = "ad_packages")
@@ -352,6 +359,42 @@ data class SponsorPackageEntity(
     val description: String = "",
     // ACTIVE | DISABLED
     val status: String = "ACTIVE",
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "placement_rate_cards")
+data class PlacementRateCardEntity(
+    @PrimaryKey val placementId: String,
+    val placementNameEn: String,
+    val placementNameBn: String = "",
+    val moduleName: String, // HOME | DOCTOR | HOSPITAL | DIAGNOSTIC | SPECIALIST | CHAMBER | OTHER | custom
+    val allowedSizesCsv: String = "320x50,320x100,300x200,300x250,RESPONSIVE,FULL_WIDTH",
+    val sizeRateOverridesJson: String = "", // Optional JSON map {"320x50":350,"300x250":650}
+    val customWidthPx: Int = 300,
+    val customHeightPx: Int = 200,
+    val dailyRateBdt: Int = 30,
+    val sevenDaysRateBdt: Int = 150,
+    val fifteenDaysRateBdt: Int = 220,
+    val thirtyDaysRateBdt: Int = 300,
+    val customDailyRateBdt: Int = 25,
+    val maxActiveAds: Int = 3,
+    // WEIGHTED_ROTATION | PRIORITY_FIRST | SEQUENTIAL | RANDOM
+    val rotationMode: String = "WEIGHTED_ROTATION",
+    val cardInsertionFrequency: Int = 5,
+    // ACTIVE | INACTIVE
+    val status: String = "ACTIVE",
+    val sortOrder: Int = 0,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "rate_card_settings")
+data class RateCardSettingsEntity(
+    @PrimaryKey val id: String = "global",
+    val bundleEnabled: Boolean = true,
+    val discount2Pct: Int = 5,
+    val discount3Pct: Int = 10,
+    val discount4PlusPct: Int = 15,
+    val allowCustomDuration: Boolean = true,
     val updatedAt: Long = System.currentTimeMillis()
 )
 

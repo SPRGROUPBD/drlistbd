@@ -36,6 +36,10 @@ class DirectoryRepository(context: Context) {
     }
     val sponsors: Flow<List<SponsorEntity>> = db.sponsorDao().observeAll()
     val sponsorPackages: Flow<List<SponsorPackageEntity>> = db.sponsorPackageDao().observeAll()
+    val placementRateCards: Flow<List<PlacementRateCardEntity>> = db.placementRateCardDao().observeAll()
+    val rateCardSettings: Flow<RateCardSettingsEntity> = db.rateCardSettingsDao().observe().map {
+        it ?: RateCardSettingsEntity()
+    }
     val paymentSettings: Flow<PaymentSettingsEntity> = db.paymentSettingsDao().observe().map {
         it ?: PaymentSettingsEntity()
     }

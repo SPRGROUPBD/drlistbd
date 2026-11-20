@@ -361,6 +361,51 @@ object RtdbSyncService {
                 if (pkgList.isNotEmpty()) db.sponsorPackageDao().insertAll(pkgList)
             }
 
+            // Placement Rate Cards & Global Bundle Discount Settings
+            if (root.has("placement_rate_cards")) {
+                val obj = root.optJSONObject("placement_rate_cards")
+                val cardList = if (obj != null) parseMap(obj) { id, o ->
+                    PlacementRateCardEntity(
+                        placementId = o.optString("placementId", id).ifBlank { id },
+                        placementNameEn = o.optString("placementNameEn", o.optString("name", id)).trim(),
+                        placementNameBn = o.optString("placementNameBn", "").trim(),
+                        moduleName = o.optString("moduleName", "OTHER").ifBlank { "OTHER" }.uppercase(),
+                        allowedSizesCsv = o.optString("allowedSizesCsv", "320x50,320x100,300x200,300x250,RESPONSIVE,FULL_WIDTH"),
+                        sizeRateOverridesJson = o.optJSONObject("sizeRateOverrides")?.toString()
+                            ?: o.optString("sizeRateOverridesJson", ""),
+                        customWidthPx = o.optInt("customWidthPx", 300).coerceAtLeast(50),
+                        customHeightPx = o.optInt("customHeightPx", 200).coerceAtLeast(30),
+                        dailyRateBdt = o.optInt("dailyRateBdt", 30).coerceAtLeast(0),
+                        sevenDaysRateBdt = o.optInt("sevenDaysRateBdt", 150).coerceAtLeast(0),
+                        fifteenDaysRateBdt = o.optInt("fifteenDaysRateBdt", 220).coerceAtLeast(0),
+                        thirtyDaysRateBdt = o.optInt("thirtyDaysRateBdt", 300).coerceAtLeast(0),
+                        customDailyRateBdt = o.optInt("customDailyRateBdt", 20).coerceAtLeast(0),
+                        maxActiveAds = o.optInt("maxActiveAds", 3).coerceAtLeast(1),
+                        rotationMode = o.optString("rotationMode", "WEIGHTED_ROTATION").ifBlank { "WEIGHTED_ROTATION" },
+                        cardInsertionFrequency = o.optInt("cardInsertionFrequency", 5).coerceIn(2, 20),
+                        status = o.optString("status", "ACTIVE").ifBlank { "ACTIVE" }.uppercase(),
+                        sortOrder = o.optInt("sortOrder", 0),
+                        updatedAt = o.optLong("updatedAt", serverHeaderDateMs)
+                    )
+                } else emptyList()
+                db.placementRateCardDao().deleteAll()
+                if (cardList.isNotEmpty()) db.placementRateCardDao().insertAll(cardList)
+            }
+
+            root.optJSONObject("rate_card_settings")?.let { rcs ->
+                db.rateCardSettingsDao().save(
+                    RateCardSettingsEntity(
+                        id = "global",
+                        bundleEnabled = rcs.optBoolean("bundleEnabled", true),
+                        discount2Pct = rcs.optInt("discount2Pct", 5).coerceIn(0, 80),
+                        discount3Pct = rcs.optInt("discount3Pct", 10).coerceIn(0, 80),
+                        discount4PlusPct = rcs.optInt("discount4PlusPct", 15).coerceIn(0, 80),
+                        allowCustomDuration = rcs.optBoolean("allowCustomDuration", true),
+                        updatedAt = rcs.optLong("updatedAt", serverHeaderDateMs)
+                    )
+                )
+            }
+
             // Manual Payment Settings (bKash & Nagad configured by Admin)
             root.optJSONObject("payment_settings")?.let { p ->
                 db.paymentSettingsDao().save(
@@ -404,7 +449,7 @@ object RtdbSyncService {
                         packageId = o.optString("packageId", "").trim(),
                         packageName = o.optString("packageName", "").trim(),
                         widthPx = o.optInt("widthPx", 320).coerceAtLeast(100),
-                        heightPx = o.optInt("heightPx", 100).coerceAtLeast(50),
+                        heightPx = o.optInt("heightPx", 50).coerceAtLeast(40),
                         durationDays = o.optInt("durationDays", 30).coerceAtLeast(1),
                         priceBdt = o.optInt("priceBdt", 0).coerceAtLeast(0),
                         placementType = o.optString("placementType", SponsorCampaignSelector.PLACEMENT_ALL)
@@ -433,7 +478,14 @@ object RtdbSyncService {
                         totalViews = o.optInt("totalViews", 0),
                         uniqueViews = o.optInt("uniqueViews", 0),
                         cachedAt = prev?.cachedAt ?: 0L,
-                        updatedAt = o.optLong("updatedAt", serverHeaderDateMs)
+                        updatedAt = o.optLong("updatedAt", serverHeaderDateMs),
+                        placementIds = o.optString("placementIds", "").trim(),
+                        moduleNames = o.optString("moduleNames", "").trim(),
+                        adSizeKey = o.optString("adSizeKey", "").trim(),
+                        placementBreakdownJson = o.optJSONObject("placementBreakdown")?.toString()
+                            ?: o.optString("placementBreakdownJson", ""),
+                        subtotalBdt = o.optInt("subtotalBdt", 0),
+                        bundleDiscountBdt = o.optInt("bundleDiscountBdt", 0)
                     )
                 }.filter { sp ->
                     // Verified server update: keep only active/non-expired ads in public offline cache

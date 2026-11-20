@@ -34,8 +34,10 @@ import com.example.i18n.AppStrings
 import com.example.i18n.tr
 import com.example.ui.ads.AppOpenSponsorPopupDialog
 import com.example.ui.ads.ConnectivityMonitor
+import com.example.ui.ads.FullScreenSponsorDialog
 import com.example.ui.ads.HybridNetworkAdController
 import com.example.ui.ads.ManagedBannerAd
+import com.example.ui.ads.PlacementRateCardEngine
 import com.example.ui.ads.RewardedAdOutcome
 import com.example.ui.ads.SponsorBannerView
 import com.example.ui.ads.SponsorCampaignSelector
@@ -88,6 +90,8 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     val adConfig by vm.adConfig.collectAsStateWithLifecycle()
     val sponsors by vm.sponsors.collectAsStateWithLifecycle()
     val sponsorPackages by vm.sponsorPackages.collectAsStateWithLifecycle()
+    val placementRateCards by vm.placementRateCards.collectAsStateWithLifecycle()
+    val rateCardSettings by vm.rateCardSettings.collectAsStateWithLifecycle()
     val paymentSettings by vm.paymentSettings.collectAsStateWithLifecycle()
     val advertiserSession by vm.advertiserSession.collectAsStateWithLifecycle()
     val authoritativeNowMs by vm.authoritativeNowMs.collectAsStateWithLifecycle()
@@ -125,13 +129,15 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Direct Sponsor Popup Advertisement (Online + Offline cached; server-authoritative expiry)
+    // Direct Sponsor Popup Advertisement (OTH-POPUP) + Full-Screen Advertisement (OTH-FULLSCREEN)
     var appOpenPopupEvaluated by remember { mutableStateOf(false) }
     var activePopupSponsor by remember { mutableStateOf<com.example.data.local.SponsorEntity?>(null) }
+    var activeFullScreenSponsor by remember { mutableStateOf<com.example.data.local.SponsorEntity?>(null) }
 
     LaunchedEffect(
         showSplash,
         sponsors,
+        placementRateCards,
         adConfig.adsEnabled,
         adConfig.appOpenPopupEnabled,
         adConfig.appOpenPopupFrequency,
@@ -140,6 +146,12 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
         authoritativeNowMs
     ) {
         if (showSplash || appOpenPopupEvaluated) return@LaunchedEffect
+        val fullCandidate = PlacementRateCardEngine.selectSponsorForPlacement(
+            sponsors = sponsors,
+            rateCards = placementRateCards,
+            placementId = PlacementRateCardEngine.OTH_FULLSCREEN,
+            nowMs = authoritativeNowMs
+        )
         val today = SponsorCampaignSelector.todayDateKey(authoritativeNowMs)
         val shouldShow = SponsorCampaignSelector.shouldShowAppOpenPopup(
             popupEnabled = adConfig.adsEnabled && adConfig.appOpenPopupEnabled,
@@ -157,7 +169,11 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
             preferredSponsorId = adConfig.appOpenPopupSponsorId,
             nowMs = authoritativeNowMs
         )
-        if (candidate != null) {
+        if (fullCandidate != null) {
+            appOpenPopupEvaluated = true
+            activeFullScreenSponsor = fullCandidate
+            vm.markAppOpenPopupShown()
+        } else if (candidate != null) {
             appOpenPopupEvaluated = true
             activePopupSponsor = candidate
             vm.markAppOpenPopupShown()
@@ -447,6 +463,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             settings = settings,
                             adConfig = adConfig,
                             sponsors = sponsors,
+                            rateCards = placementRateCards,
                             isOnline = isOnline,
                             nowMs = authoritativeNowMs,
                             onSponsorDisplayed = vm::recordSponsorDisplay,
@@ -488,6 +505,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             lang = lang,
                             adConfig = adConfig,
                             sponsors = sponsors,
+                            rateCards = placementRateCards,
                             isOnline = isOnline,
                             nowMs = authoritativeNowMs,
                             onSponsorDisplayed = vm::recordSponsorDisplay,
@@ -511,6 +529,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             lang = lang,
                             adConfig = adConfig,
                             sponsors = sponsors,
+                            rateCards = placementRateCards,
                             isOnline = isOnline,
                             nowMs = authoritativeNowMs,
                             onSponsorDisplayed = vm::recordSponsorDisplay,
@@ -567,6 +586,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             settings = settings,
                             adConfig = adConfig,
                             sponsors = sponsors,
+                            rateCards = placementRateCards,
                             isOnline = isOnline,
                             nowMs = authoritativeNowMs,
                             onSponsorDisplayed = vm::recordSponsorDisplay,
@@ -585,6 +605,9 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             lang = lang,
                             session = advertiserSession,
                             cachedPackages = sponsorPackages,
+                            cachedRateCards = placementRateCards,
+                            cachedRateCardSettings = rateCardSettings,
+                            cachedSponsors = sponsors,
                             cachedPaymentSettings = paymentSettings,
                             isOnline = isOnline,
                             nowMs = authoritativeNowMs,
@@ -605,6 +628,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             lang = lang,
                             adConfig = adConfig,
                             sponsors = sponsors,
+                            rateCards = placementRateCards,
                             isOnline = isOnline,
                             nowMs = authoritativeNowMs,
                             onSponsorDisplayed = vm::recordSponsorDisplay,
@@ -630,6 +654,18 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
             }
         }
 
+        // Direct Sponsor Full Screen Advertisement (OTH-FULLSCREEN)
+        activeFullScreenSponsor?.let { fsSponsor ->
+            FullScreenSponsorDialog(
+                sponsor = fsSponsor,
+                isOnline = isOnline,
+                lang = lang,
+                onDisplayed = vm::recordSponsorDisplay,
+                onClicked = vm::recordSponsorClick,
+                onDismiss = { activeFullScreenSponsor = null }
+            )
+        }
+
         // Direct Sponsor App Open Popup (Online + Offline cached; dismissible immediately via Close X)
         activePopupSponsor?.let { popupSponsor ->
             AppOpenSponsorPopupDialog(
@@ -645,8 +681,8 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
         }
 
         // Approved Online-ONLY SDK Interstitial / App Open (only when online, cooldown met, and no sponsor popup is open)
-        LaunchedEffect(showSplash, activePopupSponsor, appOpenPopupEvaluated, isOnline) {
-            if (!showSplash && appOpenPopupEvaluated && activePopupSponsor == null && isOnline && adConfig.adsEnabled && adConfig.appOpenEnabled) {
+        LaunchedEffect(showSplash, activePopupSponsor, activeFullScreenSponsor, appOpenPopupEvaluated, isOnline) {
+            if (!showSplash && appOpenPopupEvaluated && activePopupSponsor == null && activeFullScreenSponsor == null && isOnline && adConfig.adsEnabled && adConfig.appOpenEnabled) {
                 appContext.findActivity()?.let { act ->
                     HybridNetworkAdController.maybeShowOnlineInterstitial(act, adConfig, isOnline = true)
                 }

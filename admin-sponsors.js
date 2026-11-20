@@ -15,6 +15,96 @@ const PLACEMENT_TYPES = [
   { key: "ALL", label: "All Placements (Universal)", w: 300, h: 200 }
 ];
 
+const AD_SIZE_FORMATS = [
+  { key: "320x50", label: "320×50", format: "Small Banner", w: 320, h: 50 },
+  { key: "320x100", label: "320×100", format: "Large Banner", w: 320, h: 100 },
+  { key: "300x200", label: "300×200", format: "Sponsor Card", w: 300, h: 200 },
+  { key: "300x250", label: "300×250", format: "Rectangle", w: 300, h: 250 },
+  { key: "336x280", label: "336×280", format: "Large Rectangle", w: 336, h: 280 },
+  { key: "300x300", label: "300×300", format: "Square Sponsor", w: 300, h: 300 },
+  { key: "RESPONSIVE", label: "Responsive", format: "Native Sponsor Card", w: 320, h: 180 },
+  { key: "FULL_WIDTH", label: "Full Width", format: "Section Banner", w: 720, h: 180 },
+  { key: "CUSTOM", label: "Admin Defined", format: "Custom Size", w: 300, h: 200 }
+];
+
+const MODULE_LABELS = {
+  HOME: "A. Home Screen",
+  DOCTOR: "B. Doctor Module",
+  HOSPITAL: "C. Hospital Module",
+  DIAGNOSTIC: "D. Diagnostic Center Module",
+  SPECIALIST: "E. Medical Specialist Module",
+  CHAMBER: "F. Chamber Schedule Module",
+  OTHER: "G. Other & Global Placements"
+};
+
+function makeDefCard(id, nameEn, nameBn, moduleName, allowedSizesCsv, d1, d7, d15, d30, customDaily, maxActiveAds, sortOrder) {
+  return {
+    placementId: id,
+    placementNameEn: nameEn,
+    placementNameBn: nameBn,
+    moduleName,
+    allowedSizesCsv,
+    sizeRateOverridesJson: "{}",
+    dailyRateBdt: d1,
+    sevenDaysRateBdt: d7,
+    fifteenDaysRateBdt: d15,
+    thirtyDaysRateBdt: d30,
+    customDailyRateBdt: customDaily,
+    maxActiveAds,
+    rotationMode: "WEIGHTED_ROTATION",
+    cardInsertionFrequency: 5,
+    status: "ACTIVE",
+    sortOrder
+  };
+}
+
+const DEFAULT_PLACEMENT_CATALOG = [
+  // A. Home Screen
+  makeDefCard("HOME-01", "Home Top Banner", "হোম টপ ব্যানার", "HOME", "320x50,320x100,FULL_WIDTH,RESPONSIVE", 50, 200, 320, 500, 25, 3, 1),
+  makeDefCard("HOME-02", "Between Home Sections", "Home Section-এর মাঝে", "HOME", "320x100,300x200,300x250,RESPONSIVE,FULL_WIDTH", 40, 170, 270, 420, 20, 3, 2),
+  makeDefCard("HOME-03", "Popular Doctor Section", "Popular Doctor Section", "HOME", "300x200,300x250,RESPONSIVE,FULL_WIDTH", 40, 160, 250, 400, 20, 3, 3),
+  makeDefCard("HOME-04", "Hospital Section", "Hospital Section", "HOME", "300x200,320x100,RESPONSIVE,FULL_WIDTH", 35, 140, 230, 360, 18, 3, 4),
+  makeDefCard("HOME-05", "Diagnostic Section", "Diagnostic Section", "HOME", "300x200,320x100,RESPONSIVE,FULL_WIDTH", 35, 140, 230, 360, 18, 3, 5),
+  makeDefCard("HOME-06", "Medical Specialist Section", "Medical Specialist Section", "HOME", "300x200,300x250,RESPONSIVE,FULL_WIDTH", 35, 140, 230, 360, 18, 3, 6),
+  makeDefCard("HOME-07", "Home Bottom Banner", "হোম বটম ব্যানার", "HOME", "320x50,320x100,FULL_WIDTH,RESPONSIVE", 40, 160, 250, 400, 20, 3, 7),
+  // B. Doctor Module
+  makeDefCard("DOC-01", "Between Doctor List", "Doctor List-এর মাঝে", "DOCTOR", "300x200,300x250,RESPONSIVE,320x100", 30, 120, 190, 300, 15, 4, 10),
+  makeDefCard("DOC-02", "Doctor Details Page", "Doctor Details Page", "DOCTOR", "300x200,300x250,336x280,RESPONSIVE,FULL_WIDTH", 45, 180, 290, 450, 22, 3, 11),
+  makeDefCard("DOC-03", "Between Doctor Search Results", "Doctor Search Results-এর মাঝে", "DOCTOR", "320x100,300x200,RESPONSIVE", 35, 140, 220, 350, 18, 3, 12),
+  makeDefCard("DOC-04", "Doctor Profile Bottom", "Doctor Profile Bottom", "DOCTOR", "320x50,320x100,300x200,FULL_WIDTH", 30, 120, 190, 300, 15, 3, 13),
+  makeDefCard("DOC-05", "Doctor Details Related Section", "Doctor Details Related Section", "DOCTOR", "300x200,300x300,RESPONSIVE", 30, 120, 190, 300, 15, 3, 14),
+  // C. Hospital Module
+  makeDefCard("HOS-01", "Between Hospital List", "Hospital List-এর মাঝে", "HOSPITAL", "300x200,320x100,RESPONSIVE,FULL_WIDTH", 30, 120, 190, 300, 15, 4, 20),
+  makeDefCard("HOS-02", "Hospital Details Page", "Hospital Details Page", "HOSPITAL", "300x200,300x250,RESPONSIVE,FULL_WIDTH", 35, 140, 230, 360, 18, 3, 21),
+  makeDefCard("HOS-03", "Between Hospital Search Results", "Hospital Search Results-এর মাঝে", "HOSPITAL", "320x100,300x200,RESPONSIVE", 30, 120, 190, 300, 15, 3, 22),
+  makeDefCard("HOS-04", "Hospital Details Bottom", "Hospital Details Bottom", "HOSPITAL", "320x50,320x100,FULL_WIDTH", 25, 100, 160, 260, 14, 3, 23),
+  // D. Diagnostic Center Module
+  makeDefCard("DIA-01", "Between Diagnostic List", "Diagnostic List-এর মাঝে", "DIAGNOSTIC", "300x200,320x100,RESPONSIVE,FULL_WIDTH", 30, 120, 190, 300, 15, 4, 30),
+  makeDefCard("DIA-02", "Diagnostic Details Page", "Diagnostic Details Page", "DIAGNOSTIC", "300x200,300x250,RESPONSIVE,FULL_WIDTH", 35, 140, 230, 360, 18, 3, 31),
+  makeDefCard("DIA-03", "Between Diagnostic Search Results", "Diagnostic Search Results-এর মাঝে", "DIAGNOSTIC", "320x100,300x200,RESPONSIVE", 30, 120, 190, 300, 15, 3, 32),
+  makeDefCard("DIA-04", "Diagnostic Details Bottom", "Diagnostic Details Bottom", "DIAGNOSTIC", "320x50,320x100,FULL_WIDTH", 25, 100, 160, 260, 14, 3, 33),
+  // E. Specialist Module
+  makeDefCard("SPE-01", "Between Specialist List", "Specialist List-এর মাঝে", "SPECIALIST", "300x200,320x100,RESPONSIVE", 30, 120, 190, 300, 15, 3, 40),
+  makeDefCard("SPE-02", "Specialist Details Page", "Specialist Details Page", "SPECIALIST", "300x200,300x250,RESPONSIVE,FULL_WIDTH", 35, 140, 220, 350, 18, 3, 41),
+  makeDefCard("SPE-03", "Between Specialist Search Results", "Specialist Search Results-এর মাঝে", "SPECIALIST", "320x100,300x200,RESPONSIVE", 30, 120, 190, 300, 15, 3, 42),
+  // F. Chamber Schedule Module
+  makeDefCard("CHA-01", "Between Chamber Schedule List", "Chamber Schedule List-এর মাঝে", "CHAMBER", "300x200,320x100,RESPONSIVE", 30, 120, 190, 300, 15, 3, 50),
+  makeDefCard("CHA-02", "Chamber Details Page", "Chamber Details Page", "CHAMBER", "300x200,300x250,RESPONSIVE,FULL_WIDTH", 35, 140, 220, 350, 18, 3, 51),
+  makeDefCard("CHA-03", "Doctor Schedule Details", "Doctor Schedule Details", "CHAMBER", "320x100,300x200,RESPONSIVE", 35, 140, 220, 350, 18, 3, 52),
+  makeDefCard("CHA-04", "Between Chamber Search Results", "Chamber Search Results-এর মাঝে", "CHAMBER", "320x100,300x200,RESPONSIVE", 30, 120, 190, 300, 15, 3, 53),
+  // G. Other & Global Placements
+  makeDefCard("OTH-SEARCH", "Search Result Page", "সার্চ রেজাল্ট পেজ", "OTHER", "320x50,320x100,300x200,RESPONSIVE,FULL_WIDTH", 35, 140, 230, 360, 18, 3, 60),
+  makeDefCard("OTH-CATEGORY", "Category Page", "ক্যাটাগরি পেজ", "OTHER", "300x200,320x100,RESPONSIVE,FULL_WIDTH", 30, 120, 190, 300, 15, 3, 61),
+  makeDefCard("OTH-DISTRICT", "District-wise Listing", "জেলাভিত্তিক তালিকা", "OTHER", "300x200,320x100,RESPONSIVE,FULL_WIDTH", 35, 140, 220, 350, 18, 3, 62),
+  makeDefCard("OTH-UPAZILA", "Upazila-wise Listing", "উপজেলাভিত্তিক তালিকা", "OTHER", "300x200,320x100,RESPONSIVE,FULL_WIDTH", 30, 120, 190, 300, 15, 3, 63),
+  makeDefCard("OTH-FEATURED", "Featured Section", "ফিচার্ড সেকশন", "OTHER", "300x200,300x250,336x280,300x300,RESPONSIVE,FULL_WIDTH", 50, 200, 320, 500, 25, 3, 64),
+  makeDefCard("OTH-ABOUT", "App About Us Page", "অ্যাপ About Us পেজ", "OTHER", "300x200,320x100,300x250,RESPONSIVE", 40, 160, 250, 400, 20, 3, 65),
+  makeDefCard("OTH-POPUP", "Popup Advertisement", "পপআপ বিজ্ঞাপন", "OTHER", "300x200,300x250,336x280,300x300,CUSTOM", 80, 350, 600, 1000, 55, 2, 66),
+  makeDefCard("OTH-FULLSCREEN", "Full Screen Advertisement", "ফুল-স্ক্রিন বিজ্ঞাপন", "OTHER", "300x250,336x280,300x300,FULL_WIDTH,CUSTOM", 100, 450, 800, 1400, 75, 2, 67),
+  makeDefCard("OTH-WEB", "Website Page Banner", "ওয়েবসাইট পেজ ব্যানার", "OTHER", "320x50,320x100,FULL_WIDTH,336x280,CUSTOM", 40, 160, 250, 400, 20, 3, 68),
+  makeDefCard("OTH-FUTURE", "Future Modules", "ভবিষ্যৎ মডিউলসমূহ", "OTHER", "320x50,320x100,300x200,300x250,336x280,300x300,RESPONSIVE,FULL_WIDTH,CUSTOM", 30, 120, 190, 300, 15, 3, 69)
+];
+
 const SPONSOR_PAGE_OPTIONS = [
   { key: "home", label: "Home" },
   { key: "find_doctors", label: "Find Doctors" },
@@ -30,8 +120,96 @@ let adFilterState = {
   advertiserId: "",
   paymentStatus: "ALL",
   reportRange: "30D",
-  previewMode: "banner" // banner | native | popup | about_us
+  previewMode: "banner", // banner | native | popup | about_us
+  rateModuleFilter: "ALL"
 };
+
+function getMergedRateCards() {
+  const cloud = dbState.placement_rate_cards || {};
+  const cloudById = {};
+  for (const [k, v] of Object.entries(cloud)) {
+    if (!v) continue;
+    const pid = String(v.placementId || k).toUpperCase();
+    cloudById[pid] = { ...v, placementId: v.placementId || k };
+  }
+  const merged = DEFAULT_PLACEMENT_CATALOG.map(def => cloudById[def.placementId.toUpperCase()] || { ...def });
+  const known = new Set(merged.map(c => c.placementId.toUpperCase()));
+  for (const v of Object.values(cloudById)) {
+    if (!known.has(String(v.placementId).toUpperCase())) {
+      merged.push(v);
+    }
+  }
+  return merged.sort((a, b) => (Number(a.sortOrder || 99) - Number(b.sortOrder || 99)) || String(a.placementId).localeCompare(String(b.placementId)));
+}
+
+function getRateCardSettings() {
+  return {
+    bundleEnabled: true,
+    discount2Pct: 5,
+    discount3Pct: 10,
+    discount4PlusPct: 15,
+    allowCustomDuration: true,
+    ...(dbState.rate_card_settings || {})
+  };
+}
+
+function parseSizeOverridesObj(card) {
+  if (card?.sizeRateOverrides && typeof card.sizeRateOverrides === "object") return card.sizeRateOverrides;
+  try {
+    return JSON.parse(card?.sizeRateOverridesJson || "{}") || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function calculatePlacementRateJs(card, adSizeKey, durationDays) {
+  const days = Math.max(1, Number(durationDays || 30));
+  let baseRate = 0;
+  if (days === 1) baseRate = Number(card.dailyRateBdt || 0);
+  else if (days === 7) baseRate = Number(card.sevenDaysRateBdt || 0);
+  else if (days === 15) baseRate = Number(card.fifteenDaysRateBdt || 0);
+  else if (days === 30) baseRate = Number(card.thirtyDaysRateBdt || 0);
+  else {
+    baseRate = Number(card.customDailyRateBdt || 0) > 0
+      ? days * Number(card.customDailyRateBdt)
+      : Math.ceil((Number(card.thirtyDaysRateBdt || 0) / 30) * days);
+  }
+  const overrides = parseSizeOverridesObj(card);
+  const norm = String(adSizeKey || "").trim().toUpperCase();
+  const ov = Number(overrides[norm] || overrides[adSizeKey] || 0);
+  if (ov > 0) {
+    if (days === 30) return ov;
+    const t30 = Number(card.thirtyDaysRateBdt || 0);
+    return t30 > 0 ? Math.max(1, Math.round(baseRate * (ov / t30))) : Math.max(1, Math.ceil((ov / 30) * days));
+  }
+  return Math.max(0, baseRate);
+}
+
+function calculateMultiPlacementQuoteJs(selectedCards, adSizeKey, durationDays, settings) {
+  const lines = selectedCards.map(c => ({
+    placementId: c.placementId,
+    placementNameEn: c.placementNameEn,
+    moduleName: c.moduleName,
+    priceBdt: calculatePlacementRateJs(c, adSizeKey, durationDays)
+  }));
+  const subtotalBdt = lines.reduce((s, l) => s + l.priceBdt, 0);
+  let discountPct = 0;
+  if (settings?.bundleEnabled && lines.length >= 2) {
+    if (lines.length === 2) discountPct = Number(settings.discount2Pct || 0);
+    else if (lines.length === 3) discountPct = Number(settings.discount3Pct || 0);
+    else discountPct = Number(settings.discount4PlusPct || 0);
+  }
+  discountPct = Math.max(0, Math.min(80, discountPct));
+  const discountBdt = Math.floor((subtotalBdt * discountPct) / 100);
+  const totalBdt = Math.max(0, subtotalBdt - discountBdt);
+  const breakdownMap = {};
+  lines.forEach(l => {
+    breakdownMap[l.placementId] = (subtotalBdt > 0 && discountBdt > 0)
+      ? Math.round((l.priceBdt * totalBdt) / subtotalBdt)
+      : l.priceBdt;
+  });
+  return { lines, subtotalBdt, discountPct, discountBdt, totalBdt, breakdownMap };
+}
 
 // --- CRYPTO HELPERS (Matches Android AdvertiserRemoteService SHA-256(salt:password)) ---
 async function sha256Hex(text) {
@@ -290,18 +468,99 @@ function computeDirectSponsorMetrics() {
   }
   dailyRows.sort((a, b) => b.date.localeCompare(a.date));
 
+  const rateCards = getMergedRateCards();
+  const activeCards = rateCards.filter(c => String(c.status || "ACTIVE").toUpperCase() === "ACTIVE");
+  const cardById = Object.fromEntries(rateCards.map(c => [c.placementId.toUpperCase(), c]));
+  const adById = Object.fromEntries(allAds.map(a => [a.id, a]));
+
+  // Slot occupancy across all 37+ placement IDs
+  const slotUsage = {};
+  rateCards.forEach(c => {
+    slotUsage[c.placementId] = {
+      placementId: c.placementId,
+      name: c.placementNameEn,
+      moduleName: c.moduleName,
+      maxSlots: Math.max(1, Number(c.maxActiveAds || 3)),
+      usedSlots: 0,
+      bookingsCount: 0,
+      revenueBdt: 0,
+      status: c.status || "ACTIVE"
+    };
+  });
+
+  activeAds.forEach(ad => {
+    const pids = String(ad.placementIds || "").split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+    pids.forEach(pid => {
+      if (slotUsage[pid]) slotUsage[pid].usedSlots += 1;
+    });
+  });
+
+  // Booking popularity + Monthly revenue + Placement-wise & Module-wise Revenue
+  const nowMs = Date.now();
+  const thirtyDaysAgoMs = nowMs - 30 * 86400000;
+  let monthlyRevenueBdt = 0;
+  const moduleRevenue = {};
+
+  allPayments.forEach(p => {
+    const ad = adById[p.adId];
+    const pidsRaw = String(p.placementIds || ad?.placementIds || "").split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+    pidsRaw.forEach(pid => {
+      if (slotUsage[pid]) slotUsage[pid].bookingsCount += 1;
+    });
+
+    if (String(p.status || "").toUpperCase() === "VERIFIED") {
+      const amt = Number(p.amountBdt || 0);
+      const ts = Number(p.verifiedAt || p.createdAt || 0);
+      if (ts >= thirtyDaysAgoMs) monthlyRevenueBdt += amt;
+
+      const bd = (p.placementBreakdown && typeof p.placementBreakdown === "object")
+        ? p.placementBreakdown
+        : (() => {
+            try { return JSON.parse(p.placementBreakdownJson || ad?.placementBreakdownJson || "{}"); } catch (_) { return null; }
+          })();
+
+      if (bd && Object.keys(bd).length > 0) {
+        for (const [pid, part] of Object.entries(bd)) {
+          const val = Number(part || 0);
+          const up = pid.toUpperCase();
+          if (slotUsage[up]) slotUsage[up].revenueBdt += val;
+          const mod = cardById[up]?.moduleName || "OTHER";
+          moduleRevenue[mod] = (moduleRevenue[mod] || 0) + val;
+        }
+      } else if (pidsRaw.length > 0) {
+        const share = Math.round(amt / pidsRaw.length);
+        pidsRaw.forEach(pid => {
+          if (slotUsage[pid]) slotUsage[pid].revenueBdt += share;
+          const mod = cardById[pid]?.moduleName || "OTHER";
+          moduleRevenue[mod] = (moduleRevenue[mod] || 0) + share;
+        });
+      } else {
+        moduleRevenue["LEGACY_PACKAGE"] = (moduleRevenue["LEGACY_PACKAGE"] || 0) + amt;
+      }
+    }
+  });
+
+  const totalSlots = activeCards.reduce((s, c) => s + Math.max(1, Number(c.maxActiveAds || 3)), 0);
+  const usedSlots = activeCards.reduce((s, c) => s + Math.min(Number(c.maxActiveAds || 3), slotUsage[c.placementId]?.usedSlots || 0), 0);
+  const availableSlots = Math.max(0, totalSlots - usedSlots);
+
+  const placementStats = Object.values(slotUsage);
+  const mostPopularPlacement = [...placementStats].sort((a, b) => (b.bookingsCount - a.bookingsCount) || (b.revenueBdt - a.revenueBdt) || (b.usedSlots - a.usedSlots))[0] || null;
+
   return {
     allAds, activeAds, pendingAds, expiredAds, renewalAds,
     allPayments, pendingPayments, verifiedPayments, rejectedPayments,
     allPackages, allAdvertisers,
-    verifiedRevenueBdt, bkashRevenueBdt, nagadRevenueBdt,
+    verifiedRevenueBdt, monthlyRevenueBdt, bkashRevenueBdt, nagadRevenueBdt,
     totalImpressions, totalUniqueViews, totalClicks, totalOfflineSynced,
-    adStatsMap, dailyRows, pkgNode
+    adStatsMap, dailyRows, pkgNode,
+    rateCards, totalSlots, usedSlots, availableSlots,
+    placementStats, moduleRevenue, mostPopularPlacement
   };
 }
 
 // ============================================================================
-// MODULE 1: ADMIN DASHBOARD (Direct Sponsor + Doctor Directory Unified)
+// MODULE 1: ADMIN DASHBOARD (Direct Sponsor + Rate Card Metrics + Directory)
 // ============================================================================
 function renderDashboard() {
   const m = computeDirectSponsorMetrics();
@@ -309,51 +568,77 @@ function renderDashboard() {
   const chambers = Object.values(dbState.chambers || {});
   const activeChambers = chambers.filter(c => c.isActive !== false).length;
 
+  const topRevPlacements = [...m.placementStats]
+    .filter(p => p.revenueBdt > 0 || p.bookingsCount > 0 || p.usedSlots > 0)
+    .sort((a, b) => (b.revenueBdt - a.revenueBdt) || (b.bookingsCount - a.bookingsCount))
+    .slice(0, 8);
+  const modRevEntries = Object.entries(m.moduleRevenue || {}).sort((a, b) => b[1] - a[1]);
+
   return `
     <!-- Hero Direct Sponsor Monetization Banner -->
     <div class="bg-gradient-to-r from-slate-900 via-sky-900 to-teal-900 text-white p-6 rounded-3xl shadow-sm mb-6">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div>
           <div class="flex flex-wrap items-center gap-2 mb-1">
-            <span class="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[11px] font-bold">100% Direct Sponsor Platform</span>
-            <span class="px-2.5 py-0.5 rounded-full bg-white/10 text-sky-100 text-[11px] font-semibold">Zero AdMob &bull; Zero 3rd-Party Ad Networks</span>
+            <span class="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[11px] font-bold">Direct Sponsor + Rate Card Engine</span>
+            <span class="px-2.5 py-0.5 rounded-full bg-white/10 text-sky-100 text-[11px] font-semibold">Start.io + Unity Ads (Online) &bull; Direct Sponsors (Online &amp; Offline)</span>
           </div>
-          <h3 class="text-xl font-bold">Direct Sponsor Advertisement &amp; Offline Cache Overview</h3>
+          <h3 class="text-xl font-bold">Placement Revenue, Ad Slots &amp; Booking Analytics</h3>
         </div>
         <div class="flex flex-wrap gap-2">
+          <button onclick="switchTab('rate_cards')" class="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold shadow">
+            Manage Rate Cards &rarr;
+          </button>
           <button onclick="switchTab('advertisements')" class="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold shadow">
-            + Direct Upload Ad (Admin)
+            + Direct Upload Ad
           </button>
           <a href="advertiser.html" target="_blank" class="px-4 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-semibold">
-            Open Advertiser Portal &nearr;
+            Advertiser Portal &nearr;
           </a>
         </div>
       </div>
-      <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <div class="p-4 rounded-2xl bg-white/10 border border-white/15">
-          <div class="text-xs text-emerald-200 font-semibold">Verified Ad Revenue</div>
-          <div class="text-2xl font-extrabold mt-1">&#2547;${m.verifiedRevenueBdt.toLocaleString()}</div>
-          <div class="text-[11px] text-sky-100 mt-0.5">${m.verifiedPayments.length} verified payment(s)</div>
-        </div>
+
+      <!-- Core 8 Placement & Sponsor Metrics -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('payments')">
-          <div class="text-xs text-amber-200 font-semibold">Pending Payments</div>
-          <div class="text-2xl font-extrabold mt-1">${m.pendingPayments.length}</div>
-          <div class="text-[11px] text-amber-100 mt-0.5">Awaiting manual verification</div>
+          <div class="text-xs text-sky-200 font-semibold">Total Bookings</div>
+          <div class="text-2xl font-extrabold mt-1">${m.allPayments.length}</div>
+          <div class="text-[11px] text-sky-100 mt-0.5">${m.verifiedPayments.length} verified &bull; ${m.allAds.length} total campaigns</div>
         </div>
         <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('active_ads')">
-          <div class="text-xs text-teal-200 font-semibold">Active Sponsor Ads</div>
+          <div class="text-xs text-emerald-200 font-semibold">Active Ads</div>
           <div class="text-2xl font-extrabold mt-1">${m.activeAds.length}</div>
-          <div class="text-[11px] text-sky-100 mt-0.5">${m.pendingAds.length} pending &bull; ${m.expiredAds.length} expired</div>
+          <div class="text-[11px] text-emerald-100 mt-0.5">Live on mobile screens now</div>
+        </div>
+        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('pending_ads')">
+          <div class="text-xs text-amber-200 font-semibold">Pending Approval</div>
+          <div class="text-2xl font-extrabold mt-1">${m.pendingAds.length} <span class="text-xs font-normal text-amber-100">(${m.pendingPayments.length} pay)</span></div>
+          <div class="text-[11px] text-amber-100 mt-0.5">Awaiting TrxID verification</div>
+        </div>
+        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('expired_ads')">
+          <div class="text-xs text-orange-200 font-semibold">Expired Ads</div>
+          <div class="text-2xl font-extrabold mt-1">${m.expiredAds.length}</div>
+          <div class="text-[11px] text-orange-100 mt-0.5">${m.renewalAds.length} renewal(s)</div>
+        </div>
+        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('revenue_reports')">
+          <div class="text-xs text-emerald-200 font-semibold">Monthly Sponsor Revenue (30d)</div>
+          <div class="text-2xl font-extrabold mt-1">&#2547;${m.monthlyRevenueBdt.toLocaleString()}</div>
+          <div class="text-[11px] text-sky-100 mt-0.5">All-time: &#2547;${m.verifiedRevenueBdt.toLocaleString()}</div>
+        </div>
+        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('rate_cards')">
+          <div class="text-xs text-teal-200 font-semibold">Available Ad Slots</div>
+          <div class="text-2xl font-extrabold mt-1">${m.availableSlots} <span class="text-sm font-normal text-sky-200">/ ${m.totalSlots}</span></div>
+          <div class="text-[11px] text-sky-100 mt-0.5">${m.usedSlots} occupied across ${m.rateCards.length} placements</div>
+        </div>
+        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('rate_cards')">
+          <div class="text-xs text-indigo-200 font-semibold">Most Popular Placement</div>
+          <div class="text-lg font-extrabold mt-1 truncate">${esc(m.mostPopularPlacement ? m.mostPopularPlacement.placementId : "—")}</div>
+          <div class="text-[11px] text-sky-100 mt-0.5 truncate">${esc(m.mostPopularPlacement ? `${m.mostPopularPlacement.name} (${m.mostPopularPlacement.bookingsCount} orders)` : "No bookings yet")}</div>
         </div>
         <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('view_reports')">
           <div class="text-xs text-sky-200 font-semibold">Total Impressions</div>
           <div class="text-2xl font-extrabold mt-1">${m.totalImpressions.toLocaleString()}</div>
-          <div class="text-[11px] text-sky-100 mt-0.5">${m.totalUniqueViews.toLocaleString()} unique views</div>
-        </div>
-        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('advertisers')">
-          <div class="text-xs text-indigo-200 font-semibold">Advertisers / Packages</div>
-          <div class="text-2xl font-extrabold mt-1">${m.allAdvertisers.length} <span class="text-sm font-normal text-sky-200">/ ${m.allPackages.length}</span></div>
-          <div class="text-[11px] text-sky-100 mt-0.5">Dynamic packages active</div>
+          <div class="text-[11px] text-sky-100 mt-0.5">${m.totalUniqueViews.toLocaleString()} unique &bull; ${m.totalClicks} clicks</div>
         </div>
       </div>
     </div>
@@ -361,13 +646,66 @@ function renderDashboard() {
     ${m.pendingPayments.length > 0 ? `
       <div class="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-300 flex flex-wrap items-center justify-between gap-3">
         <div class="text-sm text-amber-900">
-          <strong>Action Required:</strong> You have <strong>${m.pendingPayments.length}</strong> manual bKash/Nagad payment(s) waiting for Admin verification. Approved ads activate automatically!
+          <strong>Action Required:</strong> You have <strong>${m.pendingPayments.length}</strong> manual bKash/Nagad payment(s) waiting for Admin verification.
         </div>
         <button onclick="switchTab('payments')" class="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold">
           Verify Payments Now &rarr;
         </button>
       </div>
     ` : ""}
+
+    <!-- Placement-wise & Module-wise Revenue Breakdown -->
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex items-center justify-between mb-3">
+          <h4 class="font-bold text-slate-900 text-base">Placement-Wise Revenue &amp; Slot Occupancy</h4>
+          <button onclick="switchTab('rate_cards')" class="text-xs font-bold text-sky-700 hover:underline">All 37+ Placements &rarr;</button>
+        </div>
+        ${topRevPlacements.length === 0 ? `
+          <div class="text-xs text-slate-400 p-4 rounded-xl bg-slate-50 border border-dashed border-slate-200">No placement bookings recorded yet. All ${m.totalSlots} slots across ${m.rateCards.length} placements are ready for advertisers.</div>
+        ` : `
+          <div class="space-y-2">
+            ${topRevPlacements.map(p => `
+              <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+                <div>
+                  <span class="px-2 py-0.5 rounded bg-sky-900 text-white font-bold text-[10px] mr-1.5">${esc(p.placementId)}</span>
+                  <strong class="text-slate-900">${esc(p.name)}</strong>
+                  <span class="text-slate-500 ml-1">(${p.usedSlots}/${p.maxSlots} slots &bull; ${p.bookingsCount} orders)</span>
+                </div>
+                <strong class="text-emerald-700 text-sm">&#2547;${p.revenueBdt.toLocaleString()}</strong>
+              </div>
+            `).join("")}
+          </div>
+        `}
+      </div>
+
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex items-center justify-between mb-3">
+          <h4 class="font-bold text-slate-900 text-base">Module-Wise Revenue (Verified BDT)</h4>
+          <button onclick="switchTab('revenue_reports')" class="text-xs font-bold text-sky-700 hover:underline">Full Reports &rarr;</button>
+        </div>
+        ${modRevEntries.length === 0 ? `
+          <div class="text-xs text-slate-400 p-4 rounded-xl bg-slate-50 border border-dashed border-slate-200">No verified module revenue yet.</div>
+        ` : `
+          <div class="space-y-2.5">
+            ${modRevEntries.map(([mod, amt]) => {
+              const pct = m.verifiedRevenueBdt > 0 ? Math.min(100, Math.round((amt / m.verifiedRevenueBdt) * 100)) : 0;
+              return `
+                <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+                  <div class="flex items-center justify-between mb-1">
+                    <strong class="text-slate-900">${esc(MODULE_LABELS[mod] || mod)}</strong>
+                    <strong class="text-teal-800">&#2547;${amt.toLocaleString()} (${pct}%)</strong>
+                  </div>
+                  <div class="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
+                    <div class="h-full bg-teal-600 rounded-full" style="width:${pct}%"></div>
+                  </div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        `}
+      </div>
+    </div>
 
     <!-- Doctor Directory KPIs -->
     <h4 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Doctor Directory Status</h4>
@@ -380,32 +718,13 @@ function renderDashboard() {
         ["Diagnostic Centers", Object.keys(dbState.diagnostic_centers || {}).length, "text-cyan-700", "diagnostics"],
         ["Specialties", Object.keys(dbState.specialties || {}).length, "text-slate-800", "specialties"],
         ["Custom Locations", Object.keys(dbState.locations || {}).length, "text-amber-700", "locations"],
-        ["Renewal Requests", m.renewalAds.length, "text-indigo-700", "renewals"]
+        ["Advertiser Accounts", m.allAdvertisers.length, "text-indigo-700", "advertisers"]
       ].map(([label, count, cls, tab]) => `
         <div onclick="switchTab('${tab}')" class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-sky-300 transition">
           <div class="text-3xl font-bold ${cls}">${count}</div>
           <div class="text-xs text-slate-500 mt-1 font-medium">${label}</div>
         </div>
       `).join("")}
-    </div>
-
-    <!-- Quick Action Grid -->
-    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-      <h4 class="font-bold text-slate-900 mb-3">Quick Workflow Guide</h4>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-slate-600">
-        <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
-          <div class="font-bold text-sky-900 mb-1">1. Configure Packages &amp; Payment Info</div>
-          Create dynamic ad packages (e.g. 300×200, 30 days, &#2547;300) in <strong>Package Management</strong> and set your bKash &amp; Nagad numbers in <strong>bKash &amp; Nagad Settings</strong>.
-        </div>
-        <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
-          <div class="font-bold text-teal-900 mb-1">2. Verify Advertiser Payments or Upload Directly</div>
-          Approve advertiser bKash/Nagad payments in <strong>Payment Verification</strong> (duration starts only on approval) OR publish sponsor ads directly in <strong>Advertisement Management</strong>.
-        </div>
-        <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
-          <div class="font-bold text-emerald-900 mb-1">3. Automatic Offline Caching &amp; Analytics</div>
-          Active approved ads automatically download to Android devices for offline display, auto-expire on server sync, and queue offline views with duplicate protection.
-        </div>
-      </div>
     </div>
   `;
 }
@@ -807,10 +1126,32 @@ function renderAdvertisements(filterMode = "ALL") {
               </div>
             </div>
 
+            <!-- Target Screen Placements (Canonical 37+ IDs) & Size Format -->
+            <div class="p-3.5 rounded-xl bg-teal-50/50 border border-teal-200 space-y-2.5">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="text-xs font-bold text-teal-900">Target Screen Placement IDs (Check 1 or more)</span>
+                <select id="ad_size_key" class="px-2.5 py-1 rounded-lg border border-teal-300 bg-white text-xs font-bold">
+                  ${AD_SIZE_FORMATS.map(f => `<option value="${f.key}" ${(sp?.adSizeKey || "300x200") === f.key ? "selected" : ""}>${f.label} (${f.format})</option>`).join("")}
+                </select>
+              </div>
+              <div class="max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 pr-1">
+                ${(() => {
+                  const spPids = String(sp?.placementIds || "").split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+                  return getMergedRateCards().map(rc => `
+                    <label class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white border border-slate-200 text-[11px] cursor-pointer">
+                      <input type="checkbox" name="ad_placement_id_cb" value="${esc(rc.placementId)}" ${spPids.includes(rc.placementId.toUpperCase()) ? "checked" : ""} class="accent-teal-600" />
+                      <span class="font-bold text-sky-900">${esc(rc.placementId)}</span>
+                      <span class="truncate text-slate-600">${esc(rc.placementNameEn)}</span>
+                    </label>
+                  `).join("");
+                })()}
+              </div>
+            </div>
+
             <!-- Target Pages -->
             <div class="p-3 rounded-xl bg-slate-50 border border-slate-200">
               <div class="flex items-center justify-between mb-2">
-                <span class="text-xs font-bold text-slate-700">Target App Pages</span>
+                <span class="text-xs font-bold text-slate-700">Target App Pages (Legacy Filter)</span>
                 <label class="flex items-center gap-1.5 text-xs font-semibold text-sky-800 cursor-pointer">
                   <input id="ad_pages_all" type="checkbox" ${isAllPages ? "checked" : ""} onchange="document.getElementById('ad_specific_pages').classList.toggle('opacity-40', this.checked);document.getElementById('ad_specific_pages').classList.toggle('pointer-events-none', this.checked)" class="w-4 h-4 accent-sky-600" />
                   All Pages
@@ -916,6 +1257,12 @@ function renderAdvertisements(filterMode = "ALL") {
                       ${ad.priceBdt ? ` &bull; &#2547;${Number(ad.priceBdt).toLocaleString()}` : ""}
                       &bull; Priority ${ad.displayPriority || 10}
                     </div>
+                    ${ad.placementIds ? `
+                      <div class="flex flex-wrap gap-1 pt-0.5">
+                        ${String(ad.placementIds).split(",").map(s => s.trim()).filter(Boolean).map(pid => `<span class="px-1.5 py-0.5 rounded bg-sky-100 text-sky-900 font-bold text-[10px]">${esc(pid)}</span>`).join("")}
+                        ${ad.adSizeKey ? `<span class="px-1.5 py-0.5 rounded bg-teal-100 text-teal-900 font-bold text-[10px]">${esc(ad.adSizeKey)}</span>` : ""}
+                      </div>
+                    ` : ""}
                     <div class="text-[11px] text-slate-600">
                       ${ad.effectiveStatus === "ACTIVE"
                         ? `<strong class="text-emerald-700">${ad.remDays} day(s) left</strong> &bull; Activated: ${formatDateOnly(ad.activatedAt)} &rarr; Expires: ${formatDateOnly(ad.expiryAt)}`
@@ -1124,15 +1471,26 @@ async function submitAdminDirectAd(e) {
     expiryAt = now + durationDays * 86400000;
   }
 
+  const pickedPlacementIds = Array.from(document.querySelectorAll('input[name="ad_placement_id_cb"]:checked')).map(c => c.value);
+  const placementIdsCsv = pickedPlacementIds.length ? pickedPlacementIds.join(",") : (prev.placementIds || "");
+  const adSizeKey = document.getElementById("ad_size_key")?.value || prev.adSizeKey || "";
+  const rcMap = Object.fromEntries(getMergedRateCards().map(r => [r.placementId.toUpperCase(), r]));
+  const moduleNamesCsv = pickedPlacementIds.length
+    ? Array.from(new Set(pickedPlacementIds.map(pid => rcMap[pid.toUpperCase()]?.moduleName).filter(Boolean))).join(",")
+    : (prev.moduleNames || "");
+
   const payload = {
     ...prev,
     id,
     advertiserId: prev.advertiserId || "",
     submittedBy: prev.submittedBy || "ADMIN",
     packageId: pkgId || prev.packageId || "admin_direct",
-    packageName: pkg ? pkg.name : (prev.packageName || "Admin Direct Campaign"),
+    packageName: pkg ? pkg.name : (prev.packageName || (pickedPlacementIds.length ? `Direct Placements (${pickedPlacementIds.join("+")})` : "Admin Direct Campaign")),
+    placementIds: placementIdsCsv,
+    moduleNames: moduleNamesCsv,
+    adSizeKey,
     widthPx: Math.max(100, parseInt(document.getElementById("ad_w").value, 10) || 300),
-    heightPx: Math.max(50, parseInt(document.getElementById("ad_h").value, 10) || 200),
+    heightPx: Math.max(40, parseInt(document.getElementById("ad_h").value, 10) || 200),
     durationDays,
     priceBdt: pkg ? Number(pkg.priceBdt || 0) : Number(prev.priceBdt || 0),
     placementType: document.getElementById("ad_placement").value || "ALL",
@@ -1638,12 +1996,15 @@ function renderRevenueReports() {
   const dayRevRows = Object.values(byDay).sort((a, b) => b.day.localeCompare(a.day));
   const pendingBdt = m.pendingPayments.reduce((s, p) => s + Number(p.amountBdt || 0), 0);
 
+  const revPlacements = [...m.placementStats].filter(p => p.revenueBdt > 0).sort((a, b) => b.revenueBdt - a.revenueBdt);
+  const revModules = Object.entries(m.moduleRevenue || {}).sort((a, b) => b[1] - a[1]);
+
   return `
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
       <div class="bg-gradient-to-br from-emerald-700 to-teal-700 text-white p-5 rounded-2xl shadow-sm">
         <div class="text-xs text-emerald-100 font-semibold">Total Verified Revenue</div>
         <div class="text-3xl font-extrabold mt-1">&#2547;${m.verifiedRevenueBdt.toLocaleString()}</div>
-        <div class="text-xs text-emerald-100 mt-1">${m.verifiedPayments.length} verified transaction(s)</div>
+        <div class="text-xs text-emerald-100 mt-1">Monthly (30d): &#2547;${m.monthlyRevenueBdt.toLocaleString()}</div>
       </div>
       <div class="bg-white p-5 rounded-2xl border-2 border-pink-200 shadow-sm">
         <div class="text-xs text-pink-700 font-bold">bKash Verified Revenue</div>
@@ -1660,10 +2021,44 @@ function renderRevenueReports() {
       </div>
     </div>
 
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="font-bold text-base text-slate-900 mb-3">Placement-Wise Revenue Breakdown</h3>
+        ${revPlacements.length === 0 ? `<div class="text-xs text-slate-400">No placement-based revenue recorded yet.</div>` : `
+          <div class="space-y-2">
+            ${revPlacements.map(r => `
+              <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+                <div>
+                  <span class="px-2 py-0.5 rounded bg-sky-900 text-white font-bold text-[10px] mr-1">${esc(r.placementId)}</span>
+                  <strong class="text-slate-900">${esc(r.name)}</strong>
+                  <span class="text-slate-500 ml-1">(${r.bookingsCount} booking(s))</span>
+                </div>
+                <strong class="text-emerald-700 text-sm">&#2547;${r.revenueBdt.toLocaleString()}</strong>
+              </div>
+            `).join("")}
+          </div>
+        `}
+      </div>
+
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="font-bold text-base text-slate-900 mb-3">Module-Wise Revenue Breakdown</h3>
+        ${revModules.length === 0 ? `<div class="text-xs text-slate-400">No module-wise revenue recorded yet.</div>` : `
+          <div class="space-y-2">
+            ${revModules.map(([mod, amt]) => `
+              <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+                <strong class="text-slate-900">${esc(MODULE_LABELS[mod] || mod)}</strong>
+                <strong class="text-teal-700 text-sm">&#2547;${amt.toLocaleString()}</strong>
+              </div>
+            `).join("")}
+          </div>
+        `}
+      </div>
+    </div>
+
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
       <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div class="flex items-center justify-between mb-3">
-          <h3 class="font-bold text-base text-slate-900">Revenue by Package</h3>
+          <h3 class="font-bold text-base text-slate-900">Revenue by Booking / Package</h3>
           <button onclick="exportSponsorRevenueCsv()" class="px-3.5 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold">Export Revenue CSV</button>
         </div>
         ${pkgRevRows.length === 0 ? `<div class="text-xs text-slate-400">No verified package sales yet.</div>` : `
@@ -1883,7 +2278,7 @@ function renderAuditLogs() {
   return `
     <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
       <h3 class="font-bold text-base text-slate-900 mb-1">Admin Audit Logs (${logs.length})</h3>
-      <p class="text-xs text-slate-500 mb-4">Tracks every payment verification, advertisement approval/rejection, package edit, and direct upload.</p>
+      <p class="text-xs text-slate-500 mb-4">Tracks every payment verification, advertisement approval/rejection, package edit, rate card update, and direct upload.</p>
       ${logs.length === 0 ? `<div class="text-xs text-slate-400">No audit events recorded yet.</div>` : `
         <div class="space-y-2">
           ${logs.map(l => `
@@ -1901,3 +2296,344 @@ function renderAuditLogs() {
     </div>
   `;
 }
+
+// ============================================================================
+// MODULE 14: PLACEMENT & DYNAMIC RATE CARD MANAGEMENT (37+ Placements, 9 Sizes)
+// ============================================================================
+function renderRateCards() {
+  const cards = getMergedRateCards();
+  const cfg = getRateCardSettings();
+  const m = computeDirectSponsorMetrics();
+  const usageMap = Object.fromEntries(m.placementStats.map(s => [s.placementId.toUpperCase(), s]));
+  const ed = editing.rateCard || null;
+  const edOverrides = ed ? parseSizeOverridesObj(ed) : {};
+  const edAllowed = ed
+    ? String(ed.allowedSizesCsv || "").split(",").map(s => s.trim().toUpperCase()).filter(Boolean)
+    : ["320x50", "320x100", "300x200", "300x250", "RESPONSIVE", "FULL_WIDTH"];
+
+  const modules = ["ALL", ...Array.from(new Set(cards.map(c => String(c.moduleName || "OTHER").toUpperCase())))];
+  const filtered = adFilterState.rateModuleFilter === "ALL"
+    ? cards
+    : cards.filter(c => String(c.moduleName || "").toUpperCase() === adFilterState.rateModuleFilter);
+
+  const knownMods = ["HOME", "DOCTOR", "HOSPITAL", "DIAGNOSTIC", "SPECIALIST", "CHAMBER", "OTHER"];
+  const isCustomMod = ed && !knownMods.includes(String(ed.moduleName || "").toUpperCase());
+
+  return `
+    <!-- 1. Global Multi-Placement Bundle Discount & Custom Duration Rules -->
+    <form onsubmit="submitRateCardSettings(event)" class="bg-gradient-to-r from-sky-50 to-teal-50 p-5 rounded-2xl border border-teal-200 shadow-sm mb-6">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div>
+          <h3 class="font-bold text-base text-slate-900">Multi-Placement Bundle Discount &amp; Global Rate Rules</h3>
+          <p class="text-xs text-slate-600">When advertisers book multiple placements together (e.g. Home Top + Doctor List + Hospital List + Diagnostic List), optional bundle discounts apply automatically.</p>
+        </div>
+        <button type="button" onclick="seedAllRateCardsToCloud()" class="px-3.5 py-2 rounded-xl bg-sky-700 hover:bg-sky-800 text-white text-xs font-bold shadow-sm">
+          Sync Default 37 Placements to Firebase
+        </button>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-6 gap-3 items-end">
+        <label class="flex items-center gap-2 p-2.5 rounded-xl bg-white border border-slate-200 text-xs font-bold cursor-pointer">
+          <input id="rc_bundle_enabled" type="checkbox" ${cfg.bundleEnabled ? "checked" : ""} class="w-4 h-4 accent-teal-600" />
+          Bundle Discount ON
+        </label>
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-600 mb-1">2 Placements (%)</label>
+          <input id="rc_disc_2" type="number" min="0" max="80" value="${esc(cfg.discount2Pct ?? 5)}" class="input bg-white text-xs" />
+        </div>
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-600 mb-1">3 Placements (%)</label>
+          <input id="rc_disc_3" type="number" min="0" max="80" value="${esc(cfg.discount3Pct ?? 10)}" class="input bg-white text-xs" />
+        </div>
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-600 mb-1">4+ Placements (%)</label>
+          <input id="rc_disc_4" type="number" min="0" max="80" value="${esc(cfg.discount4PlusPct ?? 15)}" class="input bg-white text-xs" />
+        </div>
+        <label class="flex items-center gap-2 p-2.5 rounded-xl bg-white border border-slate-200 text-xs font-bold cursor-pointer">
+          <input id="rc_custom_dur" type="checkbox" ${cfg.allowCustomDuration !== false ? "checked" : ""} class="w-4 h-4 accent-sky-600" />
+          Custom Days ON
+        </label>
+        <button type="submit" class="py-2.5 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold">
+          Save Bundle Rules
+        </button>
+      </div>
+    </form>
+
+    <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+      <!-- 2. Admin Rate Card Form (All 13 Fields + Per-Size Rate Overrides) -->
+      <div class="xl:col-span-5 bg-white p-6 rounded-2xl border-2 border-sky-100 shadow-sm h-fit">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h3 class="font-bold text-base text-sky-900">${ed ? `Edit Rate Card: ${esc(ed.placementId)}` : "Add / Configure Placement Rate Card"}</h3>
+            <p class="text-xs text-slate-500">Same ad size can have different prices across placements.</p>
+          </div>
+          ${ed ? `<button type="button" onclick="editing={};renderTab()" class="text-xs font-bold text-slate-500 hover:text-slate-800">Cancel Edit</button>` : ""}
+        </div>
+
+        <form onsubmit="submitRateCard(event)" class="space-y-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Placement ID *</label>
+              <input id="rc_id" required ${ed ? "readonly" : ""} value="${esc(ed?.placementId || "")}" placeholder="e.g. HOME-01 or CUSTOM-01" class="input bg-white text-xs font-bold uppercase ${ed ? "bg-slate-100" : ""}" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Module Name *</label>
+              <select id="rc_module" onchange="document.getElementById('rc_custom_mod_wrap').classList.toggle('hidden', this.value !== 'CUSTOM_MODULE')" class="input bg-white text-xs">
+                ${knownMods.map(mod => `<option value="${mod}" ${(ed?.moduleName || "HOME").toUpperCase() === mod ? "selected" : ""}>${mod}</option>`).join("")}
+                <option value="CUSTOM_MODULE" ${isCustomMod ? "selected" : ""}>+ Custom Future Module</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="rc_custom_mod_wrap" class="${isCustomMod ? "" : "hidden"}">
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Custom Module Name *</label>
+            <input id="rc_custom_mod" value="${isCustomMod ? esc(ed.moduleName) : ""}" placeholder="e.g. PHARMACY" class="input bg-white text-xs uppercase" />
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Placement Name (English) *</label>
+              <input id="rc_name_en" required value="${esc(ed?.placementNameEn || "")}" placeholder="Home Top Banner" class="input bg-white text-xs" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Placement Name (Bangla)</label>
+              <input id="rc_name_bn" value="${esc(ed?.placementNameBn || "")}" placeholder="হোম টপ ব্যানার" class="input bg-white text-xs" />
+            </div>
+          </div>
+
+          <!-- Duration Rates -->
+          <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+            <div class="text-xs font-bold text-slate-800">Base Rates (BDT &#2547;)</div>
+            <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">Daily</label>
+                <input id="rc_d1" type="number" min="0" required value="${esc(ed?.dailyRateBdt ?? 35)}" class="input bg-white text-xs px-2 py-1.5" />
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">7 Days</label>
+                <input id="rc_d7" type="number" min="0" required value="${esc(ed?.sevenDaysRateBdt ?? 140)}" class="input bg-white text-xs px-2 py-1.5" />
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">15 Days</label>
+                <input id="rc_d15" type="number" min="0" required value="${esc(ed?.fifteenDaysRateBdt ?? 220)}" class="input bg-white text-xs px-2 py-1.5" />
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">30 Days</label>
+                <input id="rc_d30" type="number" min="0" required value="${esc(ed?.thirtyDaysRateBdt ?? 300)}" class="input bg-white text-xs px-2 py-1.5" />
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">Custom/Day</label>
+                <input id="rc_dcustom" type="number" min="0" required value="${esc(ed?.customDailyRateBdt ?? 15)}" class="input bg-white text-xs px-2 py-1.5" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Allowed Ad Sizes + Optional Per-Size 30d Overrides -->
+          <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+            <div class="text-xs font-bold text-slate-800">Allowed Ad Sizes &amp; Optional Size-Specific 30d Rate (&#2547;)</div>
+            <div class="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+              ${AD_SIZE_FORMATS.map(f => {
+                const checked = edAllowed.includes(f.key.toUpperCase());
+                const ov = edOverrides[f.key.toUpperCase()] || edOverrides[f.key] || "";
+                return `
+                  <div class="flex items-center justify-between gap-2 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs">
+                    <label class="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+                      <input type="checkbox" name="rc_size_cb" value="${f.key}" ${checked ? "checked" : ""} class="accent-sky-600" />
+                      <span class="font-bold text-slate-900">${esc(f.label)}</span>
+                      <span class="text-[11px] text-slate-500 truncate">${esc(f.format)}</span>
+                    </label>
+                    <input type="number" min="0" data-size-override="${f.key}" value="${esc(ov)}" placeholder="30d override" class="w-24 px-2 py-1 rounded border border-slate-200 text-[11px]" />
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          </div>
+
+          <!-- Capacity, Rotation, Insertion Frequency, Status -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Max Active Ads *</label>
+              <input id="rc_max_ads" type="number" min="1" max="50" required value="${esc(ed?.maxActiveAds ?? 3)}" class="input bg-white text-xs" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Card Insertion Frequency</label>
+              <input id="rc_freq" type="number" min="2" max="20" required value="${esc(ed?.cardInsertionFrequency ?? 5)}" class="input bg-white text-xs" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Advertisement Rotation</label>
+              <select id="rc_rotation" class="input bg-white text-xs">
+                ${[
+                  ["WEIGHTED_ROTATION", "Weighted Rotation"],
+                  ["PRIORITY_FIRST", "Highest Priority First"],
+                  ["SEQUENTIAL", "Sequential Rotation"],
+                  ["RANDOM", "Random Balanced"]
+                ].map(([k, lbl]) => `<option value="${k}" ${(ed?.rotationMode || "WEIGHTED_ROTATION") === k ? "selected" : ""}>${lbl}</option>`).join("")}
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Placement Status</label>
+              <select id="rc_status" class="input bg-white text-xs font-bold">
+                <option value="ACTIVE" ${(ed?.status || "ACTIVE") === "ACTIVE" ? "selected" : ""}>ACTIVE</option>
+                <option value="INACTIVE" ${ed?.status === "INACTIVE" ? "selected" : ""}>INACTIVE</option>
+              </select>
+            </div>
+          </div>
+
+          <button type="submit" class="w-full py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs shadow-sm">
+            ${ed ? "Update Placement Rate Card" : "Save New Placement Rate Card"}
+          </button>
+        </form>
+      </div>
+
+      <!-- 3. All 37+ Placements Directory & Rate Table -->
+      <div class="xl:col-span-7 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div>
+            <h3 class="font-bold text-base text-slate-900">Screen Placement Catalog (${filtered.length} shown / ${cards.length} total)</h3>
+            <p class="text-xs text-slate-500">Click Edit on any row to customize rates, allowed sizes, slots, rotation, frequency, or Active/Inactive status.</p>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap gap-1.5 mb-4">
+          ${modules.map(mod => `
+            <button type="button" onclick="adFilterState.rateModuleFilter='${esc(mod)}';renderTab()" class="px-2.5 py-1 rounded-lg text-xs font-bold border ${adFilterState.rateModuleFilter === mod ? "bg-sky-600 text-white border-sky-600" : "bg-slate-50 text-slate-600 border-slate-200"}">
+              ${esc(mod)}
+            </button>
+          `).join("")}
+        </div>
+
+        <div class="space-y-2.5 max-h-[820px] overflow-y-auto pr-1">
+          ${filtered.map(card => {
+            const st = String(card.status || "ACTIVE").toUpperCase();
+            const usage = usageMap[card.placementId.toUpperCase()] || { usedSlots: 0, maxSlots: card.maxActiveAds || 3, revenueBdt: 0 };
+            const isActive = st === "ACTIVE";
+            const allowedList = String(card.allowedSizesCsv || "").split(",").map(s => s.trim()).filter(Boolean);
+            return `
+              <div class="p-3.5 rounded-2xl border ${isActive ? "border-slate-200 bg-slate-50/70" : "border-rose-200 bg-rose-50/30"}">
+                <div class="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <span class="px-2 py-0.5 rounded bg-sky-900 text-white font-bold text-[10px]">${esc(card.placementId)}</span>
+                      <span class="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-bold text-[10px]">${esc(card.moduleName)}</span>
+                      <strong class="text-sm text-slate-900">${esc(card.placementNameEn)}</strong>
+                      <span class="text-xs text-slate-500">(${esc(card.placementNameBn)})</span>
+                      ${statusBadgeHtml(isActive ? "ACTIVE" : "DISABLED")}
+                    </div>
+                    <div class="text-xs text-teal-800 font-bold mt-1">
+                      1d: &#2547;${card.dailyRateBdt} &bull; 7d: &#2547;${card.sevenDaysRateBdt} &bull; 15d: &#2547;${card.fifteenDaysRateBdt} &bull; 30d: &#2547;${card.thirtyDaysRateBdt} &bull; Custom/d: &#2547;${card.customDailyRateBdt}
+                    </div>
+                    <div class="text-[11px] text-slate-600 mt-1">
+                      Slots: <strong>${usage.usedSlots}/${card.maxActiveAds}</strong> &bull; Rotation: <strong>${esc(card.rotationMode)}</strong> &bull; Freq: every <strong>${card.cardInsertionFrequency}</strong> &bull; Rev: <strong class="text-emerald-700">&#2547;${usage.revenueBdt.toLocaleString()}</strong>
+                    </div>
+                    <div class="flex flex-wrap gap-1 mt-1.5">
+                      ${allowedList.map(sz => `<span class="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[10px] font-semibold text-slate-700">${esc(sz)}</span>`).join("")}
+                    </div>
+                  </div>
+                  <div class="flex flex-wrap gap-1.5">
+                    <button onclick="toggleRateCardStatus('${esc(card.placementId)}')" class="px-2.5 py-1 rounded-lg ${isActive ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-800"} text-xs font-bold">
+                      ${isActive ? "Deactivate" : "Activate"}
+                    </button>
+                    <button onclick="editRateCard('${esc(card.placementId)}')" class="px-2.5 py-1 rounded-lg bg-sky-100 text-sky-800 text-xs font-bold">Edit</button>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function editRateCard(placementId) {
+  const cards = getMergedRateCards();
+  const found = cards.find(c => c.placementId.toUpperCase() === placementId.toUpperCase());
+  if (!found) return;
+  editing = { rateCard: { ...found } };
+  renderTab();
+}
+
+async function submitRateCard(e) {
+  e.preventDefault();
+  const placementId = document.getElementById("rc_id").value.trim().toUpperCase();
+  if (!placementId) return toast("Placement ID is required.");
+  let moduleName = document.getElementById("rc_module").value;
+  if (moduleName === "CUSTOM_MODULE") {
+    moduleName = document.getElementById("rc_custom_mod").value.trim().toUpperCase() || "OTHER";
+  }
+  const pickedSizes = Array.from(document.querySelectorAll('input[name="rc_size_cb"]:checked')).map(c => c.value);
+  const overrides = {};
+  document.querySelectorAll('input[data-size-override]').forEach(inp => {
+    const val = parseInt(inp.value, 10) || 0;
+    if (val > 0) overrides[inp.dataset.sizeOverride] = val;
+  });
+
+  const existing = dbState.placement_rate_cards?.[placementId]
+    || DEFAULT_PLACEMENT_CATALOG.find(c => c.placementId.toUpperCase() === placementId)
+    || {};
+
+  const payload = {
+    ...existing,
+    placementId,
+    moduleName,
+    placementNameEn: document.getElementById("rc_name_en").value.trim(),
+    placementNameBn: document.getElementById("rc_name_bn").value.trim() || document.getElementById("rc_name_en").value.trim(),
+    allowedSizesCsv: pickedSizes.length ? pickedSizes.join(",") : "300x200,320x100,RESPONSIVE",
+    sizeRateOverrides: overrides,
+    sizeRateOverridesJson: JSON.stringify(overrides),
+    dailyRateBdt: Math.max(0, parseInt(document.getElementById("rc_d1").value, 10) || 0),
+    sevenDaysRateBdt: Math.max(0, parseInt(document.getElementById("rc_d7").value, 10) || 0),
+    fifteenDaysRateBdt: Math.max(0, parseInt(document.getElementById("rc_d15").value, 10) || 0),
+    thirtyDaysRateBdt: Math.max(0, parseInt(document.getElementById("rc_d30").value, 10) || 0),
+    customDailyRateBdt: Math.max(0, parseInt(document.getElementById("rc_dcustom").value, 10) || 0),
+    maxActiveAds: Math.max(1, parseInt(document.getElementById("rc_max_ads").value, 10) || 3),
+    cardInsertionFrequency: Math.max(2, Math.min(20, parseInt(document.getElementById("rc_freq").value, 10) || 5)),
+    rotationMode: document.getElementById("rc_rotation").value || "WEIGHTED_ROTATION",
+    status: document.getElementById("rc_status").value || "ACTIVE",
+    sortOrder: Number(existing.sortOrder || 99),
+    updatedAt: Date.now()
+  };
+
+  await saveNode("placement_rate_cards", placementId, payload);
+  await writeAuditLog("SAVE_RATE_CARD", "RATE_CARD", placementId, `Updated ${placementId} (${payload.thirtyDaysRateBdt} BDT/30d, ${payload.status})`);
+  editing = {};
+  renderTab();
+}
+
+async function toggleRateCardStatus(placementId) {
+  const cards = getMergedRateCards();
+  const cur = cards.find(c => c.placementId.toUpperCase() === placementId.toUpperCase());
+  if (!cur) return;
+  const nextStatus = String(cur.status || "ACTIVE").toUpperCase() === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+  const payload = { ...cur, status: nextStatus, updatedAt: Date.now() };
+  await saveNode("placement_rate_cards", cur.placementId, payload);
+  await writeAuditLog("TOGGLE_RATE_CARD", "RATE_CARD", cur.placementId, `Set ${cur.placementId} to ${nextStatus}`);
+}
+
+async function submitRateCardSettings(e) {
+  e.preventDefault();
+  const payload = {
+    bundleEnabled: document.getElementById("rc_bundle_enabled").checked,
+    discount2Pct: Math.max(0, Math.min(80, parseInt(document.getElementById("rc_disc_2").value, 10) || 0)),
+    discount3Pct: Math.max(0, Math.min(80, parseInt(document.getElementById("rc_disc_3").value, 10) || 0)),
+    discount4PlusPct: Math.max(0, Math.min(80, parseInt(document.getElementById("rc_disc_4").value, 10) || 0)),
+    allowCustomDuration: document.getElementById("rc_custom_dur").checked,
+    updatedAt: Date.now()
+  };
+  await saveNode("rate_card_settings", null, payload);
+  await writeAuditLog("UPDATE_RATE_SETTINGS", "RATE_CARD_SETTINGS", "global", `Updated multi-placement bundle rules (${payload.discount2Pct}/${payload.discount3Pct}/${payload.discount4PlusPct}%)`);
+}
+
+async function seedAllRateCardsToCloud() {
+  const now = Date.now();
+  const batch = {};
+  const merged = getMergedRateCards();
+  merged.forEach(c => {
+    batch[c.placementId] = { ...c, updatedAt: now };
+  });
+  await patchCollectionNodes("placement_rate_cards", batch, `Synced ${merged.length} placement rate cards to Firebase!`);
+  await writeAuditLog("SEED_RATE_CARDS", "RATE_CARD", "all", `Synced ${merged.length} canonical placement rate cards`);
+}
+

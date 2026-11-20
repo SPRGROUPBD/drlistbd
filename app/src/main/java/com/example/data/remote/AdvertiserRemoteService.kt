@@ -3,8 +3,11 @@ package com.example.data.remote
 import android.util.Log
 import com.example.data.local.AdvertiserSession
 import com.example.data.local.PaymentSettingsEntity
+import com.example.data.local.PlacementRateCardEntity
+import com.example.data.local.RateCardSettingsEntity
 import com.example.data.local.SponsorEntity
 import com.example.data.local.SponsorPackageEntity
+import com.example.ui.ads.PlacementRateCardEngine
 import com.example.ui.ads.SponsorCampaignSelector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -31,14 +34,23 @@ data class AdvertiserPaymentRecord(
     val status: String, // PENDING | VERIFIED | REJECTED
     val adminNote: String,
     val createdAt: Long,
-    val verifiedAt: Long
+    val verifiedAt: Long,
+    val placementIds: String = "",
+    val moduleNames: String = "",
+    val adSizeKey: String = "",
+    val placementBreakdownJson: String = "",
+    val subtotalBdt: Int = 0,
+    val bundleDiscountBdt: Int = 0
 )
 
 data class AdvertiserDashboardData(
     val myAds: List<SponsorEntity>,
     val myPayments: List<AdvertiserPaymentRecord>,
     val packages: List<SponsorPackageEntity>,
-    val paymentSettings: PaymentSettingsEntity
+    val paymentSettings: PaymentSettingsEntity,
+    val rateCards: List<PlacementRateCardEntity> = PlacementRateCardEngine.defaultRateCards(),
+    val rateCardSettings: RateCardSettingsEntity = RateCardSettingsEntity(),
+    val activePlacementCounts: Map<String, Int> = emptyMap()
 )
 
 /**
@@ -234,57 +246,120 @@ object AdvertiserRemoteService {
                     updatedAt = payCfgObj?.optLong("updatedAt", 0L) ?: 0L
                 )
 
-                // 3. Only this advertiser's own ads
+                // 3. Only this advertiser's own ads + compute active slot counts across all sponsors
                 val myAds = mutableListOf<SponsorEntity>()
+                val allSponsorsForCounts = mutableListOf<SponsorEntity>()
                 root.optJSONObject("sponsors")?.let { obj ->
                     val keys = obj.keys()
                     while (keys.hasNext()) {
                         val id = keys.next()
                         val o = obj.optJSONObject(id) ?: continue
-                        if (o.optString("advertiserId", "") != advertiserId) continue
                         val startDate = o.optString("startDate", "")
                         val endDate = o.optString("endDate", "")
                         val (sTs, eTs) = SponsorCampaignSelector.parseCampaignBounds(startDate, endDate)
-                        myAds.add(
-                            SponsorEntity(
-                                id = id,
-                                advertiserId = advertiserId,
-                                submittedBy = o.optString("submittedBy", "ADVERTISER"),
-                                packageId = o.optString("packageId", ""),
-                                packageName = o.optString("packageName", ""),
-                                widthPx = o.optInt("widthPx", 300),
-                                heightPx = o.optInt("heightPx", 200),
-                                durationDays = o.optInt("durationDays", 30),
-                                priceBdt = o.optInt("priceBdt", 0),
-                                placementType = o.optString("placementType", SponsorCampaignSelector.PLACEMENT_BANNER_300x200),
-                                status = o.optString("status", SponsorCampaignSelector.STATUS_PENDING_APPROVAL),
-                                name = o.optString("name", o.optString("sponsorName", "")),
-                                logoUrl = o.optString("logoUrl", ""),
-                                bannerImageUrl = o.optString("bannerImageUrl", ""),
-                                promoTitle = o.optString("promoTitle", o.optString("title", "")),
-                                description = o.optString("description", ""),
-                                websiteUrl = o.optString("websiteUrl", ""),
-                                contactNumber = o.optString("contactNumber", ""),
-                                startDate = startDate,
-                                endDate = endDate,
-                                activatedAt = o.optLong("activatedAt", 0L),
-                                expiryAt = o.optLong("expiryAt", Long.MAX_VALUE),
-                                startTimestamp = sTs,
-                                endTimestamp = eTs,
-                                targetPages = o.optString("targetPages", "ALL"),
-                                displayPriority = o.optInt("displayPriority", 10),
-                                displayFrequency = o.optInt("displayFrequency", 1),
-                                isActive = o.optBoolean("isActive", false),
-                                renewalOfAdId = o.optString("renewalOfAdId", ""),
-                                totalViews = o.optInt("totalViews", 0),
-                                uniqueViews = o.optInt("uniqueViews", 0),
+                        val entity = SponsorEntity(
+                            id = id,
+                            advertiserId = o.optString("advertiserId", ""),
+                            submittedBy = o.optString("submittedBy", "ADVERTISER"),
+                            packageId = o.optString("packageId", ""),
+                            packageName = o.optString("packageName", ""),
+                            widthPx = o.optInt("widthPx", 300),
+                            heightPx = o.optInt("heightPx", 200),
+                            durationDays = o.optInt("durationDays", 30),
+                            priceBdt = o.optInt("priceBdt", 0),
+                            placementType = o.optString("placementType", SponsorCampaignSelector.PLACEMENT_BANNER_300x200),
+                            placementIds = o.optString("placementIds", ""),
+                            moduleNames = o.optString("moduleNames", ""),
+                            adSizeKey = o.optString("adSizeKey", ""),
+                            placementBreakdownJson = o.optJSONObject("placementBreakdown")?.toString()
+                                ?: o.optString("placementBreakdownJson", ""),
+                            subtotalBdt = o.optInt("subtotalBdt", o.optInt("priceBdt", 0)),
+                            bundleDiscountBdt = o.optInt("bundleDiscountBdt", 0),
+                            status = o.optString("status", SponsorCampaignSelector.STATUS_PENDING_APPROVAL),
+                            name = o.optString("name", o.optString("sponsorName", "")),
+                            logoUrl = o.optString("logoUrl", ""),
+                            bannerImageUrl = o.optString("bannerImageUrl", ""),
+                            promoTitle = o.optString("promoTitle", o.optString("title", "")),
+                            description = o.optString("description", ""),
+                            websiteUrl = o.optString("websiteUrl", ""),
+                            contactNumber = o.optString("contactNumber", ""),
+                            startDate = startDate,
+                            endDate = endDate,
+                            activatedAt = o.optLong("activatedAt", 0L),
+                            expiryAt = o.optLong("expiryAt", Long.MAX_VALUE),
+                            startTimestamp = sTs,
+                            endTimestamp = eTs,
+                            targetPages = o.optString("targetPages", "ALL"),
+                            displayPriority = o.optInt("displayPriority", 10),
+                            displayFrequency = o.optInt("displayFrequency", 1),
+                            isActive = o.optBoolean("isActive", false),
+                            renewalOfAdId = o.optString("renewalOfAdId", ""),
+                            totalViews = o.optInt("totalViews", 0),
+                            uniqueViews = o.optInt("uniqueViews", 0),
+                            updatedAt = o.optLong("updatedAt", 0L)
+                        )
+                        allSponsorsForCounts.add(entity)
+                        if (entity.advertiserId == advertiserId) {
+                            myAds.add(entity)
+                        }
+                    }
+                }
+
+                // 4. Rate Cards & Settings
+                val cloudRateCards = mutableListOf<PlacementRateCardEntity>()
+                root.optJSONObject("placement_rate_cards")?.let { obj ->
+                    val keys = obj.keys()
+                    while (keys.hasNext()) {
+                        val pid = keys.next()
+                        val o = obj.optJSONObject(pid) ?: continue
+                        val resolvedId = o.optString("placementId", pid).ifBlank { pid }
+                        cloudRateCards.add(
+                            PlacementRateCardEntity(
+                                placementId = resolvedId,
+                                placementNameEn = o.optString("placementNameEn", resolvedId),
+                                placementNameBn = o.optString("placementNameBn", resolvedId),
+                                moduleName = o.optString("moduleName", PlacementRateCardEngine.MOD_OTHER),
+                                allowedSizesCsv = o.optString("allowedSizesCsv", "300x200,320x100,RESPONSIVE"),
+                                sizeRateOverridesJson = o.optJSONObject("sizeRateOverrides")?.toString()
+                                    ?: o.optString("sizeRateOverridesJson", "{}"),
+                                dailyRateBdt = o.optInt("dailyRateBdt", 30),
+                                sevenDaysRateBdt = o.optInt("sevenDaysRateBdt", 120),
+                                fifteenDaysRateBdt = o.optInt("fifteenDaysRateBdt", 200),
+                                thirtyDaysRateBdt = o.optInt("thirtyDaysRateBdt", 300),
+                                customDailyRateBdt = o.optInt("customDailyRateBdt", 15),
+                                maxActiveAds = o.optInt("maxActiveAds", 3).coerceAtLeast(1),
+                                rotationMode = o.optString("rotationMode", PlacementRateCardEngine.ROTATION_WEIGHTED),
+                                cardInsertionFrequency = o.optInt("cardInsertionFrequency", 5).coerceIn(2, 20),
+                                status = o.optString("status", "ACTIVE"),
+                                sortOrder = o.optInt("sortOrder", 99),
                                 updatedAt = o.optLong("updatedAt", 0L)
                             )
                         )
                     }
                 }
+                val mergedRateCards = PlacementRateCardEngine.mergeWithDefaults(cloudRateCards)
 
-                // 4. Only this advertiser's own payments
+                val rcCfgObj = root.optJSONObject("rate_card_settings")
+                val rateCardSettings = RateCardSettingsEntity(
+                    id = "global",
+                    bundleEnabled = rcCfgObj?.optBoolean("bundleEnabled", true) ?: true,
+                    discount2Pct = rcCfgObj?.optInt("discount2Pct", 5) ?: 5,
+                    discount3Pct = rcCfgObj?.optInt("discount3Pct", 10) ?: 10,
+                    discount4PlusPct = rcCfgObj?.optInt("discount4PlusPct", 15) ?: 15,
+                    allowCustomDuration = rcCfgObj?.optBoolean("allowCustomDuration", true) ?: true,
+                    updatedAt = rcCfgObj?.optLong("updatedAt", 0L) ?: 0L
+                )
+
+                val nowMs = System.currentTimeMillis()
+                val activePlacementCounts = mergedRateCards.associate { card ->
+                    card.placementId to PlacementRateCardEngine.countActiveForPlacement(
+                        sponsors = allSponsorsForCounts,
+                        placementId = card.placementId,
+                        nowMs = nowMs
+                    )
+                }
+
+                // 5. Only this advertiser's own payments
                 val myPayments = mutableListOf<AdvertiserPaymentRecord>()
                 root.optJSONObject("ad_payments")?.let { obj ->
                     val keys = obj.keys()
@@ -308,7 +383,14 @@ object AdvertiserRemoteService {
                                 status = o.optString("status", "PENDING"),
                                 adminNote = o.optString("adminNote", ""),
                                 createdAt = o.optLong("createdAt", 0L),
-                                verifiedAt = o.optLong("verifiedAt", 0L)
+                                verifiedAt = o.optLong("verifiedAt", 0L),
+                                placementIds = o.optString("placementIds", ""),
+                                moduleNames = o.optString("moduleNames", ""),
+                                adSizeKey = o.optString("adSizeKey", ""),
+                                placementBreakdownJson = o.optJSONObject("placementBreakdown")?.toString()
+                                    ?: o.optString("placementBreakdownJson", ""),
+                                subtotalBdt = o.optInt("subtotalBdt", o.optInt("amountBdt", 0)),
+                                bundleDiscountBdt = o.optInt("bundleDiscountBdt", 0)
                             )
                         )
                     }
@@ -319,7 +401,10 @@ object AdvertiserRemoteService {
                         myAds = myAds.sortedByDescending { it.updatedAt },
                         myPayments = myPayments.sortedByDescending { it.createdAt },
                         packages = packages.filter { it.status.equals("ACTIVE", true) }.sortedBy { it.priceBdt },
-                        paymentSettings = paymentSettings
+                        paymentSettings = paymentSettings,
+                        rateCards = mergedRateCards,
+                        rateCardSettings = rateCardSettings,
+                        activePlacementCounts = activePlacementCounts
                     )
                 )
             } catch (e: Exception) {
@@ -465,6 +550,198 @@ object AdvertiserRemoteService {
             Result.success(adId)
         } catch (e: Exception) {
             Log.w(TAG, "Submit advertisement error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Screen-Based Placement & Dynamic Rate Card Booking submission (Single or Multiple Placements).
+     * Calculates pricing breakdown & optional multi-placement bundle discount via PlacementRateCardEngine,
+     * validates unique TrxID & full payment, and stores PENDING_APPROVAL until Admin verifies payment.
+     */
+    suspend fun submitPlacementBookingWithPayment(
+        advertiser: AdvertiserSession,
+        selectedCards: List<PlacementRateCardEntity>,
+        adSizeKey: String,
+        customWidthPx: Int,
+        customHeightPx: Int,
+        durationDays: Int,
+        rateCardSettings: RateCardSettingsEntity,
+        title: String,
+        businessName: String,
+        description: String,
+        imageSource: String,
+        logoSource: String,
+        websiteUrl: String,
+        contactNumber: String,
+        paymentMethod: String,
+        senderMobile: String,
+        transactionId: String,
+        amountPaidBdt: Int,
+        screenshotSource: String,
+        renewalOfAdId: String = ""
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            if (!advertiser.isLoggedIn) return@withContext Result.failure(IllegalStateException("Please log in as an advertiser first."))
+            val activeCards = selectedCards.filter { it.status.equals("ACTIVE", ignoreCase = true) }
+            if (activeCards.isEmpty()) {
+                return@withContext Result.failure(IllegalArgumentException("Select at least one active advertisement placement."))
+            }
+            val cleanDays = durationDays.coerceAtLeast(1)
+            if (!rateCardSettings.allowCustomDuration && cleanDays !in listOf(1, 7, 15, 30)) {
+                return@withContext Result.failure(IllegalArgumentException("Select 1, 7, 15, or 30 days duration."))
+            }
+            if (title.trim().length < 3) return@withContext Result.failure(IllegalArgumentException("Advertisement title is required"))
+            if (businessName.trim().length < 2) return@withContext Result.failure(IllegalArgumentException("Business name is required"))
+            if (!SponsorCampaignSelector.isValidImageSource(imageSource)) {
+                return@withContext Result.failure(IllegalArgumentException("Upload a valid PNG/JPEG/WebP image or HTTPS image URL"))
+            }
+            if (websiteUrl.isNotBlank() && !SponsorCampaignSelector.isValidWebsiteUrl(websiteUrl)) {
+                return@withContext Result.failure(IllegalArgumentException("Website / Social URL must start with https:// or http://"))
+            }
+            if (!SponsorCampaignSelector.isValidBangladeshMobile(senderMobile)) {
+                return@withContext Result.failure(IllegalArgumentException("Enter valid bKash/Nagad sender mobile number"))
+            }
+            val normTrx = SponsorCampaignSelector.normalizeTransactionId(transactionId)
+            if (normTrx.length < 5) {
+                return@withContext Result.failure(IllegalArgumentException("Enter a valid Transaction ID (TrxID)"))
+            }
+            if (screenshotSource.isNotBlank() && !SponsorCampaignSelector.isValidImageSource(screenshotSource)) {
+                return@withContext Result.failure(IllegalArgumentException("Payment screenshot must be a valid image"))
+            }
+
+            val quote = PlacementRateCardEngine.calculateBookingQuote(
+                selectedCards = activeCards,
+                adSizeKey = adSizeKey,
+                durationDays = cleanDays,
+                settings = rateCardSettings
+            )
+            if (amountPaidBdt < quote.totalBdt) {
+                return@withContext Result.failure(
+                    IllegalArgumentException("Paid amount (৳$amountPaidBdt) must be at least calculated total (৳${quote.totalBdt})")
+                )
+            }
+
+            // Duplicate TrxID Check
+            val existingPayments = getJsonObject("$BASE_URL/ad_payments.json")
+            if (existingPayments != null) {
+                val keys = existingPayments.keys()
+                while (keys.hasNext()) {
+                    val p = existingPayments.optJSONObject(keys.next()) ?: continue
+                    val pStatus = p.optString("status", "PENDING")
+                    if (pStatus.equals("REJECTED", true)) continue
+                    val existingNorm = SponsorCampaignSelector.normalizeTransactionId(
+                        p.optString("transactionIdNormalized", p.optString("transactionId", ""))
+                    )
+                    if (existingNorm.isNotEmpty() && existingNorm == normTrx) {
+                        return@withContext Result.failure(IllegalStateException("Duplicate Transaction ID ($transactionId) is already used!"))
+                    }
+                }
+            }
+
+            val spec = PlacementRateCardEngine.findSizeSpec(adSizeKey)
+            val widthPx = if (adSizeKey.equals("CUSTOM", true)) customWidthPx.coerceIn(120, 2000) else (spec?.widthPx ?: 300)
+            val heightPx = if (adSizeKey.equals("CUSTOM", true)) customHeightPx.coerceIn(40, 2000) else (spec?.heightPx ?: 200)
+            val placementIdsCsv = activeCards.joinToString(",") { it.placementId }
+            val moduleNamesCsv = activeCards.map { it.moduleName }.distinct().joinToString(",")
+            val summaryTitle = activeCards.joinToString(" + ") { it.placementNameEn } + " ($adSizeKey • ${cleanDays}d)"
+            val legacyPlacementType = when {
+                activeCards.any { it.placementId == PlacementRateCardEngine.OTH_POPUP } -> SponsorCampaignSelector.PLACEMENT_POPUP
+                activeCards.any { it.placementId == PlacementRateCardEngine.OTH_ABOUT } -> SponsorCampaignSelector.PLACEMENT_ABOUT_US
+                adSizeKey.equals("RESPONSIVE", true) -> SponsorCampaignSelector.PLACEMENT_NATIVE_CARD
+                adSizeKey.equals("320x100", true) -> SponsorCampaignSelector.PLACEMENT_BANNER_320x100
+                adSizeKey.equals("CUSTOM", true) -> SponsorCampaignSelector.PLACEMENT_BANNER_CUSTOM
+                else -> SponsorCampaignSelector.PLACEMENT_BANNER_300x200
+            }
+
+            val breakdownJsonObj = JSONObject().apply {
+                quote.breakdownMap.forEach { (pid, amt) -> put(pid, amt) }
+            }
+
+            val now = System.currentTimeMillis()
+            val adId = "sp_${UUID.randomUUID().toString().take(10)}"
+            val payId = "pay_${UUID.randomUUID().toString().take(10)}"
+            val isRenewal = renewalOfAdId.isNotBlank()
+
+            val adPayload = JSONObject().apply {
+                put("id", adId)
+                put("advertiserId", advertiser.id)
+                put("submittedBy", "ADVERTISER")
+                put("packageId", "placement_${placementIdsCsv.take(40)}")
+                put("packageName", summaryTitle)
+                put("placementIds", placementIdsCsv)
+                put("moduleNames", moduleNamesCsv)
+                put("adSizeKey", adSizeKey)
+                put("placementBreakdown", breakdownJsonObj)
+                put("subtotalBdt", quote.subtotalBdt)
+                put("bundleDiscountBdt", quote.discountBdt)
+                put("widthPx", widthPx)
+                put("heightPx", heightPx)
+                put("durationDays", cleanDays)
+                put("priceBdt", quote.totalBdt)
+                put("placementType", legacyPlacementType)
+                put("status", SponsorCampaignSelector.STATUS_PENDING_APPROVAL)
+                put("isActive", false)
+                put("name", businessName.trim())
+                put("sponsorName", businessName.trim())
+                put("promoTitle", title.trim())
+                put("title", title.trim())
+                put("description", description.trim())
+                put("logoUrl", logoSource.trim())
+                put("bannerImageUrl", imageSource.trim())
+                put("websiteUrl", websiteUrl.trim())
+                put("contactNumber", contactNumber.trim())
+                put("targetPages", "ALL")
+                put("displayPriority", 15)
+                put("displayFrequency", 1)
+                put("activatedAt", 0L)
+                put("expiryAt", 0L)
+                put("startDate", "")
+                put("endDate", "")
+                put("renewalOfAdId", renewalOfAdId.trim())
+                put("totalViews", 0)
+                put("uniqueViews", 0)
+                put("createdAt", now)
+                put("updatedAt", now)
+            }
+
+            val payPayload = JSONObject().apply {
+                put("id", payId)
+                put("adId", adId)
+                put("advertiserId", advertiser.id)
+                put("advertiserBusiness", advertiser.businessName)
+                put("packageId", "placement_booking")
+                put("packageName", summaryTitle)
+                put("placementIds", placementIdsCsv)
+                put("moduleNames", moduleNamesCsv)
+                put("adSizeKey", adSizeKey)
+                put("placementBreakdown", breakdownJsonObj)
+                put("subtotalBdt", quote.subtotalBdt)
+                put("bundleDiscountBdt", quote.discountBdt)
+                put("isRenewal", isRenewal)
+                put("renewalOfAdId", renewalOfAdId.trim())
+                put("paymentMethod", paymentMethod.uppercase())
+                put("senderMobile", senderMobile.trim())
+                put("transactionId", transactionId.trim())
+                put("transactionIdNormalized", normTrx)
+                put("amountBdt", amountPaidBdt)
+                put("screenshotUrl", screenshotSource.trim())
+                put("status", "PENDING")
+                put("adminNote", "")
+                put("verifiedBy", "")
+                put("verifiedAt", 0L)
+                put("createdAt", now)
+            }
+
+            val adSaved = putJson("$BASE_URL/sponsors/$adId.json", adPayload.toString())
+            val paySaved = putJson("$BASE_URL/ad_payments/$payId.json", payPayload.toString())
+            if (!adSaved || !paySaved) {
+                return@withContext Result.failure(IllegalStateException("Failed to submit booking. Check internet connection."))
+            }
+
+            Result.success(adId)
+        } catch (e: Exception) {
+            Log.w(TAG, "Submit placement booking error: ${e.message}")
             Result.failure(e)
         }
     }

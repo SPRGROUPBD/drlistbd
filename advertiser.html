@@ -47,13 +47,98 @@ let session = JSON.parse(sessionStorage.getItem("dlbd_adv_session") || "null");
 let authMode = "login"; // login | register
 let activeTab = "dashboard"; // dashboard | submit | payments
 let renewSourceAd = null;
+
+const AD_SIZE_FORMATS = [
+  { key: "320x50", label: "320×50", formatEn: "Small Banner", formatBn: "স্মল ব্যানার (৩২০×৫০)", w: 320, h: 50 },
+  { key: "320x100", label: "320×100", formatEn: "Large Banner", formatBn: "লার্জ ব্যানার (৩২০×১০০)", w: 320, h: 100 },
+  { key: "300x200", label: "300×200", formatEn: "Sponsor Card", formatBn: "স্পন্সর কার্ড (৩০০×২০০)", w: 300, h: 200 },
+  { key: "300x250", label: "300×250", formatEn: "Rectangle", formatBn: "রেকট্যাঙ্গেল (৩০০×২৫০)", w: 300, h: 250 },
+  { key: "336x280", label: "336×280", formatEn: "Large Rectangle", formatBn: "লার্জ রেকট্যাঙ্গেল (৩৩৬×২৮০)", w: 336, h: 280 },
+  { key: "300x300", label: "300×300", formatEn: "Square Sponsor", formatBn: "স্কয়ার স্পন্সর (৩০০×৩০০)", w: 300, h: 300 },
+  { key: "RESPONSIVE", label: "Responsive", formatEn: "Native Sponsor Card", formatBn: "নেটিভ স্পন্সর কার্ড", w: 320, h: 180 },
+  { key: "FULL_WIDTH", label: "Full Width", formatEn: "Section Banner", formatBn: "সেকশন ব্যানার (ফুল উইডথ)", w: 720, h: 180 },
+  { key: "CUSTOM", label: "Admin Defined", formatEn: "Custom Size", formatBn: "কাস্টম সাইজ", w: 300, h: 200 }
+];
+
+const MODULE_INFO = {
+  ALL: { bn: "সব মডিউল", en: "All Modules" },
+  HOME: { bn: "হোম স্ক্রিন (Home)", en: "A. Home Screen" },
+  DOCTOR: { bn: "ডাক্তার মডিউল (Doctor)", en: "B. Doctor Module" },
+  HOSPITAL: { bn: "হাসপাতাল মডিউল (Hospital)", en: "C. Hospital Module" },
+  DIAGNOSTIC: { bn: "ডায়াগনস্টিক মডিউল", en: "D. Diagnostic Module" },
+  SPECIALIST: { bn: "চিকিৎসা বিশেষজ্ঞ", en: "E. Specialist Module" },
+  CHAMBER: { bn: "চেম্বার সময়সূচি", en: "F. Chamber Module" },
+  OTHER: { bn: "অন্যান্য প্লেসমেন্ট", en: "G. Other Placements" }
+};
+
+function makeDefCard(id, nameEn, nameBn, moduleName, allowedSizesCsv, d1, d7, d15, d30, customDaily, maxActiveAds, sortOrder) {
+  return {
+    placementId: id, placementNameEn: nameEn, placementNameBn: nameBn, moduleName,
+    allowedSizesCsv, sizeRateOverridesJson: "{}", dailyRateBdt: d1, sevenDaysRateBdt: d7,
+    fifteenDaysRateBdt: d15, thirtyDaysRateBdt: d30, customDailyRateBdt: customDaily,
+    maxActiveAds, rotationMode: "WEIGHTED_ROTATION", cardInsertionFrequency: 5, status: "ACTIVE", sortOrder
+  };
+}
+
+const DEFAULT_PLACEMENT_CATALOG = [
+  makeDefCard("HOME-01", "Home Top Banner", "হোম টপ ব্যানার", "HOME", "320x50,320x100,FULL_WIDTH,RESPONSIVE", 50, 200, 320, 500, 25, 3, 1),
+  makeDefCard("HOME-02", "Between Home Sections", "Home Section-এর মাঝে", "HOME", "320x100,300x200,300x250,RESPONSIVE,FULL_WIDTH", 40, 170, 270, 420, 20, 3, 2),
+  makeDefCard("HOME-03", "Popular Doctor Section", "Popular Doctor Section", "HOME", "300x200,300x250,RESPONSIVE,FULL_WIDTH", 40, 160, 250, 400, 20, 3, 3),
+  makeDefCard("HOME-04", "Hospital Section", "Hospital Section", "HOME", "300x200,320x100,RESPONSIVE,FULL_WIDTH", 35, 140, 230, 360, 18, 3, 4),
+  makeDefCard("HOME-05", "Diagnostic Section", "Diagnostic Section", "HOME", "300x200,320x100,RESPONSIVE,FULL_WIDTH", 35, 140, 230, 360, 18, 3, 5),
+  makeDefCard("HOME-06", "Medical Specialist Section", "Medical Specialist Section", "HOME", "300x200,300x250,RESPONSIVE,FULL_WIDTH", 35, 140, 230, 360, 18, 3, 6),
+  makeDefCard("HOME-07", "Home Bottom Banner", "হোম বটম ব্যানার", "HOME", "320x50,320x100,FULL_WIDTH,RESPONSIVE", 40, 160, 250, 400, 20, 3, 7),
+  makeDefCard("DOC-01", "Between Doctor List", "Doctor List-এর মাঝে", "DOCTOR", "300x200,300x250,RESPONSIVE,320x100", 30, 120, 190, 300, 15, 4, 10),
+  makeDefCard("DOC-02", "Doctor Details Page", "Doctor Details Page", "DOCTOR", "300x200,300x250,336x280,RESPONSIVE,FULL_WIDTH", 45, 180, 290, 450, 22, 3, 11),
+  makeDefCard("DOC-03", "Between Doctor Search Results", "Doctor Search Results-এর মাঝে", "DOCTOR", "320x100,300x200,RESPONSIVE", 35, 140, 220, 350, 18, 3, 12),
+  makeDefCard("DOC-04", "Doctor Profile Bottom", "Doctor Profile Bottom", "DOCTOR", "320x50,320x100,300x200,FULL_WIDTH", 30, 120, 190, 300, 15, 3, 13),
+  makeDefCard("DOC-05", "Doctor Details Related Section", "Doctor Details Related Section", "DOCTOR", "300x200,300x300,RESPONSIVE", 30, 120, 190, 300, 15, 3, 14),
+  makeDefCard("HOS-01", "Between Hospital List", "Hospital List-এর মাঝে", "HOSPITAL", "300x200,320x100,RESPONSIVE,FULL_WIDTH", 30, 120, 190, 300, 15, 4, 20),
+  makeDefCard("HOS-02", "Hospital Details Page", "Hospital Details Page", "HOSPITAL", "300x200,300x250,RESPONSIVE,FULL_WIDTH", 35, 140, 230, 360, 18, 3, 21),
+  makeDefCard("HOS-03", "Between Hospital Search Results", "Hospital Search Results-এর মাঝে", "HOSPITAL", "320x100,300x200,RESPONSIVE", 30, 120, 190, 300, 15, 3, 22),
+  makeDefCard("HOS-04", "Hospital Details Bottom", "Hospital Details Bottom", "HOSPITAL", "320x50,320x100,FULL_WIDTH", 25, 100, 160, 260, 14, 3, 23),
+  makeDefCard("DIA-01", "Between Diagnostic List", "Diagnostic List-এর মাঝে", "DIAGNOSTIC", "300x200,320x100,RESPONSIVE,FULL_WIDTH", 30, 120, 190, 300, 15, 4, 30),
+  makeDefCard("DIA-02", "Diagnostic Details Page", "Diagnostic Details Page", "DIAGNOSTIC", "300x200,300x250,RESPONSIVE,FULL_WIDTH", 35, 140, 230, 360, 18, 3, 31),
+  makeDefCard("DIA-03", "Between Diagnostic Search Results", "Diagnostic Search Results-এর মাঝে", "DIAGNOSTIC", "320x100,300x200,RESPONSIVE", 30, 120, 190, 300, 15, 3, 32),
+  makeDefCard("DIA-04", "Diagnostic Details Bottom", "Diagnostic Details Bottom", "DIAGNOSTIC", "320x50,320x100,FULL_WIDTH", 25, 100, 160, 260, 14, 3, 33),
+  makeDefCard("SPE-01", "Between Specialist List", "Specialist List-এর মাঝে", "SPECIALIST", "300x200,320x100,RESPONSIVE", 30, 120, 190, 300, 15, 3, 40),
+  makeDefCard("SPE-02", "Specialist Details Page", "Specialist Details Page", "SPECIALIST", "300x200,300x250,RESPONSIVE,FULL_WIDTH", 35, 140, 220, 350, 18, 3, 41),
+  makeDefCard("SPE-03", "Between Specialist Search Results", "Specialist Search Results-এর মাঝে", "SPECIALIST", "320x100,300x200,RESPONSIVE", 30, 120, 190, 300, 15, 3, 42),
+  makeDefCard("CHA-01", "Between Chamber Schedule List", "Chamber Schedule List-এর মাঝে", "CHAMBER", "300x200,320x100,RESPONSIVE", 30, 120, 190, 300, 15, 3, 50),
+  makeDefCard("CHA-02", "Chamber Details Page", "Chamber Details Page", "CHAMBER", "300x200,300x250,RESPONSIVE,FULL_WIDTH", 35, 140, 220, 350, 18, 3, 51),
+  makeDefCard("CHA-03", "Doctor Schedule Details", "Doctor Schedule Details", "CHAMBER", "320x100,300x200,RESPONSIVE", 35, 140, 220, 350, 18, 3, 52),
+  makeDefCard("CHA-04", "Between Chamber Search Results", "Chamber Search Results-এর মাঝে", "CHAMBER", "320x100,300x200,RESPONSIVE", 30, 120, 190, 300, 15, 3, 53),
+  makeDefCard("OTH-SEARCH", "Search Result Page", "সার্চ রেজাল্ট পেজ", "OTHER", "320x50,320x100,300x200,RESPONSIVE,FULL_WIDTH", 35, 140, 230, 360, 18, 3, 60),
+  makeDefCard("OTH-CATEGORY", "Category Page", "ক্যাটাগরি পেজ", "OTHER", "300x200,320x100,RESPONSIVE,FULL_WIDTH", 30, 120, 190, 300, 15, 3, 61),
+  makeDefCard("OTH-DISTRICT", "District-wise Listing", "জেলাভিত্তিক তালিকা", "OTHER", "300x200,320x100,RESPONSIVE,FULL_WIDTH", 35, 140, 220, 350, 18, 3, 62),
+  makeDefCard("OTH-UPAZILA", "Upazila-wise Listing", "উপজেলাভিত্তিক তালিকা", "OTHER", "300x200,320x100,RESPONSIVE,FULL_WIDTH", 30, 120, 190, 300, 15, 3, 63),
+  makeDefCard("OTH-FEATURED", "Featured Section", "ফিচার্ড সেকশন", "OTHER", "300x200,300x250,336x280,300x300,RESPONSIVE,FULL_WIDTH", 50, 200, 320, 500, 25, 3, 64),
+  makeDefCard("OTH-ABOUT", "App About Us Page", "অ্যাপ About Us পেজ", "OTHER", "300x200,320x100,300x250,RESPONSIVE", 40, 160, 250, 400, 20, 3, 65),
+  makeDefCard("OTH-POPUP", "Popup Advertisement", "পপআপ বিজ্ঞাপন", "OTHER", "300x200,300x250,336x280,300x300,CUSTOM", 80, 350, 600, 1000, 55, 2, 66),
+  makeDefCard("OTH-FULLSCREEN", "Full Screen Advertisement", "ফুল-স্ক্রিন বিজ্ঞাপন", "OTHER", "300x250,336x280,300x300,FULL_WIDTH,CUSTOM", 100, 450, 800, 1400, 75, 2, 67),
+  makeDefCard("OTH-WEB", "Website Page Banner", "ওয়েবসাইট পেজ ব্যানার", "OTHER", "320x50,320x100,FULL_WIDTH,336x280,CUSTOM", 40, 160, 250, 400, 20, 3, 68),
+  makeDefCard("OTH-FUTURE", "Future Modules", "ভবিষ্যৎ মডিউলসমূহ", "OTHER", "320x50,320x100,300x200,300x250,336x280,300x300,RESPONSIVE,FULL_WIDTH,CUSTOM", 30, 120, 190, 300, 15, 3, 69)
+];
+
 let portalData = {
   packages: [],
+  rateCards: [...DEFAULT_PLACEMENT_CATALOG],
+  rateCardSettings: { bundleEnabled: true, discount2Pct: 5, discount3Pct: 10, discount4PlusPct: 15, allowCustomDuration: true },
+  activePlacementCounts: {},
   paymentSettings: { bkashNumber: "", bkashAccountType: "Personal", nagadNumber: "", nagadAccountType: "Personal", instructionsBn: "", instructionsEn: "" },
   myAds: [],
   myPayments: []
 };
+
 let draftForm = {
+  bookingMode: "PLACEMENT", // PLACEMENT | LEGACY
+  selectedModule: "ALL",
+  selectedPlacementIds: ["HOME-01"],
+  adSizeKey: "300x200",
+  customWidthPx: "300",
+  customHeightPx: "200",
+  durationPreset: 30, // 1 | 7 | 15 | 30 | -1
+  customDays: "10",
   packageId: "",
   title: "",
   businessName: "",
@@ -67,7 +152,7 @@ let draftForm = {
   paymentMethod: "BKASH",
   senderMobile: "",
   transactionId: "",
-  amountBdt: "",
+  amountBdt: "500",
   screenshotUrl: ""
 };
 
@@ -88,6 +173,96 @@ function toggleLang() {
   render();
 }
 
+function parseSizeOverridesObj(card) {
+  if (card?.sizeRateOverrides && typeof card.sizeRateOverrides === "object") return card.sizeRateOverrides;
+  try { return JSON.parse(card?.sizeRateOverridesJson || "{}") || {}; } catch (_) { return {}; }
+}
+
+function calculatePlacementRateJs(card, adSizeKey, durationDays) {
+  const days = Math.max(1, Number(durationDays || 30));
+  let baseRate = 0;
+  if (days === 1) baseRate = Number(card.dailyRateBdt || 0);
+  else if (days === 7) baseRate = Number(card.sevenDaysRateBdt || 0);
+  else if (days === 15) baseRate = Number(card.fifteenDaysRateBdt || 0);
+  else if (days === 30) baseRate = Number(card.thirtyDaysRateBdt || 0);
+  else {
+    baseRate = Number(card.customDailyRateBdt || 0) > 0
+      ? days * Number(card.customDailyRateBdt)
+      : Math.ceil((Number(card.thirtyDaysRateBdt || 0) / 30) * days);
+  }
+  const overrides = parseSizeOverridesObj(card);
+  const norm = String(adSizeKey || "").trim().toUpperCase();
+  const ov = Number(overrides[norm] || overrides[adSizeKey] || 0);
+  if (ov > 0) {
+    if (days === 30) return ov;
+    const t30 = Number(card.thirtyDaysRateBdt || 0);
+    return t30 > 0 ? Math.max(1, Math.round(baseRate * (ov / t30))) : Math.max(1, Math.ceil((ov / 30) * days));
+  }
+  return Math.max(0, baseRate);
+}
+
+function getEffectiveDays() {
+  if (Number(draftForm.durationPreset) > 0) return Number(draftForm.durationPreset);
+  return portalData.rateCardSettings.allowCustomDuration ? Math.max(1, parseInt(draftForm.customDays, 10) || 1) : 30;
+}
+
+function getSelectedRateCards() {
+  const sel = new Set((draftForm.selectedPlacementIds || []).map(s => String(s).toUpperCase()));
+  return portalData.rateCards.filter(c => sel.has(c.placementId.toUpperCase()) && String(c.status || "ACTIVE").toUpperCase() === "ACTIVE");
+}
+
+function getAllowedSizesForSelection(cards) {
+  if (!cards.length) return AD_SIZE_FORMATS;
+  const sets = cards.map(c => new Set(String(c.allowedSizesCsv || "").split(",").map(s => s.trim().toUpperCase()).filter(Boolean)));
+  let inter = new Set(sets[0]);
+  for (let i = 1; i < sets.length; i++) {
+    inter = new Set([...inter].filter(x => sets[i].has(x)));
+  }
+  const union = new Set();
+  sets.forEach(s => s.forEach(x => union.add(x)));
+  const finalSet = inter.size > 0 ? inter : union;
+  return AD_SIZE_FORMATS.filter(f => finalSet.has(f.key.toUpperCase()));
+}
+
+function calculateBookingQuote() {
+  const cards = getSelectedRateCards();
+  const days = getEffectiveDays();
+  const lines = cards.map(c => ({
+    placementId: c.placementId,
+    placementNameEn: c.placementNameEn,
+    placementNameBn: c.placementNameBn,
+    moduleName: c.moduleName,
+    priceBdt: calculatePlacementRateJs(c, draftForm.adSizeKey, days)
+  }));
+  const subtotalBdt = lines.reduce((s, l) => s + l.priceBdt, 0);
+  const cfg = portalData.rateCardSettings;
+  let discountPct = 0;
+  if (cfg.bundleEnabled && lines.length >= 2) {
+    if (lines.length === 2) discountPct = Number(cfg.discount2Pct || 0);
+    else if (lines.length === 3) discountPct = Number(cfg.discount3Pct || 0);
+    else discountPct = Number(cfg.discount4PlusPct || 0);
+  }
+  discountPct = Math.max(0, Math.min(80, discountPct));
+  const discountBdt = Math.floor((subtotalBdt * discountPct) / 100);
+  const totalBdt = Math.max(0, subtotalBdt - discountBdt);
+  const breakdownMap = {};
+  lines.forEach(l => {
+    breakdownMap[l.placementId] = (subtotalBdt > 0 && discountBdt > 0)
+      ? Math.round((l.priceBdt * totalBdt) / subtotalBdt)
+      : l.priceBdt;
+  });
+  return { lines, subtotalBdt, discountPct, discountBdt, totalBdt, breakdownMap };
+}
+
+function syncExpectedAmount() {
+  if (draftForm.bookingMode === "PLACEMENT") {
+    draftForm.amountBdt = String(calculateBookingQuote().totalBdt);
+  } else {
+    const pk = portalData.packages.find(p => p.id === draftForm.packageId);
+    if (pk) draftForm.amountBdt = String(pk.priceBdt);
+  }
+}
+
 // SHA-256(salt:password) — 100% identical to Android AdvertiserRemoteService
 async function sha256Hex(text) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -106,8 +281,7 @@ function normalizeMobile(raw) {
 }
 
 function isValidBdMobile(raw) {
-  const n = normalizeMobile(raw);
-  return /^01[3-9]\d{8}$/.test(n);
+  return /^01[3-9]\d{8}$/.test(normalizeMobile(raw));
 }
 
 function normalizeTrx(raw) {
@@ -131,9 +305,7 @@ function formatDate(ms) {
 
 function effectiveStatus(ad) {
   const raw = String(ad.status || "PENDING_APPROVAL").toUpperCase();
-  if (raw === "ACTIVE" && Number(ad.expiryAt || 0) > 0 && Date.now() > Number(ad.expiryAt)) {
-    return "EXPIRED";
-  }
+  if (raw === "ACTIVE" && Number(ad.expiryAt || 0) > 0 && Date.now() > Number(ad.expiryAt)) return "EXPIRED";
   return raw;
 }
 
@@ -172,18 +344,47 @@ async function loadPortalData() {
       .filter(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE")
       .sort((a, b) => Number(a.priceBdt || 0) - Number(b.priceBdt || 0));
 
+    // Merge rate cards
+    const cloudRc = root.placement_rate_cards || {};
+    const cloudById = {};
+    for (const [k, v] of Object.entries(cloudRc)) {
+      if (!v) continue;
+      const pid = String(v.placementId || k).toUpperCase();
+      cloudById[pid] = { ...v, placementId: v.placementId || k };
+    }
+    const mergedCards = DEFAULT_PLACEMENT_CATALOG.map(d => cloudById[d.placementId.toUpperCase()] || { ...d });
+    const known = new Set(mergedCards.map(c => c.placementId.toUpperCase()));
+    Object.values(cloudById).forEach(v => {
+      if (!known.has(String(v.placementId).toUpperCase())) mergedCards.push(v);
+    });
+    mergedCards.sort((a, b) => (Number(a.sortOrder || 99) - Number(b.sortOrder || 99)) || String(a.placementId).localeCompare(String(b.placementId)));
+    portalData.rateCards = mergedCards;
+
+    if (root.rate_card_settings) {
+      portalData.rateCardSettings = { ...portalData.rateCardSettings, ...root.rate_card_settings };
+    }
     if (root.payment_settings) {
       portalData.paymentSettings = { ...portalData.paymentSettings, ...root.payment_settings };
     }
 
+    // Active placement slot counts
+    const counts = {};
+    const allSponsorsRaw = Object.entries(root.sponsors || {}).map(([id, s]) => ({ id, ...s }));
+    allSponsorsRaw.forEach(sp => {
+      if (effectiveStatus(sp) !== "ACTIVE" || sp.isActive === false) return;
+      String(sp.placementIds || "").split(",").map(s => s.trim().toUpperCase()).filter(Boolean).forEach(pid => {
+        counts[pid] = (counts[pid] || 0) + 1;
+      });
+    });
+    portalData.activePlacementCounts = counts;
+
     const totals = root.ad_analytics?.totals || {};
-    portalData.myAds = Object.entries(root.sponsors || {})
-      .map(([id, s]) => ({
-        id,
+    portalData.myAds = allSponsorsRaw
+      .map(s => ({
         ...s,
-        totalViews: Number(totals[id]?.totalImpressions ?? s.totalViews ?? 0),
-        uniqueViews: Number(totals[id]?.uniqueViews ?? s.uniqueViews ?? 0),
-        clicks: Number(totals[id]?.clicks ?? 0)
+        totalViews: Number(totals[s.id]?.totalImpressions ?? s.totalViews ?? 0),
+        uniqueViews: Number(totals[s.id]?.uniqueViews ?? s.uniqueViews ?? 0),
+        clicks: Number(totals[s.id]?.clicks ?? 0)
       }))
       .filter(s => s.advertiserId === session.id)
       .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
@@ -196,10 +397,8 @@ async function loadPortalData() {
     if (!draftForm.businessName) draftForm.businessName = session.businessName || "";
     if (!draftForm.contactNumber) draftForm.contactNumber = session.mobile || "";
     if (!draftForm.senderMobile) draftForm.senderMobile = session.mobile || "";
-    if (!draftForm.packageId && portalData.packages.length > 0) {
-      draftForm.packageId = portalData.packages[0].id;
-      draftForm.amountBdt = String(portalData.packages[0].priceBdt);
-    }
+    if (!draftForm.packageId && portalData.packages.length > 0) draftForm.packageId = portalData.packages[0].id;
+    syncExpectedAmount();
     render();
   } catch (err) {
     toast("Sync error: " + err.message);
@@ -283,7 +482,41 @@ function logoutAdvertiser() {
   render();
 }
 
-// --- IMAGE UPLOAD VALIDATION (Format PNG/JPEG/WebP, <= 3MB, Dimension Check) ---
+// --- SELECTION INTERACTIONS ---
+function togglePlacementSelection(pid) {
+  const up = String(pid).toUpperCase();
+  const cur = (draftForm.selectedPlacementIds || []).map(s => String(s).toUpperCase());
+  if (cur.includes(up)) {
+    draftForm.selectedPlacementIds = cur.filter(x => x !== up);
+  } else {
+    draftForm.selectedPlacementIds = [...cur, up];
+  }
+  const allowed = getAllowedSizesForSelection(getSelectedRateCards());
+  if (allowed.length && !allowed.some(a => a.key.toUpperCase() === draftForm.adSizeKey.toUpperCase())) {
+    draftForm.adSizeKey = allowed[0].key;
+  }
+  syncExpectedAmount();
+  render();
+}
+
+function selectAdSize(sizeKey) {
+  draftForm.adSizeKey = sizeKey;
+  syncExpectedAmount();
+  render();
+}
+
+function selectDuration(daysPreset) {
+  draftForm.durationPreset = daysPreset;
+  syncExpectedAmount();
+  render();
+}
+
+function onSelectPackage(pkgId) {
+  draftForm.packageId = pkgId;
+  syncExpectedAmount();
+  render();
+}
+
 function handleUploadImage(event, fieldName) {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -329,8 +562,17 @@ function startRenewAd(adId) {
   const ad = portalData.myAds.find(a => a.id === adId);
   if (!ad) return;
   renewSourceAd = ad;
+  const pids = String(ad.placementIds || "").split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
   const matchingPkg = portalData.packages.find(p => p.id === ad.packageId) || portalData.packages[0];
   draftForm = {
+    bookingMode: (pids.length === 0 && matchingPkg) ? "LEGACY" : "PLACEMENT",
+    selectedModule: "ALL",
+    selectedPlacementIds: pids.length ? pids : ["HOME-01"],
+    adSizeKey: ad.adSizeKey || "300x200",
+    customWidthPx: String(ad.widthPx || 300),
+    customHeightPx: String(ad.heightPx || 200),
+    durationPreset: [1, 7, 15, 30].includes(Number(ad.durationDays)) ? Number(ad.durationDays) : -1,
+    customDays: String(ad.durationDays || 10),
     packageId: matchingPkg ? matchingPkg.id : "",
     title: ad.promoTitle || "",
     businessName: ad.name || session.businessName || "",
@@ -344,24 +586,16 @@ function startRenewAd(adId) {
     paymentMethod: "BKASH",
     senderMobile: session.mobile || "",
     transactionId: "",
-    amountBdt: matchingPkg ? String(matchingPkg.priceBdt) : "",
+    amountBdt: "0",
     screenshotUrl: ""
   };
+  syncExpectedAmount();
   activeTab = "submit";
-  render();
-}
-
-function onSelectPackage(pkgId) {
-  draftForm.packageId = pkgId;
-  const pk = portalData.packages.find(p => p.id === pkgId);
-  if (pk) draftForm.amountBdt = String(pk.priceBdt);
   render();
 }
 
 async function handleSubmitAdAndPayment(e) {
   e.preventDefault();
-  const pkg = portalData.packages.find(p => p.id === draftForm.packageId);
-  if (!pkg) return toast(t("একটি বিজ্ঞাপন প্যাকেজ নির্বাচন করুন", "Please select an advertising package."));
   if (!draftForm.title.trim() || draftForm.title.trim().length < 3) return toast(t("বিজ্ঞাপনের শিরোনাম দিন", "Advertisement title is required."));
   if (!isValidImageSrc(draftForm.bannerImageUrl)) return toast(t("বৈধ বিজ্ঞাপন ছবি আপলোড করুন অথবা HTTPS URL দিন", "Upload a valid ad image or enter an HTTPS image URL."));
   if (!isValidWebUrl(draftForm.websiteUrl)) return toast(t("ওয়েবসাইট URL https:// দিয়ে শুরু হতে হবে", "Website URL must start with https:// or http://"));
@@ -370,8 +604,47 @@ async function handleSubmitAdAndPayment(e) {
   const normTrx = normalizeTrx(draftForm.transactionId);
   if (normTrx.length < 5) return toast(t("সঠিক Transaction ID (TrxID) দিন", "Enter a valid Transaction ID (TrxID)."));
   const paid = parseInt(draftForm.amountBdt, 10) || 0;
-  if (paid < Number(pkg.priceBdt || 0)) {
-    return toast(t(`প্যাকেজ মূল্য কমপক্ষে ৳${pkg.priceBdt} হতে হবে`, `Paid amount must be at least ৳${pkg.priceBdt}.`));
+
+  let pkgId = "", pkgName = "", widthPx = 300, heightPx = 200, durationDays = 30, priceBdt = 0;
+  let placementType = "BANNER_300x200", targetPages = "ALL";
+  let placementIdsCsv = "", moduleNamesCsv = "", adSizeKey = "", placementBreakdown = {}, subtotalBdt = 0, bundleDiscountBdt = 0;
+
+  if (draftForm.bookingMode === "PLACEMENT") {
+    const cards = getSelectedRateCards();
+    if (!cards.length) return toast(t("অন্তত ১টি সক্রিয় প্লেসমেন্ট নির্বাচন করুন", "Select at least one active placement."));
+    durationDays = getEffectiveDays();
+    adSizeKey = draftForm.adSizeKey || "300x200";
+    const spec = AD_SIZE_FORMATS.find(f => f.key.toUpperCase() === adSizeKey.toUpperCase()) || AD_SIZE_FORMATS[2];
+    widthPx = adSizeKey === "CUSTOM" ? Math.max(120, parseInt(draftForm.customWidthPx, 10) || 300) : spec.w;
+    heightPx = adSizeKey === "CUSTOM" ? Math.max(40, parseInt(draftForm.customHeightPx, 10) || 200) : spec.h;
+
+    const quote = calculateBookingQuote();
+    priceBdt = quote.totalBdt;
+    subtotalBdt = quote.subtotalBdt;
+    bundleDiscountBdt = quote.discountBdt;
+    placementBreakdown = quote.breakdownMap;
+    if (paid < priceBdt) {
+      return toast(t(`মোট মূল্য কমপক্ষে ৳${priceBdt} হতে হবে`, `Paid amount must be at least calculated total ৳${priceBdt}.`));
+    }
+    placementIdsCsv = cards.map(c => c.placementId).join(",");
+    moduleNamesCsv = Array.from(new Set(cards.map(c => c.moduleName))).join(",");
+    pkgId = "placement_" + placementIdsCsv.slice(0, 40);
+    pkgName = cards.map(c => c.placementNameEn).join(" + ") + ` (${adSizeKey} • ${durationDays}d)`;
+    if (cards.some(c => c.placementId === "OTH-POPUP")) placementType = "POPUP_AD";
+    else if (cards.some(c => c.placementId === "OTH-ABOUT")) placementType = "ABOUT_US_SPONSOR";
+    else if (adSizeKey === "RESPONSIVE") placementType = "SPONSORED_NATIVE_CARD";
+    else if (adSizeKey === "320x100") placementType = "BANNER_320x100";
+    else if (adSizeKey === "CUSTOM") placementType = "BANNER_CUSTOM";
+  } else {
+    const pkg = portalData.packages.find(p => p.id === draftForm.packageId);
+    if (!pkg) return toast(t("একটি বিজ্ঞাপন প্যাকেজ নির্বাচন করুন", "Please select an advertising package."));
+    pkgId = pkg.id; pkgName = pkg.name; widthPx = pkg.widthPx; heightPx = pkg.heightPx;
+    durationDays = pkg.durationDays; priceBdt = Number(pkg.priceBdt || 0);
+    subtotalBdt = priceBdt; placementType = pkg.placementType;
+    targetPages = pkg.placementType === "ABOUT_US_SPONSOR" ? "about_us" : "ALL";
+    if (paid < priceBdt) {
+      return toast(t(`প্যাকেজ মূল্য কমপক্ষে ৳${priceBdt} হতে হবে`, `Paid amount must be at least ৳${priceBdt}.`));
+    }
   }
 
   // Strict Duplicate TrxID Check across RTDB
@@ -389,18 +662,24 @@ async function handleSubmitAdAndPayment(e) {
   const payId = uid("pay");
   const isRenewal = Boolean(renewSourceAd);
 
-  // Ad is created as PENDING_APPROVAL (NEVER active before Admin verifies payment)
+  // Ad ALWAYS starts PENDING_APPROVAL (NEVER active until Admin verifies payment)
   const adPayload = {
     id: adId,
     advertiserId: session.id,
     submittedBy: "ADVERTISER",
-    packageId: pkg.id,
-    packageName: pkg.name,
-    widthPx: pkg.widthPx,
-    heightPx: pkg.heightPx,
-    durationDays: pkg.durationDays,
-    priceBdt: pkg.priceBdt,
-    placementType: pkg.placementType,
+    packageId: pkgId,
+    packageName: pkgName,
+    placementIds: placementIdsCsv,
+    moduleNames: moduleNamesCsv,
+    adSizeKey,
+    placementBreakdown,
+    subtotalBdt,
+    bundleDiscountBdt,
+    widthPx,
+    heightPx,
+    durationDays,
+    priceBdt,
+    placementType,
     status: "PENDING_APPROVAL",
     isActive: false,
     name: draftForm.businessName.trim(),
@@ -412,7 +691,7 @@ async function handleSubmitAdAndPayment(e) {
     bannerImageUrl: draftForm.bannerImageUrl.trim(),
     websiteUrl: draftForm.websiteUrl.trim(),
     contactNumber: draftForm.contactNumber.trim(),
-    targetPages: pkg.placementType === "ABOUT_US_SPONSOR" ? "about_us" : "ALL",
+    targetPages,
     displayPriority: 15,
     displayFrequency: 1,
     activatedAt: 0,
@@ -430,8 +709,15 @@ async function handleSubmitAdAndPayment(e) {
     id: payId,
     adId,
     advertiserId: session.id,
-    packageId: pkg.id,
-    packageName: pkg.name,
+    advertiserBusiness: session.businessName || draftForm.businessName.trim(),
+    packageId: pkgId,
+    packageName: pkgName,
+    placementIds: placementIdsCsv,
+    moduleNames: moduleNamesCsv,
+    adSizeKey,
+    placementBreakdown,
+    subtotalBdt,
+    bundleDiscountBdt,
     isRenewal,
     paymentMethod: draftForm.paymentMethod,
     senderMobile: draftForm.senderMobile.trim(),
@@ -455,7 +741,7 @@ async function handleSubmitAdAndPayment(e) {
   draftForm.transactionId = "";
   draftForm.screenshotUrl = "";
   activeTab = "dashboard";
-  toast(t("বিজ্ঞাপন ও পেমেন্ট সফলভাবে জমা হয়েছে! অ্যাডমিন যাচাইয়ের পর এটি স্বয়ংক্রিয়ভাবে চালু হবে।", "Advertisement & payment submitted! It will automatically activate after Admin verification."));
+  toast(t("বিজ্ঞাপন ও পেমেন্ট সফলভাবে জমা হয়েছে! অ্যাডমিন যাচাইয়ের পর এটি স্বয়ংক্রিয়ভাবে চালু হবে।", "Booking & payment submitted! It will automatically activate after Admin verification."));
   await loadPortalData();
 }
 
@@ -472,7 +758,6 @@ function render() {
   }
 
   root.innerHTML = `
-    <!-- Advertiser Header Banner -->
     <div class="bg-gradient-to-r from-sky-800 via-sky-700 to-teal-700 text-white p-5 rounded-3xl shadow-sm mb-5 flex flex-wrap items-center justify-between gap-4">
       <div>
         <div class="text-xs text-sky-200 font-semibold">${t("স্বাগতম বিজ্ঞাপনদাতা", "Welcome Advertiser")}</div>
@@ -481,7 +766,7 @@ function render() {
       </div>
       <div class="flex flex-wrap gap-2">
         <button onclick="renewSourceAd=null;activeTab='dashboard';render()" class="px-4 py-2 rounded-xl text-xs font-bold ${activeTab==='dashboard' ? 'bg-white text-sky-900' : 'bg-white/15 text-white'}">${t("ড্যাশবোর্ড", "Dashboard")}</button>
-        <button onclick="activeTab='submit';render()" class="px-4 py-2 rounded-xl text-xs font-bold ${activeTab==='submit' ? 'bg-white text-sky-900' : 'bg-white/15 text-white'}">${renewSourceAd ? t("বিজ্ঞাপন রিনিউ", "Renew Ad") : t("+ নতুন বিজ্ঞাপন", "+ Submit Ad")}</button>
+        <button onclick="activeTab='submit';render()" class="px-4 py-2 rounded-xl text-xs font-bold ${activeTab==='submit' ? 'bg-white text-sky-900' : 'bg-white/15 text-white'}">${renewSourceAd ? t("বিজ্ঞাপন রিনিউ", "Renew Ad") : t("+ বিজ্ঞাপন বুকিং", "+ Book Placement Ad")}</button>
         <button onclick="activeTab='payments';render()" class="px-4 py-2 rounded-xl text-xs font-bold ${activeTab==='payments' ? 'bg-white text-sky-900' : 'bg-white/15 text-white'}">${t("পেমেন্ট ইতিহাস", "Payments")}</button>
         <button onclick="loadPortalData()" class="px-3 py-2 rounded-xl bg-teal-500/30 text-white text-xs font-bold">${t("রিফ্রেশ", "Refresh")}</button>
       </div>
@@ -548,24 +833,25 @@ function renderDashboardView() {
     <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
       <div class="flex items-center justify-between mb-4">
         <h3 class="font-bold text-base text-slate-900">${t("আপনার বিজ্ঞাপনসমূহ", "Your Advertisements")}</h3>
-        <button onclick="renewSourceAd=null;activeTab='submit';render()" class="px-4 py-2 rounded-xl bg-sky-600 text-white text-xs font-bold">${t("+ নতুন বিজ্ঞাপন দিন", "+ New Advertisement")}</button>
+        <button onclick="renewSourceAd=null;activeTab='submit';render()" class="px-4 py-2 rounded-xl bg-sky-600 text-white text-xs font-bold">${t("+ নতুন প্লেসমেন্ট বুকিং", "+ New Placement Booking")}</button>
       </div>
       ${ads.length === 0 ? `
         <div class="p-8 text-center rounded-2xl bg-slate-50 border border-dashed border-slate-300 text-sm text-slate-500">
-          ${t("এখনো কোনো বিজ্ঞাপন জমা দেওয়া হয়নি। উপরের বাটনে ক্লিক করে প্রথম বিজ্ঞাপন শুরু করুন।", "You have not submitted any advertisements yet. Click '+ New Advertisement' to get started.")}
+          ${t("এখনো কোনো বিজ্ঞাপন জমা দেওয়া হয়নি। উপরের বাটনে ক্লিক করে প্রথম বিজ্ঞাপন বুক করুন।", "You have not submitted any advertisements yet. Click above to book screen placements.")}
         </div>
       ` : `
         <div class="space-y-3">
           ${ads.map(ad => {
             const st = effectiveStatus(ad);
             const rem = remainingDays(ad);
+            const pids = String(ad.placementIds || "").split(",").map(s => s.trim()).filter(Boolean);
             return `
               <div class="p-4 rounded-2xl border border-slate-200 bg-slate-50/70 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div class="flex items-start gap-3">
                   <div class="w-20 h-14 rounded-xl bg-sky-100 overflow-hidden flex-shrink-0 border border-slate-200">
                     ${isValidImageSrc(ad.bannerImageUrl) ? `<img src="${esc(ad.bannerImageUrl)}" class="w-full h-full object-cover" alt="" />` : ""}
                   </div>
-                  <div class="space-y-0.5">
+                  <div class="space-y-1">
                     <div class="flex flex-wrap items-center gap-2">
                       <strong class="text-sm text-slate-900">${esc(ad.promoTitle || ad.name)}</strong>
                       ${badge(st)}
@@ -573,6 +859,12 @@ function renderDashboardView() {
                     <div class="text-xs text-slate-600">
                       ${esc(ad.packageName || ad.placementType)} (${ad.widthPx}×${ad.heightPx}px &bull; ${ad.durationDays} ${t("দিন", "Days")} &bull; &#2547;${Number(ad.priceBdt || 0).toLocaleString()})
                     </div>
+                    ${pids.length ? `
+                      <div class="flex flex-wrap gap-1">
+                        ${pids.map(pid => `<span class="px-2 py-0.5 rounded bg-sky-100 text-sky-900 font-bold text-[10px]">${esc(pid)}</span>`).join("")}
+                        ${ad.adSizeKey ? `<span class="px-2 py-0.5 rounded bg-teal-100 text-teal-900 font-bold text-[10px]">${esc(ad.adSizeKey)}</span>` : ""}
+                      </div>
+                    ` : ""}
                     <div class="text-[11px] text-slate-500">
                       ${t("শুরু", "Start")}: ${formatDate(ad.activatedAt)} &bull; ${t("মেয়াদ শেষ", "Expiry")}: ${formatDate(ad.expiryAt)}
                       ${st === "ACTIVE" ? ` &bull; <strong class="text-emerald-700">${rem} ${t("দিন বাকি", "day(s) left")}</strong>` : ""}
@@ -598,29 +890,150 @@ function renderDashboardView() {
 
 function renderSubmitView() {
   const ps = portalData.paymentSettings;
-  const selPkg = portalData.packages.find(p => p.id === draftForm.packageId) || null;
-  const dimWarning = selPkg && draftForm.imgWidth > 0 && (Math.abs(draftForm.imgWidth - selPkg.widthPx) > selPkg.widthPx * 0.5 || Math.abs(draftForm.imgHeight - selPkg.heightPx) > selPkg.heightPx * 0.5);
+  const selectedCards = getSelectedRateCards();
+  const allowedSizes = getAllowedSizesForSelection(selectedCards);
+  const days = getEffectiveDays();
+  const quote = calculateBookingQuote();
+  const modules = ["ALL", ...Array.from(new Set(portalData.rateCards.map(c => String(c.moduleName || "OTHER").toUpperCase())))];
+  const visibleCards = draftForm.selectedModule === "ALL"
+    ? portalData.rateCards
+    : portalData.rateCards.filter(c => String(c.moduleName || "").toUpperCase() === draftForm.selectedModule);
 
   return `
     ${renewSourceAd ? `
       <div class="mb-4 p-4 rounded-2xl bg-purple-50 border border-purple-200 flex items-center justify-between gap-3 text-xs text-purple-900">
-        <div><strong>${t("রিনিউ মোড", "Renewing Expired Ad")}:</strong> ${esc(renewSourceAd.promoTitle)} (${t("পূর্বের ভিউ ইতিহাস সংরক্ষিত থাকবে", "Prior view history will remain preserved")})</div>
+        <div><strong>${t("রিনিউ মোড", "Renewing Expired Ad")}:</strong> ${esc(renewSourceAd.promoTitle)} (${t("পূর্বের ভিউ ইতিহাস সংরক্ষিত থাকবে", "Prior view history preserved")})</div>
         <button onclick="renewSourceAd=null;render()" class="font-bold underline">${t("বাতিল", "Cancel")}</button>
       </div>
     ` : ""}
 
-    <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
-      <form onsubmit="handleSubmitAdAndPayment(event)" class="xl:col-span-7 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-        <h3 class="font-bold text-lg text-sky-900">${renewSourceAd ? t("মেয়াদোত্তীর্ণ বিজ্ঞাপন রিনিউ করুন", "Renew Advertisement") : t("নতুন বিজ্ঞাপন ও ম্যানুয়াল পেমেন্ট", "Submit New Advertisement & Payment")}</h3>
+    ${portalData.packages.length > 0 ? `
+      <div class="flex gap-2 mb-4">
+        <button type="button" onclick="draftForm.bookingMode='PLACEMENT';syncExpectedAmount();render()" class="px-4 py-2 rounded-xl text-xs font-bold border ${draftForm.bookingMode==='PLACEMENT' ? 'bg-sky-700 text-white border-sky-700' : 'bg-white text-slate-700 border-slate-200'}">
+          ${t("স্ক্রিন প্লেসমেন্ট ও রেট কার্ড বুকিং (প্রস্তাবিত)", "Screen Placement & Rate Card Booking")}
+        </button>
+        <button type="button" onclick="draftForm.bookingMode='LEGACY';syncExpectedAmount();render()" class="px-4 py-2 rounded-xl text-xs font-bold border ${draftForm.bookingMode==='LEGACY' ? 'bg-sky-700 text-white border-sky-700' : 'bg-white text-slate-700 border-slate-200'}">
+          ${t("রেডি প্যাকেজ বুকিং", "Legacy Fixed Packages")}
+        </button>
+      </div>
+    ` : ""}
 
-        <!-- 1. Dynamic Package Selector -->
-        <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1.5">${t("১. বিজ্ঞাপন প্যাকেজ নির্বাচন করুন *", "1. Select Advertising Package *")}</label>
-          ${portalData.packages.length === 0 ? `
-            <div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
-              ${t("এখনো কোনো প্যাকেজ চালু নেই। অ্যাডমিনের সাথে যোগাযোগ করুন।", "No active packages available yet. Please contact Admin.")}
+    <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+      <form onsubmit="handleSubmitAdAndPayment(event)" class="xl:col-span-7 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+        <h3 class="font-bold text-lg text-sky-900">${renewSourceAd ? t("মেয়াদোত্তীর্ণ বিজ্ঞাপন রিনিউ করুন", "Renew Advertisement") : t("বিজ্ঞাপন বুকিং ফর্ম (৯ ধাপ)", "Placement Advertisement Booking")}</h3>
+
+        ${draftForm.bookingMode === "PLACEMENT" ? `
+          <!-- STEP 1: Module Filter -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-2">${t("১. মডিউল নির্বাচন করুন", "1. Select Module")}</label>
+            <div class="flex flex-wrap gap-1.5">
+              ${modules.map(m => {
+                const lbl = MODULE_INFO[m] ? t(MODULE_INFO[m].bn, MODULE_INFO[m].en) : m;
+                return `<button type="button" onclick="draftForm.selectedModule='${esc(m)}';render()" class="px-3 py-1.5 rounded-xl text-xs font-bold border ${draftForm.selectedModule===m ? 'bg-sky-600 text-white border-sky-600' : 'bg-slate-50 text-slate-700 border-slate-200'}">${esc(lbl)}</button>`;
+              }).join("")}
             </div>
-          ` : `
+          </div>
+
+          <!-- STEP 2: Multi-Placement Checkboxes -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-2">${t("২. বিজ্ঞাপনের স্থান (Placement) নির্বাচন করুন (একাধিক দেওয়া যাবে) *", "2. Select Screen Placement(s) — Multiple Allowed *")}</label>
+            <div class="max-h-72 overflow-y-auto space-y-2 pr-1">
+              ${visibleCards.map(c => {
+                const activeCard = String(c.status || "ACTIVE").toUpperCase() === "ACTIVE";
+                const picked = draftForm.selectedPlacementIds.map(s => s.toUpperCase()).includes(c.placementId.toUpperCase());
+                const used = Number(portalData.activePlacementCounts[c.placementId.toUpperCase()] || 0);
+                const maxS = Math.max(1, Number(c.maxActiveAds || 3));
+                const free = Math.max(0, maxS - used);
+                const rate = calculatePlacementRateJs(c, draftForm.adSizeKey, days);
+                return `
+                  <label class="flex items-center justify-between gap-3 p-3 rounded-xl border-2 cursor-pointer transition ${!activeCard ? 'opacity-50 bg-slate-100 border-slate-200 cursor-not-allowed' : picked ? 'border-sky-600 bg-sky-50/70' : 'border-slate-200 bg-white'}">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                      <input type="checkbox" ${picked ? "checked" : ""} ${!activeCard ? "disabled" : ""} onchange="togglePlacementSelection('${esc(c.placementId)}')" class="w-4 h-4 accent-sky-600" />
+                      <div class="min-w-0">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                          <span class="px-1.5 py-0.5 rounded bg-sky-900 text-white text-[10px] font-bold">${esc(c.placementId)}</span>
+                          <span class="font-bold text-xs text-slate-900">${esc(t(c.placementNameBn, c.placementNameEn))}</span>
+                        </div>
+                        <div class="text-[11px] text-slate-500 mt-0.5">
+                          ${activeCard ? `${esc(c.moduleName)} &bull; Slots: ${used}/${maxS} (${free} ${t("খালি", "free")})` : t("নিষ্ক্রিয় (Inactive)", "Inactive")}
+                        </div>
+                      </div>
+                    </div>
+                    <div class="text-sm font-extrabold text-teal-700 whitespace-nowrap">&#2547;${rate}</div>
+                  </label>
+                `;
+              }).join("")}
+            </div>
+          </div>
+
+          <!-- STEP 3: Allowed Ad Size -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-2">${t("৩. অনুমোদিত বিজ্ঞাপনের সাইজ নির্বাচন করুন *", "3. Select Allowed Advertisement Size *")}</label>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              ${allowedSizes.map(sz => {
+                const picked = draftForm.adSizeKey.toUpperCase() === sz.key.toUpperCase();
+                return `
+                  <button type="button" onclick="selectAdSize('${esc(sz.key)}')" class="p-2.5 rounded-xl border-2 text-left transition ${picked ? 'border-teal-600 bg-teal-50/70' : 'border-slate-200 bg-white'}">
+                    <div class="font-bold text-xs text-slate-900">${esc(sz.label)}</div>
+                    <div class="text-[11px] text-slate-500">${esc(t(sz.formatBn, sz.formatEn))}</div>
+                  </button>
+                `;
+              }).join("")}
+            </div>
+            ${draftForm.adSizeKey === "CUSTOM" ? `
+              <div class="grid grid-cols-2 gap-3 mt-2.5">
+                <div><label class="block text-[11px] font-semibold text-slate-600 mb-1">Custom Width (px)</label><input type="number" min="120" max="2000" value="${esc(draftForm.customWidthPx)}" oninput="draftForm.customWidthPx=this.value;refreshPortalPreview()" class="input text-xs" /></div>
+                <div><label class="block text-[11px] font-semibold text-slate-600 mb-1">Custom Height (px)</label><input type="number" min="40" max="2000" value="${esc(draftForm.customHeightPx)}" oninput="draftForm.customHeightPx=this.value;refreshPortalPreview()" class="input text-xs" /></div>
+              </div>
+            ` : ""}
+          </div>
+
+          <!-- STEP 4: Duration -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-2">${t("৪. বিজ্ঞাপনের মেয়াদ নির্বাচন করুন *", "4. Select Duration *")}</label>
+            <div class="flex flex-wrap gap-2">
+              ${[[1, t("১ দিন","1 Day")], [7, t("৭ দিন","7 Days")], [15, t("১৫ দিন","15 Days")], [30, t("৩০ দিন","30 Days")]].map(([d, lbl]) => `
+                <button type="button" onclick="selectDuration(${d})" class="px-3.5 py-2 rounded-xl text-xs font-bold border ${Number(draftForm.durationPreset)===d ? 'bg-sky-600 text-white border-sky-600' : 'bg-slate-50 text-slate-700 border-slate-200'}">${lbl}</button>
+              `).join("")}
+              ${portalData.rateCardSettings.allowCustomDuration ? `
+                <button type="button" onclick="selectDuration(-1)" class="px-3.5 py-2 rounded-xl text-xs font-bold border ${Number(draftForm.durationPreset)===-1 ? 'bg-sky-600 text-white border-sky-600' : 'bg-slate-50 text-slate-700 border-slate-200'}">${t("কাস্টম দিন", "Custom Days")}</button>
+              ` : ""}
+            </div>
+            ${Number(draftForm.durationPreset) === -1 && portalData.rateCardSettings.allowCustomDuration ? `
+              <div class="mt-2">
+                <input type="number" min="1" max="3650" value="${esc(draftForm.customDays)}" oninput="draftForm.customDays=this.value;syncExpectedAmount();render()" placeholder="${t("মোট দিন লিখুন", "Enter number of days")}" class="input text-xs w-48" />
+              </div>
+            ` : ""}
+          </div>
+
+          <!-- STEP 5: Live Auto Price Calculation -->
+          <div class="p-4 rounded-2xl bg-gradient-to-br from-sky-50 to-teal-50 border border-teal-200 space-y-2">
+            <div class="text-xs font-bold text-sky-900">${t(`৫. স্বয়ংক্রিয় মূল্য হিসাব (${days} দিন • ${draftForm.adSizeKey})`, `5. Automatic Price Calculation (${days}d • ${draftForm.adSizeKey})`)}</div>
+            ${quote.lines.length === 0 ? `<div class="text-xs text-amber-800">${t("অন্তত ১টি প্লেসমেন্ট নির্বাচন করুন।", "Select at least one placement above.")}</div>` : `
+              <div class="space-y-1 text-xs">
+                ${quote.lines.map(l => `
+                  <div class="flex justify-between">
+                    <span>${esc(t(l.placementNameBn, l.placementNameEn))} (<code class="font-bold">${esc(l.placementId)}</code>)</span>
+                    <strong>&#2547;${l.priceBdt.toLocaleString()}</strong>
+                  </div>
+                `).join("")}
+              </div>
+              <div class="border-t border-teal-200 pt-2 space-y-1 text-xs">
+                ${quote.discountBdt > 0 ? `
+                  <div class="flex justify-between text-slate-600"><span>${t("উপমূল্য", "Subtotal")}</span><span>&#2547;${quote.subtotalBdt.toLocaleString()}</span></div>
+                  <div class="flex justify-between text-emerald-700 font-bold"><span>${t(`মাল্টি-প্লেসমেন্ট ছাড় (${quote.discountPct}%)`, `Multi-Placement Bundle Discount (${quote.discountPct}%)`)}</span><span>-&#2547;${quote.discountBdt.toLocaleString()}</span></div>
+                ` : ""}
+                <div class="flex justify-between text-base font-extrabold text-teal-900">
+                  <span>${t("মোট প্রদেয় মূল্য", "Total Payable Amount")}</span>
+                  <span>&#2547;${quote.totalBdt.toLocaleString()}</span>
+                </div>
+              </div>
+            `}
+          </div>
+        ` : `
+          <!-- LEGACY PACKAGES -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1.5">${t("১. বিজ্ঞাপন প্যাকেজ নির্বাচন করুন *", "1. Select Advertising Package *")}</label>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               ${portalData.packages.map(pk => `
                 <label class="p-3.5 rounded-xl border-2 cursor-pointer transition ${draftForm.packageId === pk.id ? "border-sky-600 bg-sky-50/70" : "border-slate-200 bg-white"}">
@@ -631,32 +1044,22 @@ function renderSubmitView() {
                 </label>
               `).join("")}
             </div>
-          `}
-        </div>
+          </div>
+        `}
 
-        <!-- 2. Advertisement Content -->
-        <div class="space-y-3 pt-2 border-t border-slate-100">
-          <div class="text-xs font-bold text-slate-700">${t("২. বিজ্ঞাপনের তথ্য ও ছবি", "2. Advertisement Content & Image")}</div>
+        <!-- STEP 6 & 7: Organization, Creative Image & URL -->
+        <div class="space-y-3 pt-3 border-t border-slate-100">
+          <div class="text-xs font-bold text-slate-700">${t("৬ ও ৭. প্রতিষ্ঠানের তথ্য, বিজ্ঞাপনের ছবি ও URL", "6 & 7. Organization Info, Ad Image & URL")}</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t("প্রতিষ্ঠান / ব্যবসার নাম *", "Organization / Business Name *")}</label><input required value="${esc(draftForm.businessName)}" oninput="draftForm.businessName=this.value;refreshPortalPreview()" class="input" /></div>
+            <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t("বিজ্ঞাপনের শিরোনাম *", "Advertisement Title *")}</label><input required value="${esc(draftForm.title)}" oninput="draftForm.title=this.value;refreshPortalPreview()" class="input" /></div>
+          </div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t("বিবরণ", "Advertisement Description")}</label><textarea rows="2" oninput="draftForm.description=this.value;refreshPortalPreview()" class="input">${esc(draftForm.description)}</textarea></div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-semibold text-slate-600 mb-1">${t("বিজ্ঞাপনের শিরোনাম *", "Advertisement Title *")}</label>
-              <input required value="${esc(draftForm.title)}" oninput="draftForm.title=this.value;refreshPortalPreview()" class="input" />
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-slate-600 mb-1">${t("প্রতিষ্ঠান / ব্যবসার নাম *", "Business Name *")}</label>
-              <input required value="${esc(draftForm.businessName)}" oninput="draftForm.businessName=this.value;refreshPortalPreview()" class="input" />
-            </div>
-          </div>
-          <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1">${t("বিবরণ", "Advertisement Description")}</label>
-            <textarea rows="2" oninput="draftForm.description=this.value;refreshPortalPreview()" class="input">${esc(draftForm.description)}</textarea>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-semibold text-slate-600 mb-1">${t("বিজ্ঞাপনের ছবি আপলোড (PNG/JPG/WebP, <3MB) *", "Upload Ad Image (PNG/JPG/WebP, <3MB) *")}</label>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">${t("বিজ্ঞাপনের ছবি আপলোড (PNG/JPG/WebP) *", "Upload Ad Image *")}</label>
               <input type="file" accept="image/png,image/jpeg,image/webp" onchange="handleUploadImage(event, 'bannerImageUrl')" class="text-xs w-full mb-1.5" />
               <input value="${esc(draftForm.bannerImageUrl.startsWith('data:') ? '' : draftForm.bannerImageUrl)}" oninput="draftForm.bannerImageUrl=this.value;refreshPortalPreview()" placeholder="Or paste https://... image URL" class="input text-xs" />
-              ${draftForm.imgWidth > 0 ? `<div class="text-[11px] mt-1 ${dimWarning ? 'text-amber-700 font-bold' : 'text-teal-700 font-semibold'}">Uploaded: ${draftForm.imgWidth}×${draftForm.imgHeight}px${dimWarning ? ` (Recommended: ${selPkg.widthPx}×${selPkg.heightPx}px)` : ""}</div>` : ""}
             </div>
             <div>
               <label class="block text-xs font-semibold text-slate-600 mb-1">${t("লোগো (ঐচ্ছিক)", "Logo (Optional)")}</label>
@@ -670,13 +1073,13 @@ function renderSubmitView() {
           </div>
         </div>
 
-        <!-- 3. Manual bKash & Nagad Payment -->
+        <!-- STEP 8 & 9: Payment & Submit -->
         <div class="space-y-3 pt-3 border-t border-slate-100">
-          <div class="text-xs font-bold text-slate-700">${t("৩. ম্যানুয়াল বিকাশ / নগদ পেমেন্ট", "3. Manual bKash / Nagad Payment")}</div>
+          <div class="text-xs font-bold text-slate-700">${t("৮ ও ৯. পেমেন্ট তথ্য জমা ও বুকিং সাবমিট", "8 & 9. Payment Info & Booking Submit")}</div>
           <div class="p-4 rounded-2xl bg-sky-50 border border-sky-200 text-xs space-y-1.5">
             <div><strong class="text-pink-700">bKash (${esc(ps.bkashAccountType)}):</strong> ${esc(ps.bkashNumber || "Contact Admin")}</div>
             <div><strong class="text-orange-700">Nagad (${esc(ps.nagadAccountType)}):</strong> ${esc(ps.nagadNumber || "Contact Admin")}</div>
-            <div class="text-slate-600 pt-1">${esc(lang === "bn" ? (ps.instructionsBn || ps.instructionsEn || "প্যাকেজের নির্ধারিত টাকা পাঠিয়ে নিচে TrxID জমা দিন। অ্যাডমিন যাচাইয়ের পর বিজ্ঞাপন চালু হবে।") : (ps.instructionsEn || ps.instructionsBn || "Send package price via bKash or Nagad and submit your Transaction ID below. Your ad starts only after Admin approval."))}</div>
+            <div class="text-slate-600 pt-1">${esc(lang === "bn" ? (ps.instructionsBn || ps.instructionsEn || "নির্ধারিত মোট টাকা পাঠিয়ে নিচে TrxID জমা দিন। অ্যাডমিন যাচাইয়ের পর বিজ্ঞাপন চালু হবে।") : (ps.instructionsEn || ps.instructionsBn || "Send calculated total via bKash or Nagad and submit TrxID below."))}</div>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
@@ -694,14 +1097,8 @@ function renderSubmitView() {
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-semibold text-slate-600 mb-1">${t("প্রেরকের মোবাইল নম্বর *", "Sender Mobile Number *")}</label>
-              <input required value="${esc(draftForm.senderMobile)}" oninput="draftForm.senderMobile=this.value" placeholder="01XXXXXXXXX" class="input" />
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-slate-600 mb-1">${t("ট্রানজেকশন আইডি (TrxID) *", "Transaction ID (TrxID) *")}</label>
-              <input required value="${esc(draftForm.transactionId)}" oninput="draftForm.transactionId=this.value" placeholder="e.g. BKS8X92KLQ" class="input uppercase" />
-            </div>
+            <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t("প্রেরকের মোবাইল নম্বর *", "Sender Mobile Number *")}</label><input required value="${esc(draftForm.senderMobile)}" oninput="draftForm.senderMobile=this.value" placeholder="01XXXXXXXXX" class="input" /></div>
+            <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t("ট্রানজেকশন আইডি (TrxID) *", "Transaction ID (TrxID) *")}</label><input required value="${esc(draftForm.transactionId)}" oninput="draftForm.transactionId=this.value" placeholder="e.g. BKS8X92KLQ" class="input uppercase" /></div>
           </div>
 
           <div>
@@ -712,14 +1109,14 @@ function renderSubmitView() {
         </div>
 
         <button type="submit" class="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-sm">
-          ${t("বিজ্ঞাপন ও পেমেন্ট জমা দিন", "Submit Advertisement for Verification")}
+          ${t(`বুকিং রিকোয়েস্ট জমা দিন (৳${draftForm.amountBdt || 0})`, `Submit Booking Request (৳${draftForm.amountBdt || 0})`)}
         </button>
       </form>
 
-      <!-- Live Sponsored Preview -->
+      <!-- Visual Screen Placement Preview BEFORE Booking -->
       <div class="xl:col-span-5 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-fit sticky top-20">
-        <h4 class="font-bold text-slate-900 mb-1">${t("লাইভ বিজ্ঞাপন প্রিভিউ", "Live Sponsored Preview")}</h4>
-        <p class="text-xs text-slate-500 mb-4">${t("অ্যাপে আপনার বিজ্ঞাপনটি যেভাবে দেখাবে (অনলাইন ও অফলাইন):", "How your advertisement will appear in Doctor List BD:")}</p>
+        <h4 class="font-bold text-slate-900 mb-1">${t("বুকিংয়ের পূর্বে প্লেসমেন্ট প্রিভিউ", "Visual Placement Preview Before Booking")}</h4>
+        <p class="text-xs text-slate-500 mb-4">${t("অ্যাপের স্ক্রিনে নির্বাচিত স্থানে ও সাইজে আপনার বিজ্ঞাপনটি যেভাবে দেখাবে:", "Exact screen position & size mockup in Doctor List BD:")}</p>
         <div id="portalPreviewBox" class="p-4 rounded-2xl bg-slate-100 border border-dashed border-slate-300">
           ${buildPreviewHtml()}
         </div>
@@ -733,21 +1130,43 @@ function buildPreviewHtml() {
   const biz = esc(draftForm.businessName || session?.businessName || "Business Name");
   const desc = esc(draftForm.description || t("বিজ্ঞাপনের সংক্ষিপ্ত বিবরণ এখানে দেখানো হবে।", "Your promotional message will appear here."));
   const hasImg = isValidImageSrc(draftForm.bannerImageUrl);
+  const cards = getSelectedRateCards();
+  const primary = cards[0];
+  const pid = primary ? primary.placementId : "HOME-01";
+  const spec = AD_SIZE_FORMATS.find(f => f.key.toUpperCase() === draftForm.adSizeKey.toUpperCase()) || AD_SIZE_FORMATS[2];
+  const wPx = draftForm.adSizeKey === "CUSTOM" ? (draftForm.customWidthPx || 300) : spec.w;
+  const hPx = draftForm.adSizeKey === "CUSTOM" ? (draftForm.customHeightPx || 200) : spec.h;
+  const isTop = pid.endsWith("-01") || pid === "HOME-01";
+  const isBottom = pid === "HOME-07" || pid.endsWith("-04");
+
   return `
-    <div class="bg-white rounded-2xl border-2 border-teal-200 overflow-hidden shadow-sm">
-      <div class="p-3 bg-teal-50/50 flex items-center justify-between">
-        <div>
-          <div class="text-xs font-bold text-slate-900">${biz}</div>
-          <div class="text-[11px] font-semibold text-sky-800">${title}</div>
-        </div>
-        <span class="px-2 py-0.5 rounded bg-teal-600 text-white text-[10px] font-bold">${t("স্পন্সরড", "Sponsored")}</span>
+    <div class="space-y-3">
+      <div class="flex items-center justify-between text-[11px] bg-white px-3 py-2 rounded-xl border border-slate-200">
+        <span class="font-bold text-sky-900">${esc(pid)} &bull; ${esc(primary ? t(primary.placementNameBn, primary.placementNameEn) : "Placement")}</span>
+        <span class="px-2 py-0.5 rounded bg-teal-100 text-teal-800 font-bold">${esc(wPx)}&times;${esc(hPx)}px</span>
       </div>
-      ${hasImg ? `<img src="${esc(draftForm.bannerImageUrl)}" class="w-full h-40 object-cover" alt="" />` : `<div class="h-32 bg-slate-200 flex items-center justify-center text-xs text-slate-500">${t("বিজ্ঞাপনের ছবি প্রিভিউ", "Ad Image Preview")}</div>`}
-      <div class="p-3 space-y-2">
-        <p class="text-xs text-slate-600">${desc}</p>
-        <div class="flex gap-2">
-          <div class="flex-1 py-1.5 rounded-lg bg-sky-600 text-white text-center text-xs font-bold">${t("ভিজিট করুন", "Visit Sponsor")}</div>
-          ${draftForm.contactNumber ? `<div class="px-3 py-1.5 rounded-lg border border-teal-600 text-teal-700 text-xs font-bold">${t("কল", "Call")}</div>` : ""}
+      <div class="flex gap-3 items-start">
+        <div class="w-12 h-24 bg-white rounded-xl border border-slate-200 p-1.5 flex flex-col justify-between flex-shrink-0">
+          <div class="h-3 rounded ${isTop ? 'bg-teal-500' : 'bg-slate-200'}"></div>
+          <div class="h-7 rounded ${(!isTop && !isBottom) ? 'bg-teal-500' : 'bg-slate-200'}"></div>
+          <div class="h-3 rounded ${isBottom ? 'bg-teal-500' : 'bg-slate-200'}"></div>
+        </div>
+        <div class="flex-1 bg-white rounded-2xl border-2 border-teal-200 overflow-hidden shadow-sm">
+          <div class="p-2.5 bg-teal-50/50 flex items-center justify-between">
+            <div>
+              <div class="text-xs font-bold text-slate-900">${biz}</div>
+              <div class="text-[11px] font-semibold text-sky-800">${title}</div>
+            </div>
+            <span class="px-2 py-0.5 rounded bg-teal-600 text-white text-[10px] font-bold">${t("স্পন্সরড", "Sponsored")}</span>
+          </div>
+          ${hasImg ? `<img src="${esc(draftForm.bannerImageUrl)}" class="w-full h-32 object-cover" alt="" />` : `<div class="h-24 bg-slate-200 flex items-center justify-center text-xs text-slate-500">${esc(wPx)}×${esc(hPx)} Preview</div>`}
+          <div class="p-2.5 space-y-1.5">
+            <p class="text-[11px] text-slate-600">${desc}</p>
+            <div class="flex gap-1.5">
+              <div class="flex-1 py-1 rounded-lg bg-sky-600 text-white text-center text-[11px] font-bold">${t("ভিজিট করুন", "Visit Sponsor")}</div>
+              ${draftForm.contactNumber ? `<div class="px-2.5 py-1 rounded-lg border border-teal-600 text-teal-700 text-[11px] font-bold">${t("কল", "Call")}</div>` : ""}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -774,6 +1193,7 @@ function renderPaymentsView() {
                   ${badge(String(p.status || "PENDING").toUpperCase())}
                 </div>
                 <div class="text-slate-600 mt-1">TrxID: <strong>${esc(p.transactionId)}</strong> &bull; ${esc(p.packageName)} &bull; Sender: ${esc(p.senderMobile)}</div>
+                ${p.placementIds ? `<div class="text-[11px] text-sky-800 font-semibold mt-0.5">Placements: ${esc(p.placementIds)} (${esc(p.adSizeKey || "")})</div>` : ""}
                 ${p.adminNote ? `<div class="text-slate-500 mt-0.5">Note: ${esc(p.adminNote)}</div>` : ""}
               </div>
               <div class="text-slate-400">${formatDate(p.createdAt)}</div>

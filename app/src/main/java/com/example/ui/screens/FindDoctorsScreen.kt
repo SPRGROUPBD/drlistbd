@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.local.AdConfigEntity
 import com.example.data.local.LocationEntity
+import com.example.data.local.PlacementRateCardEntity
 import com.example.data.local.SpecialtyEntity
 import com.example.data.local.SponsorEntity
 import com.example.data.model.DayOfWeekBd
@@ -31,6 +32,8 @@ import com.example.i18n.AppStrings
 import com.example.i18n.tr
 import com.example.ui.ads.ManagedNativeBannerAd
 import com.example.ui.ads.NativeSponsorAdCard
+import com.example.ui.ads.PlacementRateCardEngine
+import com.example.ui.ads.PlacementSponsorSlot
 import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.DoctorCard
 import com.example.ui.components.EmptyStateCard
@@ -43,6 +46,7 @@ fun FindDoctorsScreen(
     lang: AppLang,
     adConfig: AdConfigEntity,
     sponsors: List<SponsorEntity> = emptyList(),
+    rateCards: List<PlacementRateCardEntity> = PlacementRateCardEngine.defaultRateCards(),
     isOnline: Boolean = true,
     nowMs: Long = System.currentTimeMillis(),
     onSponsorDisplayed: (String, Boolean, String) -> Unit = { _, _, _ -> },
@@ -218,6 +222,76 @@ fun FindDoctorsScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.weight(1f)
             ) {
+                // Contextual Screen Placements: Search Result, Category, District, Upazila
+                if (searchState.query.isNotBlank()) {
+                    item(key = "slot_oth_search") {
+                        PlacementSponsorSlot(
+                            placementId = PlacementRateCardEngine.OTH_SEARCH,
+                            sponsors = sponsors,
+                            rateCards = rateCards,
+                            adConfig = adConfig,
+                            isOnline = isOnline,
+                            nowMs = nowMs,
+                            lang = lang,
+                            onSponsorDisplayed = onSponsorDisplayed,
+                            onSponsorClicked = onSponsorClicked
+                        )
+                    }
+                }
+                if (searchState.specialtyId != null) {
+                    item(key = "slot_oth_category") {
+                        PlacementSponsorSlot(
+                            placementId = PlacementRateCardEngine.OTH_CATEGORY,
+                            sponsors = sponsors,
+                            rateCards = rateCards,
+                            adConfig = adConfig,
+                            isOnline = isOnline,
+                            nowMs = nowMs,
+                            lang = lang,
+                            onSponsorDisplayed = onSponsorDisplayed,
+                            onSponsorClicked = onSponsorClicked
+                        )
+                    }
+                }
+                if (searchState.district != null) {
+                    item(key = "slot_oth_district") {
+                        PlacementSponsorSlot(
+                            placementId = PlacementRateCardEngine.OTH_DISTRICT,
+                            sponsors = sponsors,
+                            rateCards = rateCards,
+                            adConfig = adConfig,
+                            isOnline = isOnline,
+                            nowMs = nowMs,
+                            lang = lang,
+                            onSponsorDisplayed = onSponsorDisplayed,
+                            onSponsorClicked = onSponsorClicked
+                        )
+                    }
+                }
+                if (searchState.upazila != null) {
+                    item(key = "slot_oth_upazila") {
+                        PlacementSponsorSlot(
+                            placementId = PlacementRateCardEngine.OTH_UPAZILA,
+                            sponsors = sponsors,
+                            rateCards = rateCards,
+                            adConfig = adConfig,
+                            isOnline = isOnline,
+                            nowMs = nowMs,
+                            lang = lang,
+                            onSponsorDisplayed = onSponsorDisplayed,
+                            onSponsorClicked = onSponsorClicked
+                        )
+                    }
+                }
+
+                val isSearching = searchState.query.isNotBlank() || searchState.facilityQuery.isNotBlank()
+                val activePlacementId = if (isSearching) PlacementRateCardEngine.DOC_03 else PlacementRateCardEngine.DOC_01
+                val cardFreq = PlacementRateCardEngine.insertionFrequencyForPlacement(
+                    rateCards = rateCards,
+                    placementId = activePlacementId,
+                    fallback = adConfig.nativeSponsorInterval
+                )
+
                 itemsIndexed(pagedDoctors, key = { _, it -> it.doctor.id }) { index, doc ->
                     DoctorCard(
                         item = doc,
@@ -226,6 +300,22 @@ fun FindDoctorsScreen(
                         onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
                         onClick = { onDoctorClick(doc.doctor.id) }
                     )
+                    val showPlacementHere = (index + 1) % cardFreq == 0
+                    if (showPlacementHere) {
+                        Spacer(Modifier.height(10.dp))
+                        PlacementSponsorSlot(
+                            placementId = activePlacementId,
+                            sponsors = sponsors,
+                            rateCards = rateCards,
+                            adConfig = adConfig,
+                            isOnline = isOnline,
+                            nowMs = nowMs,
+                            lang = lang,
+                            slotIndex = index / cardFreq,
+                            onSponsorDisplayed = onSponsorDisplayed,
+                            onSponsorClicked = onSponsorClicked
+                        )
+                    }
                     val showSponsorHere = SponsorCampaignSelector.shouldInsertNativeSponsorAfter(
                         index,
                         adConfig.nativeSponsorInterval

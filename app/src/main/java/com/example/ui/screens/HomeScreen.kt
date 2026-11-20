@@ -33,6 +33,7 @@ import com.example.R
 import com.example.data.local.AdConfigEntity
 import com.example.data.local.HospitalEntity
 import com.example.data.local.LocationEntity
+import com.example.data.local.PlacementRateCardEntity
 import com.example.data.local.SiteSettingsEntity
 import com.example.data.local.SpecialtyEntity
 import com.example.data.local.SponsorEntity
@@ -43,6 +44,8 @@ import com.example.i18n.AppStrings
 import com.example.i18n.tr
 import com.example.ui.ads.ManagedNativeBannerAd
 import com.example.ui.ads.NativeSponsorAdCard
+import com.example.ui.ads.PlacementRateCardEngine
+import com.example.ui.ads.PlacementSponsorSlot
 import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.*
 import com.example.ui.theme.*
@@ -53,6 +56,7 @@ fun HomeScreen(
     settings: SiteSettingsEntity,
     adConfig: AdConfigEntity,
     sponsors: List<SponsorEntity> = emptyList(),
+    rateCards: List<PlacementRateCardEntity> = PlacementRateCardEngine.defaultRateCards(),
     isOnline: Boolean = true,
     nowMs: Long = System.currentTimeMillis(),
     onSponsorDisplayed: (String, Boolean, String) -> Unit = { _, _, _ -> },
@@ -95,6 +99,22 @@ fun HomeScreen(
             .background(BackgroundIce),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
+        // HOME-01: Home Top Banner Placement
+        item {
+            PlacementSponsorSlot(
+                placementId = PlacementRateCardEngine.HOME_01,
+                sponsors = sponsors,
+                rateCards = rateCards,
+                adConfig = adConfig,
+                isOnline = isOnline,
+                nowMs = nowMs,
+                lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+            )
+        }
+
         // Hero Banner + Search
         item {
             Box(
@@ -244,8 +264,20 @@ fun HomeScreen(
             Spacer(Modifier.height(12.dp))
         }
 
-        // Top Direct Sponsor Native Card (if active sponsors exist)
+        // Top Direct Sponsor Native Card + HOME-02: Between Home Sections
         item {
+            PlacementSponsorSlot(
+                placementId = PlacementRateCardEngine.HOME_02,
+                sponsors = sponsors,
+                rateCards = rateCards,
+                adConfig = adConfig,
+                isOnline = isOnline,
+                nowMs = nowMs,
+                lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
             NativeSponsorAdCard(
                 sponsors = sponsors,
                 adConfig = adConfig,
@@ -261,7 +293,7 @@ fun HomeScreen(
             Spacer(Modifier.height(8.dp))
         }
 
-        // Specialties Strip
+        // Specialties Strip + HOME-06: Medical Specialist Section
         item {
             SectionHeader(
                 title = AppStrings.specialties(lang),
@@ -273,6 +305,18 @@ fun HomeScreen(
                 selectedId = null,
                 lang = lang,
                 onSelect = { id -> if (id != null) onSelectSpecialty(id) }
+            )
+            PlacementSponsorSlot(
+                placementId = PlacementRateCardEngine.HOME_06,
+                sponsors = sponsors,
+                rateCards = rateCards,
+                adConfig = adConfig,
+                isOnline = isOnline,
+                nowMs = nowMs,
+                lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
             )
             Spacer(Modifier.height(12.dp))
         }
@@ -394,7 +438,21 @@ fun HomeScreen(
                 )
             }
         } else {
-            // Available Today
+            // OTH-FEATURED: Featured Section + Available Today
+            item {
+                PlacementSponsorSlot(
+                    placementId = PlacementRateCardEngine.OTH_FEATURED,
+                    sponsors = sponsors,
+                    rateCards = rateCards,
+                    adConfig = adConfig,
+                    isOnline = isOnline,
+                    nowMs = nowMs,
+                    lang = lang,
+                    onSponsorDisplayed = onSponsorDisplayed,
+                    onSponsorClicked = onSponsorClicked,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
             if (availableTodayDocs.isNotEmpty()) {
                 item {
                     SectionHeader(
@@ -430,13 +488,25 @@ fun HomeScreen(
                 }
             }
 
-            // Directory Doctors List with periodic Native Sponsor Cards & Network Native Ads
+            // Directory Doctors List + HOME-03: Popular Doctor Section Placement
             item {
                 Spacer(Modifier.height(6.dp))
                 SectionHeader(
                     title = tr(lang, "বিশেষজ্ঞ ডাক্তারবৃন্দ", "Specialist Doctors"),
                     actionLabel = AppStrings.allLabel(lang),
                     onAction = { onNavigateFindDoctors(false) }
+                )
+                PlacementSponsorSlot(
+                    placementId = PlacementRateCardEngine.HOME_03,
+                    sponsors = sponsors,
+                    rateCards = rateCards,
+                    adConfig = adConfig,
+                    isOnline = isOnline,
+                    nowMs = nowMs,
+                    lang = lang,
+                    onSponsorDisplayed = onSponsorDisplayed,
+                    onSponsorClicked = onSponsorClicked,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                 )
             }
             val featuredSlice = doctors.take(10)
@@ -517,7 +587,7 @@ fun HomeScreen(
             }
         }
 
-        // Popular Hospitals
+        // Popular Hospitals + HOME-04: Hospital Section
         if (hospitals.isNotEmpty()) {
             item {
                 Spacer(Modifier.height(6.dp))
@@ -578,9 +648,33 @@ fun HomeScreen(
             }
         }
 
-        // Bottom Native Sponsor Card (Online + Offline Cached) + Online-ONLY Start.io/Unity Native Banner
+        // HOME-04 (Hospital Section), HOME-05 (Diagnostic Section), & HOME-07 (Home Bottom Banner)
         item {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
+            PlacementSponsorSlot(
+                placementId = PlacementRateCardEngine.HOME_04,
+                sponsors = sponsors,
+                rateCards = rateCards,
+                adConfig = adConfig,
+                isOnline = isOnline,
+                nowMs = nowMs,
+                lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+            PlacementSponsorSlot(
+                placementId = PlacementRateCardEngine.HOME_05,
+                sponsors = sponsors,
+                rateCards = rateCards,
+                adConfig = adConfig,
+                isOnline = isOnline,
+                nowMs = nowMs,
+                lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
             NativeSponsorAdCard(
                 sponsors = sponsors,
                 adConfig = adConfig,
@@ -591,7 +685,19 @@ fun HomeScreen(
                 lang = lang,
                 onSponsorDisplayed = onSponsorDisplayed,
                 onSponsorClicked = onSponsorClicked,
-                modifier = Modifier.padding(horizontal = 16.dp)
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+            PlacementSponsorSlot(
+                placementId = PlacementRateCardEngine.HOME_07,
+                sponsors = sponsors,
+                rateCards = rateCards,
+                adConfig = adConfig,
+                isOnline = isOnline,
+                nowMs = nowMs,
+                lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
             )
             Spacer(Modifier.height(12.dp))
         }

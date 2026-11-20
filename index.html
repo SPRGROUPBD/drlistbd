@@ -183,6 +183,7 @@
             </button>
             <button type="button" data-tab="expired_ads" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Expired Advertisements</button>
             <button type="button" data-tab="renewals" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Renewal Requests</button>
+            <button type="button" data-tab="rate_cards" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition font-semibold text-teal-800">Placement &amp; Rate Cards</button>
             <button type="button" data-tab="about_us_ads" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">About Us &amp; Placement Settings</button>
           </div>
         </div>
@@ -680,6 +681,15 @@ let dbState = {
   },
   advertisers: {},
   ad_packages: {},
+  placement_rate_cards: {},
+  rate_card_settings: {
+    bundleEnabled: true,
+    discount2Pct: 5,
+    discount3Pct: 10,
+    discount4PlusPct: 15,
+    allowCustomDuration: true,
+    updatedAt: Date.now()
+  },
   sponsors: {},
   ad_payments: {},
   payment_settings: {
@@ -835,7 +845,7 @@ async function loadAllData() {
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     if (data) {
-      const objectKeys = ["settings", "ad_config", "about_us_ad_settings", "payment_settings", "ad_revenue_settings"];
+      const objectKeys = ["settings", "ad_config", "about_us_ad_settings", "payment_settings", "ad_revenue_settings", "rate_card_settings"];
       for (const k of Object.keys(dbState)) {
         if (objectKeys.includes(k)) {
           if (data[k]) dbState[k] = { ...dbState[k], ...data[k] };
@@ -913,6 +923,7 @@ function renderTab() {
     view_reports: "11. Advertisement View Reports",
     revenue_reports: "12. Direct Sponsor Revenue Reports (BDT)",
     about_us_ads: "13. About Us Page & Placement Ad Settings",
+    rate_cards: "Placement & Dynamic Rate Card Management",
     audit_logs: "14. Admin Audit Logs",
     ad_network: "Online Ad Networks (Start.io + Unity Ads)",
     ad_revenue: "Network Ad Revenue (Start.io + Unity Ads)",
@@ -934,6 +945,7 @@ function renderTab() {
   if (activeTab === "dashboard") el.innerHTML = renderDashboard();
   else if (activeTab === "advertisers") el.innerHTML = renderAdvertisers();
   else if (activeTab === "ad_packages") el.innerHTML = renderAdPackages();
+  else if (activeTab === "rate_cards") el.innerHTML = renderRateCards();
   else if (activeTab === "advertisements") el.innerHTML = renderAdvertisements("ALL");
   else if (activeTab === "payments") el.innerHTML = renderPaymentVerification();
   else if (activeTab === "active_ads") el.innerHTML = renderAdvertisements("ACTIVE");

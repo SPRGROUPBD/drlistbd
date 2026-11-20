@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.example.data.local.AdConfigEntity
 import com.example.data.local.DiagnosticCenterEntity
 import com.example.data.local.HospitalEntity
+import com.example.data.local.PlacementRateCardEntity
 import com.example.data.local.SpecialtyEntity
 import com.example.data.local.SponsorEntity
 import com.example.data.model.ChamberSessionType
@@ -39,6 +40,8 @@ import com.example.i18n.AppStrings
 import com.example.i18n.tr
 import com.example.ui.ads.ManagedNativeBannerAd
 import com.example.ui.ads.NativeSponsorAdCard
+import com.example.ui.ads.PlacementRateCardEngine
+import com.example.ui.ads.PlacementSponsorSlot
 import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.ExternalImageAvatar
@@ -46,11 +49,13 @@ import com.example.ui.components.StatusPill
 import com.example.ui.components.specialtyIcon
 import com.example.ui.theme.*
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DirectoriesScreen(
     lang: AppLang,
     adConfig: AdConfigEntity,
     sponsors: List<SponsorEntity> = emptyList(),
+    rateCards: List<PlacementRateCardEntity> = PlacementRateCardEngine.defaultRateCards(),
     isOnline: Boolean = true,
     nowMs: Long = System.currentTimeMillis(),
     onSponsorDisplayed: (String, Boolean, String) -> Unit = { _, _, _ -> },
@@ -75,6 +80,10 @@ fun DirectoriesScreen(
     var search by remember { mutableStateOf("") }
     var selectedDay by remember { mutableStateOf(DayOfWeekBd.today()) }
     var selectedSession by remember { mutableStateOf<ChamberSessionType?>(null) }
+    var detailHospital by remember { mutableStateOf<HospitalEntity?>(null) }
+    var detailDiagnostic by remember { mutableStateOf<DiagnosticCenterEntity?>(null) }
+    var detailSpecialty by remember { mutableStateOf<SpecialtyEntity?>(null) }
+    var detailChamberTriple by remember { mutableStateOf<Triple<DoctorFullProfile, com.example.data.local.ChamberEntity, List<com.example.data.local.ChamberScheduleEntity>>?>(null) }
     val context = LocalContext.current
 
     Column(
@@ -114,6 +123,8 @@ fun DirectoriesScreen(
                 val list = hospitals.filter {
                     search.isBlank() || it.nameEn.contains(search, true) || it.nameBn.contains(search, true) || it.district.contains(search, true)
                 }
+                val hospPlacementId = if (search.isNotBlank()) PlacementRateCardEngine.HOS_03 else PlacementRateCardEngine.HOS_01
+                val hospFreq = PlacementRateCardEngine.insertionFrequencyForPlacement(rateCards, hospPlacementId, adConfig.nativeSponsorInterval)
                 if (list.isEmpty()) {
                     EmptyStateCard(Icons.Rounded.LocalHospital, tr(lang, "হাসপাতাল পাওয়া যায়নি", "No Hospitals Found"), "")
                 } else {
@@ -129,8 +140,24 @@ fun DirectoriesScreen(
                                 icon = Icons.Rounded.LocalHospital,
                                 lang = lang,
                                 onCall = { safeDialPhone(context, h.contactNumber, lang) },
-                                onViewDoctors = { onSelectFacility(h.nameEn.removePrefix("[DEMO] ")) }
+                                onViewDoctors = { onSelectFacility(h.nameEn.removePrefix("[DEMO] ")) },
+                                onCardClick = { detailHospital = h }
                             )
+                            if ((idx + 1) % hospFreq == 0) {
+                                Spacer(Modifier.height(10.dp))
+                                PlacementSponsorSlot(
+                                    placementId = hospPlacementId,
+                                    sponsors = sponsors,
+                                    rateCards = rateCards,
+                                    adConfig = adConfig,
+                                    isOnline = isOnline,
+                                    nowMs = nowMs,
+                                    lang = lang,
+                                    slotIndex = idx / hospFreq,
+                                    onSponsorDisplayed = onSponsorDisplayed,
+                                    onSponsorClicked = onSponsorClicked
+                                )
+                            }
                             if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(idx, adConfig.nativeSponsorInterval)) {
                                 Spacer(Modifier.height(10.dp))
                                 NativeSponsorAdCard(
@@ -161,6 +188,8 @@ fun DirectoriesScreen(
                 val list = diagnosticCenters.filter {
                     search.isBlank() || it.nameEn.contains(search, true) || it.nameBn.contains(search, true) || it.district.contains(search, true)
                 }
+                val diaPlacementId = if (search.isNotBlank()) PlacementRateCardEngine.DIA_03 else PlacementRateCardEngine.DIA_01
+                val diaFreq = PlacementRateCardEngine.insertionFrequencyForPlacement(rateCards, diaPlacementId, adConfig.nativeSponsorInterval)
                 if (list.isEmpty()) {
                     EmptyStateCard(Icons.Rounded.Biotech, tr(lang, "ডায়াগনস্টিক সেন্টার পাওয়া যায়নি", "No Diagnostic Centers Found"), "")
                 } else {
@@ -176,8 +205,24 @@ fun DirectoriesScreen(
                                 icon = Icons.Rounded.Biotech,
                                 lang = lang,
                                 onCall = { safeDialPhone(context, dc.contactNumber, lang) },
-                                onViewDoctors = { onSelectFacility(dc.nameEn.removePrefix("[DEMO] ")) }
+                                onViewDoctors = { onSelectFacility(dc.nameEn.removePrefix("[DEMO] ")) },
+                                onCardClick = { detailDiagnostic = dc }
                             )
+                            if ((idx + 1) % diaFreq == 0) {
+                                Spacer(Modifier.height(10.dp))
+                                PlacementSponsorSlot(
+                                    placementId = diaPlacementId,
+                                    sponsors = sponsors,
+                                    rateCards = rateCards,
+                                    adConfig = adConfig,
+                                    isOnline = isOnline,
+                                    nowMs = nowMs,
+                                    lang = lang,
+                                    slotIndex = idx / diaFreq,
+                                    onSponsorDisplayed = onSponsorDisplayed,
+                                    onSponsorClicked = onSponsorClicked
+                                )
+                            }
                             if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(idx, adConfig.nativeSponsorInterval)) {
                                 Spacer(Modifier.height(10.dp))
                                 NativeSponsorAdCard(
@@ -208,11 +253,13 @@ fun DirectoriesScreen(
                 val list = specialties.filter {
                     search.isBlank() || it.nameBn.contains(search, true) || it.nameEn.contains(search, true)
                 }
+                val spePlacementId = if (search.isNotBlank()) PlacementRateCardEngine.SPE_03 else PlacementRateCardEngine.SPE_01
+                val speFreq = PlacementRateCardEngine.insertionFrequencyForPlacement(rateCards, spePlacementId, adConfig.nativeSponsorInterval)
                 LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     itemsIndexed(list, key = { _, it -> it.id }) { idx, sp ->
                         val docCount = doctors.count { it.doctor.mainSpecialtyId == sp.id }
                         Surface(
-                            onClick = { onSelectSpecialty(sp.id) },
+                            onClick = { detailSpecialty = sp },
                             shape = RoundedCornerShape(18.dp),
                             color = SurfaceWhite,
                             border = BorderStroke(1.dp, OutlineSoft),
@@ -241,6 +288,21 @@ fun DirectoriesScreen(
                                     textColor = MedicalTealDark
                                 )
                             }
+                        }
+                        if ((idx + 1) % speFreq == 0) {
+                            Spacer(Modifier.height(10.dp))
+                            PlacementSponsorSlot(
+                                placementId = spePlacementId,
+                                sponsors = sponsors,
+                                rateCards = rateCards,
+                                adConfig = adConfig,
+                                isOnline = isOnline,
+                                nowMs = nowMs,
+                                lang = lang,
+                                slotIndex = idx / speFreq,
+                                onSponsorDisplayed = onSponsorDisplayed,
+                                onSponsorClicked = onSponsorClicked
+                            )
                         }
                         if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(idx, adConfig.nativeSponsorInterval)) {
                             Spacer(Modifier.height(10.dp))
@@ -340,10 +402,12 @@ fun DirectoriesScreen(
                         tr(lang, "অন্য বার বা সময় নির্বাচন করে দেখুন।", "Try selecting another weekday or time session.")
                     )
                 } else {
+                    val chaPlacementId = if (search.isNotBlank()) PlacementRateCardEngine.CHA_04 else PlacementRateCardEngine.CHA_01
+                    val chaFreq = PlacementRateCardEngine.insertionFrequencyForPlacement(rateCards, chaPlacementId, adConfig.nativeSponsorInterval)
                     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         itemsIndexed(matching) { idx, (doc, ch, slots) ->
                             Surface(
-                                onClick = { onDoctorClick(doc.doctor.id) },
+                                onClick = { detailChamberTriple = Triple(doc, ch, slots) },
                                 shape = RoundedCornerShape(18.dp),
                                 color = SurfaceWhite,
                                 border = BorderStroke(1.dp, OutlineSoft),
@@ -379,6 +443,9 @@ fun DirectoriesScreen(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.End
                                         ) {
+                                            TextButton(onClick = { onDoctorClick(doc.doctor.id) }) {
+                                                Text(tr(lang, "প্রোফাইল", "Doctor Profile"))
+                                            }
                                             TextButton(onClick = { safeDialPhone(context, ch.serialPhone, lang) }) {
                                                 Icon(Icons.Rounded.Call, null, Modifier.size(16.dp))
                                                 Spacer(Modifier.width(4.dp))
@@ -387,6 +454,21 @@ fun DirectoriesScreen(
                                         }
                                     }
                                 }
+                            }
+                            if ((idx + 1) % chaFreq == 0) {
+                                Spacer(Modifier.height(10.dp))
+                                PlacementSponsorSlot(
+                                    placementId = chaPlacementId,
+                                    sponsors = sponsors,
+                                    rateCards = rateCards,
+                                    adConfig = adConfig,
+                                    isOnline = isOnline,
+                                    nowMs = nowMs,
+                                    lang = lang,
+                                    slotIndex = idx / chaFreq,
+                                    onSponsorDisplayed = onSponsorDisplayed,
+                                    onSponsorClicked = onSponsorClicked
+                                )
                             }
                             if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(idx, adConfig.nativeSponsorInterval)) {
                                 Spacer(Modifier.height(10.dp))
@@ -408,6 +490,199 @@ fun DirectoriesScreen(
             }
         }
     }
+
+    // Detail Bottom Sheets hosting HOS-02/HOS-04, DIA-02/DIA-04, SPE-02, CHA-02/CHA-03
+    detailHospital?.let { h ->
+        ModalBottomSheet(onDismissRequest = { detailHospital = null }, containerColor = SurfaceWhite) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(tr(lang, h.nameBn, h.nameEn), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("${h.upazila}, ${h.district} • ${h.address}", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                PlacementSponsorSlot(
+                    placementId = PlacementRateCardEngine.HOS_02,
+                    sponsors = sponsors,
+                    rateCards = rateCards,
+                    adConfig = adConfig,
+                    isOnline = isOnline,
+                    nowMs = nowMs,
+                    lang = lang,
+                    onSponsorDisplayed = onSponsorDisplayed,
+                    onSponsorClicked = onSponsorClicked
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    if (h.contactNumber.isNotBlank()) {
+                        OutlinedButton(onClick = { safeDialPhone(context, h.contactNumber, lang) }, modifier = Modifier.weight(1f)) {
+                            Text(tr(lang, "কল করুন", "Call Hospital"))
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            detailHospital = null
+                            onSelectFacility(h.nameEn.removePrefix("[DEMO] "))
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(tr(lang, "সব ডাক্তার দেখুন", "View Doctors"))
+                    }
+                }
+                PlacementSponsorSlot(
+                    placementId = PlacementRateCardEngine.HOS_04,
+                    sponsors = sponsors,
+                    rateCards = rateCards,
+                    adConfig = adConfig,
+                    isOnline = isOnline,
+                    nowMs = nowMs,
+                    lang = lang,
+                    onSponsorDisplayed = onSponsorDisplayed,
+                    onSponsorClicked = onSponsorClicked
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+
+    detailDiagnostic?.let { dc ->
+        ModalBottomSheet(onDismissRequest = { detailDiagnostic = null }, containerColor = SurfaceWhite) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(tr(lang, dc.nameBn, dc.nameEn), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("${dc.upazila}, ${dc.district} • ${dc.address}", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                PlacementSponsorSlot(
+                    placementId = PlacementRateCardEngine.DIA_02,
+                    sponsors = sponsors,
+                    rateCards = rateCards,
+                    adConfig = adConfig,
+                    isOnline = isOnline,
+                    nowMs = nowMs,
+                    lang = lang,
+                    onSponsorDisplayed = onSponsorDisplayed,
+                    onSponsorClicked = onSponsorClicked
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    if (dc.contactNumber.isNotBlank()) {
+                        OutlinedButton(onClick = { safeDialPhone(context, dc.contactNumber, lang) }, modifier = Modifier.weight(1f)) {
+                            Text(tr(lang, "কল করুন", "Call Center"))
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            detailDiagnostic = null
+                            onSelectFacility(dc.nameEn.removePrefix("[DEMO] "))
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(tr(lang, "সব ডাক্তার দেখুন", "View Doctors"))
+                    }
+                }
+                PlacementSponsorSlot(
+                    placementId = PlacementRateCardEngine.DIA_04,
+                    sponsors = sponsors,
+                    rateCards = rateCards,
+                    adConfig = adConfig,
+                    isOnline = isOnline,
+                    nowMs = nowMs,
+                    lang = lang,
+                    onSponsorDisplayed = onSponsorDisplayed,
+                    onSponsorClicked = onSponsorClicked
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+
+    detailSpecialty?.let { sp ->
+        ModalBottomSheet(onDismissRequest = { detailSpecialty = null }, containerColor = SurfaceWhite) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(tr(lang, sp.nameBn, sp.nameEn), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                val docCount = doctors.count { it.doctor.mainSpecialtyId == sp.id }
+                Text(tr(lang, "$docCount জন তালিকাভুক্ত বিশেষজ্ঞ", "$docCount listed specialist doctor(s)"), style = MaterialTheme.typography.bodyMedium, color = MedicalBlueDark)
+                PlacementSponsorSlot(
+                    placementId = PlacementRateCardEngine.SPE_02,
+                    sponsors = sponsors,
+                    rateCards = rateCards,
+                    adConfig = adConfig,
+                    isOnline = isOnline,
+                    nowMs = nowMs,
+                    lang = lang,
+                    onSponsorDisplayed = onSponsorDisplayed,
+                    onSponsorClicked = onSponsorClicked
+                )
+                Button(
+                    onClick = {
+                        detailSpecialty = null
+                        onSelectSpecialty(sp.id)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(tr(lang, "এই বিভাগের ডাক্তার দেখুন", "Browse Specialists in This Category"))
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+
+    detailChamberTriple?.let { (doc, ch, slots) ->
+        ModalBottomSheet(onDismissRequest = { detailChamberTriple = null }, containerColor = SurfaceWhite) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(tr(lang, doc.doctor.fullNameBn, doc.doctor.fullNameEn), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("${ch.facilityName} • ${ch.fullAddress}", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                PlacementSponsorSlot(
+                    placementId = PlacementRateCardEngine.CHA_02,
+                    sponsors = sponsors,
+                    rateCards = rateCards,
+                    adConfig = adConfig,
+                    isOnline = isOnline,
+                    nowMs = nowMs,
+                    lang = lang,
+                    onSponsorDisplayed = onSponsorDisplayed,
+                    onSponsorClicked = onSponsorClicked
+                )
+                slots.forEach { slot ->
+                    StatusPill(
+                        text = "${slot.slotLabel}: ${slot.openTime} – ${slot.closeTime}",
+                        bgColor = MedicalTealLight,
+                        textColor = MedicalTealDark,
+                        icon = Icons.Rounded.AccessTime
+                    )
+                }
+                PlacementSponsorSlot(
+                    placementId = PlacementRateCardEngine.CHA_03,
+                    sponsors = sponsors,
+                    rateCards = rateCards,
+                    adConfig = adConfig,
+                    isOnline = isOnline,
+                    nowMs = nowMs,
+                    lang = lang,
+                    onSponsorDisplayed = onSponsorDisplayed,
+                    onSponsorClicked = onSponsorClicked
+                )
+                Button(
+                    onClick = {
+                        detailChamberTriple = null
+                        onDoctorClick(doc.doctor.id)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(tr(lang, "ডাক্তারের সম্পূর্ণ প্রোফাইল দেখুন", "Open Doctor Full Profile"))
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
 }
 
 @Composable
@@ -421,9 +696,11 @@ private fun FacilityCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     lang: AppLang,
     onCall: () -> Unit,
-    onViewDoctors: () -> Unit
+    onViewDoctors: () -> Unit,
+    onCardClick: () -> Unit = {}
 ) {
     Surface(
+        onClick = onCardClick,
         shape = RoundedCornerShape(18.dp),
         color = SurfaceWhite,
         border = BorderStroke(1.dp, OutlineSoft),

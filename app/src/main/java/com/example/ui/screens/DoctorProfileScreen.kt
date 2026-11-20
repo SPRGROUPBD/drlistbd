@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.data.local.AdConfigEntity
 import com.example.data.local.ChamberScheduleEntity
+import com.example.data.local.PlacementRateCardEntity
 import com.example.data.local.SiteSettingsEntity
 import com.example.data.local.SponsorEntity
 import com.example.data.model.ChamberSessionType
@@ -42,6 +43,8 @@ import com.example.i18n.AppStrings
 import com.example.i18n.tr
 import com.example.ui.ads.ManagedNativeBannerAd
 import com.example.ui.ads.NativeSponsorAdCard
+import com.example.ui.ads.PlacementRateCardEngine
+import com.example.ui.ads.PlacementSponsorSlot
 import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.ExternalImageAvatar
 import com.example.ui.components.StatusPill
@@ -53,6 +56,7 @@ fun DoctorProfileScreen(
     lang: AppLang,
     adConfig: AdConfigEntity,
     sponsors: List<SponsorEntity> = emptyList(),
+    rateCards: List<PlacementRateCardEntity> = PlacementRateCardEngine.defaultRateCards(),
     isOnline: Boolean = true,
     nowMs: Long = System.currentTimeMillis(),
     onSponsorDisplayed: (String, Boolean, String) -> Unit = { _, _, _ -> },
@@ -207,8 +211,19 @@ fun DoctorProfileScreen(
             }
         }
 
-        // Direct Sponsor Native Card (Online + Offline Cached)
+        // DOC-02: Doctor Details Page Placement + Direct Sponsor Native Card
         item {
+            PlacementSponsorSlot(
+                placementId = PlacementRateCardEngine.DOC_02,
+                sponsors = sponsors,
+                rateCards = rateCards,
+                adConfig = adConfig,
+                isOnline = isOnline,
+                nowMs = nowMs,
+                lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked
+            )
             NativeSponsorAdCard(
                 sponsors = sponsors,
                 adConfig = adConfig,
@@ -230,7 +245,7 @@ fun DoctorProfileScreen(
             }
         }
 
-        // Active Chambers & Weekly Schedules (Only Active Chambers are visible in the patient app)
+        // Active Chambers & Weekly Schedules + CHA-03: Doctor Schedule Details
         item {
             Text(
                 text = tr(lang, "চেম্বার ও সাপ্তাহিক সময়সূচী", "Chambers & Weekly Schedules"),
@@ -238,6 +253,18 @@ fun DoctorProfileScreen(
                 color = TextPrimary,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 4.dp)
+            )
+            PlacementSponsorSlot(
+                placementId = PlacementRateCardEngine.CHA_03,
+                sponsors = sponsors,
+                rateCards = rateCards,
+                adConfig = adConfig,
+                isOnline = isOnline,
+                nowMs = nowMs,
+                lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked,
+                modifier = Modifier.padding(top = 8.dp)
             )
         }
 
@@ -368,7 +395,33 @@ fun DoctorProfileScreen(
                 }
             }
         }
-        item { Spacer(Modifier.height(20.dp)) }
+        // DOC-05: Doctor Details Related Section + DOC-04: Doctor Profile Bottom
+        item {
+            PlacementSponsorSlot(
+                placementId = PlacementRateCardEngine.DOC_05,
+                sponsors = sponsors,
+                rateCards = rateCards,
+                adConfig = adConfig,
+                isOnline = isOnline,
+                nowMs = nowMs,
+                lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked
+            )
+            Spacer(Modifier.height(8.dp))
+            PlacementSponsorSlot(
+                placementId = PlacementRateCardEngine.DOC_04,
+                sponsors = sponsors,
+                rateCards = rateCards,
+                adConfig = adConfig,
+                isOnline = isOnline,
+                nowMs = nowMs,
+                lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked
+            )
+            Spacer(Modifier.height(20.dp))
+        }
     }
 }
 

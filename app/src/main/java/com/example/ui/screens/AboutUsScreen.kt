@@ -29,12 +29,15 @@ import androidx.compose.ui.unit.dp
 import com.example.BuildConfig
 import com.example.R
 import com.example.data.local.AdConfigEntity
+import com.example.data.local.PlacementRateCardEntity
 import com.example.data.local.SiteSettingsEntity
 import com.example.data.local.SponsorEntity
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
 import com.example.ui.ads.AboutUsSponsorSection
+import com.example.ui.ads.PlacementRateCardEngine
+import com.example.ui.ads.PlacementSponsorSlot
 import com.example.ui.components.StatusPill
 import com.example.ui.theme.*
 
@@ -44,6 +47,7 @@ fun AboutUsScreen(
     settings: SiteSettingsEntity,
     adConfig: AdConfigEntity = AdConfigEntity(),
     sponsors: List<SponsorEntity> = emptyList(),
+    rateCards: List<PlacementRateCardEntity> = PlacementRateCardEngine.defaultRateCards(),
     isOnline: Boolean = true,
     nowMs: Long = System.currentTimeMillis(),
     onSponsorDisplayed: (String, Boolean, String) -> Unit = { _, _, _ -> },
@@ -272,8 +276,20 @@ fun AboutUsScreen(
             }
         }
 
-        // Administrator-Controlled Direct Sponsor Advertisement Section + Advertiser Portal CTA
+        // Administrator-Controlled Direct Sponsor Advertisement Section (OTH-ABOUT) + Advertiser Portal CTA
         item {
+            PlacementSponsorSlot(
+                placementId = PlacementRateCardEngine.OTH_ABOUT,
+                sponsors = sponsors,
+                rateCards = rateCards,
+                adConfig = adConfig,
+                isOnline = isOnline,
+                nowMs = nowMs,
+                lang = lang,
+                onSponsorDisplayed = onSponsorDisplayed,
+                onSponsorClicked = onSponsorClicked,
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
             AboutUsSponsorSection(
                 sponsors = sponsors,
                 adConfig = adConfig,

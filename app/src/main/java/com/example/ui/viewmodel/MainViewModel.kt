@@ -45,6 +45,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val sponsorPackages: StateFlow<List<SponsorPackageEntity>> = repo.sponsorPackages
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    val placementRateCards: StateFlow<List<PlacementRateCardEntity>> = repo.placementRateCards
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val rateCardSettings: StateFlow<RateCardSettingsEntity> = repo.rateCardSettings
+        .stateIn(viewModelScope, SharingStarted.Eagerly, RateCardSettingsEntity())
+
     val paymentSettings: StateFlow<PaymentSettingsEntity> = repo.paymentSettings
         .stateIn(viewModelScope, SharingStarted.Eagerly, PaymentSettingsEntity())
 

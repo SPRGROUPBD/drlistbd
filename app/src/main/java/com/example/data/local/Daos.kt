@@ -412,4 +412,29 @@ interface PendingAdViewEventDao {
     suspend fun deleteAll()
 }
 
+@Dao
+interface PlacementRateCardDao {
+    @Query("SELECT * FROM placement_rate_cards ORDER BY sortOrder ASC, placementId ASC")
+    fun observeAll(): Flow<List<PlacementRateCardEntity>>
 
+    @Query("SELECT * FROM placement_rate_cards ORDER BY sortOrder ASC, placementId ASC")
+    suspend fun getAllOnce(): List<PlacementRateCardEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(cards: List<PlacementRateCardEntity>)
+
+    @Query("DELETE FROM placement_rate_cards")
+    suspend fun deleteAll()
+}
+
+@Dao
+interface RateCardSettingsDao {
+    @Query("SELECT * FROM rate_card_settings WHERE id = 'global' LIMIT 1")
+    fun observe(): Flow<RateCardSettingsEntity?>
+
+    @Query("SELECT * FROM rate_card_settings WHERE id = 'global' LIMIT 1")
+    suspend fun getOnce(): RateCardSettingsEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun save(settings: RateCardSettingsEntity)
+}

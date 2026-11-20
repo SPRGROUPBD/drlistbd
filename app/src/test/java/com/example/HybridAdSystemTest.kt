@@ -7,6 +7,8 @@ import com.example.data.local.AdConfigEntity
 import com.example.data.local.AppDatabase
 import com.example.data.local.PaymentSettingsEntity
 import com.example.data.local.PendingAdViewEventEntity
+import com.example.data.local.PlacementRateCardEntity
+import com.example.data.local.RateCardSettingsEntity
 import com.example.data.local.SessionPreferences
 import com.example.data.local.SponsorEntity
 import com.example.data.local.SponsorPackageEntity
@@ -14,6 +16,7 @@ import com.example.data.remote.AdvertiserRemoteService
 import com.example.ui.ads.AdRevenueTracker
 import com.example.ui.ads.ConnectivityMonitor
 import com.example.ui.ads.HybridNetworkAdController
+import com.example.ui.ads.PlacementRateCardEngine
 import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.ads.SponsorOfflineCacheManager
 import kotlinx.coroutines.runBlocking
@@ -84,7 +87,10 @@ class HybridAdSystemTest {
         frequency: Int = 1,
         isActive: Boolean = true,
         localBannerPath: String = "",
-        bannerUrl: String = "https://cdn.example.com/$id.png"
+        bannerUrl: String = "https://cdn.example.com/$id.png",
+        placementIds: String = "",
+        moduleNames: String = "",
+        adSizeKey: String = ""
     ): SponsorEntity {
         val (sTs, eTs) = SponsorCampaignSelector.parseCampaignBounds(startDate, endDate)
         return SponsorEntity(
@@ -108,7 +114,10 @@ class HybridAdSystemTest {
             targetPages = targetPages,
             displayPriority = priority,
             displayFrequency = frequency,
-            isActive = isActive
+            isActive = isActive,
+            placementIds = placementIds,
+            moduleNames = moduleNames,
+            adSizeKey = adSizeKey
         )
     }
 
@@ -395,5 +404,113 @@ class HybridAdSystemTest {
         val queued: List<PendingAdViewEventEntity> = db.pendingAdViewEventDao().getPendingOnce()
         assertEquals(2, queued.size)
         assertTrue(queued.all { it.wasOffline && it.adId == "sp_cached" })
+    }
+
+    // 9. All 37 Screen-Based Placements & 9 Standard Ad Sizes catalog completeness
+    @Test
+    fun placementRateCardCatalogContainsAll37CanonicalPlacementsAnd9Sizes() {
+        val cards = PlacementRateCardEngine.defaultRateCards()
+        assertEquals(37, cards.size)
+        assertEquals(9, PlacementRateCardEngine.STANDARD_AD_SIZES.size)
+
+        val ids = cards.map { it.placementId }.toSet()
+        val expectedIds = setOf(
+            "HOME-01", "HOME-02", "HOME-03", "HOME-04", "HOME-05", "HOME-06", "HOME-07",
+            "DOC-01", "DOC-02", "DOC-03", "DOC-04", "DOC-05",
+            "HOS-01", "HOS-02", "HOS-03", "HOS-04",
+            "DIA-01", "DIA-02", "DIA-03", "DIA-04",
+            "SPE-01", "SPE-02", "SPE-03",
+            "CHA-01", "CHA-02", "CHA-03", "CHA-04",
+            "OTH-SEARCH", "OTH-CATEGORY", "OTH-DISTRICT", "OTH-UPAZILA",
+            "OTH-FEATURED", "OTH-ABOUT", "OTH-POPUP", "OTH-FULLSCREEN", "OTH-WEB", "OTH-FUTURE"
+        )
+        assertEquals(expectedIds, ids)
+    }
+
+    // 10. Multi-Placement Rate Calculation (Exact 500 + 300 + 300 + 300 = 1400, plus bundle discount & size overrides)
+    @Test
+    fun multiPlacementRateCalculationAndSizeOverridesWorkAccurately() {
+        val cards = PlacementRateCardEngine.defaultRateCards()
+        val selected = cards.filter {
+            it.placementId in setOf("HOME-01", "DOC-01", "HOS-01", "DIA-01")
+        }
+        assertEquals(4, selected.size)
+
+        // Without bundle discount: 500 + 300 + 300 + 300 = 1400 BDT for 30 days
+        val noBundleSettings = RateCardSettingsEntity(bundleEnabled = false)
+        val exactQuote = PlacementRateCardEngine.calculateBookingQuote(
+            selectedCards = selected,
+            adSizeKey = "320x100",
+            durationDays = 30,
+            settings = noBundleSettings
+        )
+        assertEquals(1400, exactQuote.subtotalBdt)
+        assertEquals(0, exactQuote.discountBdt)
+        assertEquals(1400, exactQuote.totalBdt)
+        assertEquals(500, exactQuote.breakdownMap["HOME-01"])
+        assertEquals(300, exactQuote.breakdownMap["DOC-01"])
+        assertEquals(300, exactQuote.breakdownMap["HOS-01"])
+        assertEquals(300, exactQuote.breakdownMap["DIA-01"])
+
+        // With 4+ placement 15% bundle discount: 1400 - 210 = 1190 BDT
+        val bundleSettings = RateCardSettingsEntity(
+            bundleEnabled = true,
+            discount2Pct = 5,
+            discount3Pct = 10,
+            discount4PlusPct = 15
+        )
+        val discountedQuote = PlacementRateCardEngine.calculateBookingQuote(
+            selectedCards = selected,
+            adSizeKey = "320x100",
+            durationDays = 30,
+            settings = bundleSettings
+        )
+        assertEquals(1400, discountedQuote.subtotalBdt)
+        assertEquals(15, discountedQuote.discountPct)
+        assertEquals(210, discountedQuote.discountBdt)
+        assertEquals(1190, discountedQuote.totalBdt)
+
+        // Same size (300x200) has different rates on DOC-01 vs HOME-02, plus per-size override scaling
+        val home01WithOverride = cards.first { it.placementId == "HOME-01" }.copy(
+            sizeRateOverridesJson = """{"320x100":750}"""
+        )
+        assertEquals(750, PlacementRateCardEngine.calculatePlacementRate(home01WithOverride, "320x100", 30))
+        // 15d rate for HOME-01 is 320; scaled by 750/500 = 480
+        assertEquals(480, PlacementRateCardEngine.calculatePlacementRate(home01WithOverride, "320x100", 15))
+    }
+
+    // 11. Placement Selection: Inactive suppression, Max Active Ads cap, Rotation modes & Room v8 DAO persistence
+    @Test
+    fun placementSelectionEnforcesStatusCapRotationAndRoomPersistence() = runBlocking {
+        val baseCards = PlacementRateCardEngine.defaultRateCards()
+        db.placementRateCardDao().insertAll(baseCards)
+        db.rateCardSettingsDao().save(RateCardSettingsEntity(bundleEnabled = true, discount4PlusPct = 20))
+
+        val loadedCards = db.placementRateCardDao().getAllOnce()
+        assertEquals(37, loadedCards.size)
+        assertEquals(20, db.rateCardSettingsDao().getOnce()?.discount4PlusPct)
+
+        val sp1 = makeSponsor("sp1", priority = 30, frequency = 1, placementIds = "HOME-01,DOC-01")
+        val sp2 = makeSponsor("sp2", priority = 20, frequency = 1, placementIds = "HOME-01")
+        val sp3 = makeSponsor("sp3", priority = 10, frequency = 1, placementIds = "HOME-01")
+        val sponsors = listOf(sp1, sp2, sp3)
+
+        // Active sequential rotation respects maxActiveAds = 2 (sp3 excluded by priority cap)
+        val seqCards = loadedCards.map {
+            if (it.placementId == "HOME-01") it.copy(maxActiveAds = 2, rotationMode = PlacementRateCardEngine.ROTATION_SEQUENTIAL) else it
+        }
+        assertEquals("sp1", PlacementRateCardEngine.selectSponsorForPlacement(sponsors, seqCards, "HOME-01", 0, refNowMs)?.id)
+        assertEquals("sp2", PlacementRateCardEngine.selectSponsorForPlacement(sponsors, seqCards, "HOME-01", 1, refNowMs)?.id)
+        assertEquals("sp1", PlacementRateCardEngine.selectSponsorForPlacement(sponsors, seqCards, "HOME-01", 2, refNowMs)?.id)
+
+        // Inactive placement suppresses ad rendering completely
+        val inactiveCards = loadedCards.map {
+            if (it.placementId == "HOME-01") it.copy(status = "INACTIVE") else it
+        }
+        assertNull(PlacementRateCardEngine.selectSponsorForPlacement(sponsors, inactiveCards, "HOME-01", 0, refNowMs))
+
+        // Offline mode still resolves matching placement from cached sponsors
+        ConnectivityMonitor.setOnlineForTesting(false)
+        assertEquals("sp1", PlacementRateCardEngine.selectSponsorForPlacement(sponsors, seqCards, "DOC-01", 0, refNowMs)?.id)
     }
 }
