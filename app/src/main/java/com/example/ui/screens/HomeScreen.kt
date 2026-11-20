@@ -368,6 +368,17 @@ fun HomeScreen(
             Spacer(Modifier.height(12.dp))
         }
 
+        if (isOnline) {
+            item {
+                ManagedNativeBannerAd(
+                    adConfig = adConfig,
+                    isOnline = isOnline,
+                    refreshKey = "home_mid",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
+        }
+
         if (doctors.isEmpty()) {
             item {
                 EmptyStateCard(
@@ -587,6 +598,7 @@ fun HomeScreen(
                 ManagedNativeBannerAd(
                     adConfig = adConfig,
                     isOnline = isOnline,
+                    refreshKey = "home_bottom",
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
             }

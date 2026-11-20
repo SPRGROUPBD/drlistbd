@@ -8,7 +8,12 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     body { font-family: 'Noto Sans Bengali', 'Plus Jakarta Sans', sans-serif; background: #F5F9FC; color: #0F172A; }
-    .nav-item.active { background: #E0F2FE; color: #0369A1; font-weight: 600; }
+    .nav-item.active { background: #E0F2FE; color: #0369A1; font-weight: 600; box-shadow: inset 3px 0 0 #0284C7; }
+    .nav-group-items.collapsed { display: none; }
+    .nav-group-chevron { transition: transform 0.2s ease; }
+    .nav-group-toggle[aria-expanded="false"] .nav-group-chevron { transform: rotate(-90deg); }
+    #sidebarNav::-webkit-scrollbar { width: 5px; }
+    #sidebarNav::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 999px; }
   </style>
 </head>
 <body class="min-h-screen">
@@ -81,49 +86,193 @@
     </div>
   </div>
 
-  <!-- ADMIN DASHBOARD APP -->
+  <!-- ADMIN DASHBOARD APP (Desktop Left Sidebar + Mobile Hamburger Drawer + Group-Wise Nav) -->
   <div id="adminApp" class="hidden min-h-screen flex flex-col lg:flex-row">
-    <!-- Sidebar -->
-    <aside class="w-full lg:w-72 bg-white border-b lg:border-b-0 lg:border-r border-slate-200 flex-shrink-0">
-      <div class="p-5 border-b border-slate-100 flex items-center justify-between">
-        <div>
-          <div class="text-lg font-bold text-sky-700">Doctor List BD</div>
-          <div class="text-xs text-teal-600 font-medium">Direct Sponsor &amp; Directory Admin</div>
+    <!-- Mobile Top Header Bar (Hamburger Menu) -->
+    <header class="lg:hidden sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 px-4 py-3 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3 min-w-0">
+        <button id="mobileMenuBtn" type="button" onclick="toggleMobileMenu()" aria-label="Open Navigation Menu" aria-controls="adminSidebar" aria-expanded="false"
+          class="w-10 h-10 rounded-xl bg-sky-50 text-sky-700 border border-sky-200 flex items-center justify-center hover:bg-sky-100 active:scale-95 transition flex-shrink-0">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+        <div class="min-w-0">
+          <div class="text-sm font-bold text-sky-800 truncate">Doctor List BD Admin</div>
+          <div id="mobileActivePageBadge" class="text-[11px] text-teal-700 font-medium truncate">Admin Dashboard</div>
         </div>
-        <button onclick="logout()" class="text-xs px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 font-semibold hover:bg-rose-100">Logout</button>
       </div>
-      <nav id="sidebarNav" class="p-3 flex lg:flex-col gap-1 overflow-x-auto">
-        <div class="hidden lg:block px-3 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Direct Sponsor Ad System</div>
-        <button data-tab="dashboard" class="nav-item active text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">1. Admin Dashboard</button>
-        <button data-tab="advertisers" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">2. Advertiser Management</button>
-        <button data-tab="ad_packages" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">3. Package Management</button>
-        <button data-tab="advertisements" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">4. Advertisements &amp; Direct Upload</button>
-        <button data-tab="payments" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">5. Payment Verification (bKash/Nagad)</button>
-        <button data-tab="active_ads" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">6. Active Advertisements</button>
-        <button data-tab="pending_ads" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">7. Pending Advertisements</button>
-        <button data-tab="expired_ads" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">8. Expired Advertisements</button>
-        <button data-tab="renewals" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">9. Renewal Requests</button>
-        <button data-tab="payment_settings" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">10. bKash &amp; Nagad Settings</button>
-        <button data-tab="view_reports" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">11. Ad View Reports</button>
-        <button data-tab="revenue_reports" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">12. Revenue Reports (BDT)</button>
-        <button data-tab="about_us_ads" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">13. About Us &amp; Ad Settings</button>
-        <button data-tab="audit_logs" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">14. Audit Logs</button>
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <button type="button" onclick="loadAllData()" title="Refresh Cloud Data"
+          class="px-2.5 py-1.5 rounded-lg bg-teal-50 text-teal-700 border border-teal-200 text-xs font-semibold hover:bg-teal-100">
+          Sync
+        </button>
+        <button type="button" onclick="logout()"
+          class="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-semibold hover:bg-rose-100">
+          Logout
+        </button>
+      </div>
+    </header>
 
-        <div class="hidden lg:block px-3 pt-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-t border-slate-100 mt-2">Online Ad Networks (Zero AdMob)</div>
-        <button data-tab="ad_network" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">Start.io + Unity Ads Setup</button>
-        <button data-tab="ad_revenue" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">Network Ad Revenue (USD)</button>
+    <!-- Mobile Drawer Backdrop -->
+    <div id="mobileMenuBackdrop" onclick="closeMobileMenu()" class="hidden fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-[1px] lg:hidden"></div>
 
-        <div class="hidden lg:block px-3 pt-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-t border-slate-100 mt-2">Doctor Directory</div>
-        <button data-tab="doctors" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">Doctors</button>
-        <button data-tab="chambers" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">Chambers &amp; Schedules</button>
-        <button data-tab="hospitals" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">Hospitals</button>
-        <button data-tab="diagnostics" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">Diagnostic Centers</button>
-        <button data-tab="specialties" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">Specialties</button>
-        <button data-tab="locations" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">Locations (64 Districts)</button>
-        <button data-tab="notifications" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">App Notifications</button>
-        <button data-tab="settings" class="nav-item text-left px-3 py-2 rounded-xl text-xs whitespace-nowrap">Settings, Security &amp; CSV</button>
+    <!-- Persistent Desktop Left Sidebar / Mobile Slide-Over Hamburger Drawer -->
+    <aside id="adminSidebar"
+      class="fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200 flex flex-col transform -translate-x-full transition-transform duration-200 ease-out lg:static lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen flex-shrink-0 shadow-2xl lg:shadow-none">
+      <div class="p-4 border-b border-slate-100 flex items-center justify-between gap-2 flex-shrink-0">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-9 h-9 rounded-xl bg-sky-600 text-white flex items-center justify-center font-extrabold text-base flex-shrink-0">+</div>
+          <div class="min-w-0">
+            <div class="text-base font-bold text-sky-800 truncate">Doctor List BD</div>
+            <div class="text-[11px] text-teal-600 font-medium truncate">Control Panel</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5 flex-shrink-0">
+          <button type="button" onclick="logout()" class="hidden lg:inline-flex text-xs px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-600 font-semibold hover:bg-rose-100">Logout</button>
+          <button type="button" onclick="closeMobileMenu()" aria-label="Close Menu"
+            class="lg:hidden w-8 h-8 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 flex items-center justify-center font-bold">
+            &times;
+          </button>
+        </div>
+      </div>
+
+      <!-- Group-wise Collapsible Navigation Menu -->
+      <nav id="sidebarNav" class="flex-1 overflow-y-auto p-3 space-y-2">
+        <!-- Group 1: Overview & Analytics -->
+        <div class="nav-group rounded-xl border border-slate-100 bg-slate-50/60 p-1.5" data-group="overview">
+          <button type="button" onclick="toggleNavGroup('overview')" aria-expanded="true"
+            class="nav-group-toggle w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider text-slate-600 hover:bg-white">
+            <span class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-sky-500"></span>
+              Overview &amp; Reports
+            </span>
+            <svg class="nav-group-chevron w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <div class="nav-group-items mt-1 flex flex-col gap-0.5">
+            <button type="button" data-tab="dashboard" class="nav-item active w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Admin Dashboard</button>
+            <button type="button" data-tab="view_reports" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Ad View Reports</button>
+            <button type="button" data-tab="revenue_reports" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Revenue Reports (BDT)</button>
+            <button type="button" data-tab="audit_logs" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Audit Logs</button>
+          </div>
+        </div>
+
+        <!-- Group 2: Direct Sponsor Campaigns -->
+        <div class="nav-group rounded-xl border border-slate-100 bg-slate-50/60 p-1.5" data-group="sponsors">
+          <button type="button" onclick="toggleNavGroup('sponsors')" aria-expanded="true"
+            class="nav-group-toggle w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider text-slate-600 hover:bg-white">
+            <span class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-teal-500"></span>
+              Direct Sponsor Ads
+            </span>
+            <svg class="nav-group-chevron w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <div class="nav-group-items mt-1 flex flex-col gap-0.5">
+            <button type="button" data-tab="advertisements" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">All Ads &amp; Direct Upload</button>
+            <button type="button" data-tab="active_ads" class="nav-item w-full flex items-center justify-between text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">
+              <span>Active Advertisements</span>
+              <span id="navBadgeActiveAds" class="hidden px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">0</span>
+            </button>
+            <button type="button" data-tab="pending_ads" class="nav-item w-full flex items-center justify-between text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">
+              <span>Pending Advertisements</span>
+              <span id="navBadgePendingAds" class="hidden px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">0</span>
+            </button>
+            <button type="button" data-tab="expired_ads" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Expired Advertisements</button>
+            <button type="button" data-tab="renewals" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Renewal Requests</button>
+            <button type="button" data-tab="about_us_ads" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">About Us &amp; Placement Settings</button>
+          </div>
+        </div>
+
+        <!-- Group 3: Advertisers & Billing -->
+        <div class="nav-group rounded-xl border border-slate-100 bg-slate-50/60 p-1.5" data-group="billing">
+          <button type="button" onclick="toggleNavGroup('billing')" aria-expanded="false"
+            class="nav-group-toggle w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider text-slate-600 hover:bg-white">
+            <span class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+              Advertisers &amp; Billing
+            </span>
+            <svg class="nav-group-chevron w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <div class="nav-group-items collapsed mt-1 flex flex-col gap-0.5">
+            <button type="button" data-tab="advertisers" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Advertiser Accounts</button>
+            <button type="button" data-tab="ad_packages" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Package Management</button>
+            <button type="button" data-tab="payments" class="nav-item w-full flex items-center justify-between text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">
+              <span>Payment Verification</span>
+              <span id="navBadgePayments" class="hidden px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700">0</span>
+            </button>
+            <button type="button" data-tab="payment_settings" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">bKash &amp; Nagad Settings</button>
+          </div>
+        </div>
+
+        <!-- Group 4: Online Ad Networks -->
+        <div class="nav-group rounded-xl border border-slate-100 bg-slate-50/60 p-1.5" data-group="networks">
+          <button type="button" onclick="toggleNavGroup('networks')" aria-expanded="false"
+            class="nav-group-toggle w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider text-slate-600 hover:bg-white">
+            <span class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+              Online Ad Networks
+            </span>
+            <svg class="nav-group-chevron w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <div class="nav-group-items collapsed mt-1 flex flex-col gap-0.5">
+            <button type="button" data-tab="ad_network" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Start.io + Unity Ads Setup</button>
+            <button type="button" data-tab="ad_revenue" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Network Ad Revenue (USD)</button>
+          </div>
+        </div>
+
+        <!-- Group 5: Doctor & Facility Directory -->
+        <div class="nav-group rounded-xl border border-slate-100 bg-slate-50/60 p-1.5" data-group="directory">
+          <button type="button" onclick="toggleNavGroup('directory')" aria-expanded="false"
+            class="nav-group-toggle w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider text-slate-600 hover:bg-white">
+            <span class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              Medical Directory
+            </span>
+            <svg class="nav-group-chevron w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <div class="nav-group-items collapsed mt-1 flex flex-col gap-0.5">
+            <button type="button" data-tab="doctors" class="nav-item w-full flex items-center justify-between text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">
+              <span>Doctors</span>
+              <span id="navBadgeDoctors" class="hidden px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-700">0</span>
+            </button>
+            <button type="button" data-tab="chambers" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Chambers &amp; Schedules</button>
+            <button type="button" data-tab="hospitals" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Hospitals</button>
+            <button type="button" data-tab="diagnostics" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Diagnostic Centers</button>
+            <button type="button" data-tab="specialties" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Specialties</button>
+            <button type="button" data-tab="locations" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Locations (64 Districts)</button>
+          </div>
+        </div>
+
+        <!-- Group 6: Communication & System -->
+        <div class="nav-group rounded-xl border border-slate-100 bg-slate-50/60 p-1.5" data-group="system">
+          <button type="button" onclick="toggleNavGroup('system')" aria-expanded="false"
+            class="nav-group-toggle w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider text-slate-600 hover:bg-white">
+            <span class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-slate-500"></span>
+              System &amp; Alerts
+            </span>
+            <svg class="nav-group-chevron w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <div class="nav-group-items collapsed mt-1 flex flex-col gap-0.5">
+            <button type="button" data-tab="notifications" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">App Notifications</button>
+            <button type="button" data-tab="settings" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Settings, Security &amp; CSV</button>
+          </div>
+        </div>
       </nav>
-      <div class="hidden lg:block p-3 border-t border-slate-100">
+
+      <div class="p-3 border-t border-slate-100 flex-shrink-0">
         <a href="advertiser.html" target="_blank" class="block text-center py-2 px-3 rounded-xl bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100 text-xs font-bold">
           Open Advertiser Portal &nearr;
         </a>
@@ -131,13 +280,13 @@
     </aside>
 
     <!-- Main Content -->
-    <main class="flex-1 p-4 lg:p-8 max-w-6xl w-full mx-auto">
+    <main class="flex-1 min-w-0 p-4 lg:p-8 max-w-6xl w-full mx-auto">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
-          <h2 id="pageTitle" class="text-2xl font-bold text-slate-900">Admin Dashboard</h2>
+          <h2 id="pageTitle" class="text-xl lg:text-2xl font-bold text-slate-900">Admin Dashboard</h2>
           <p id="syncStatus" class="text-xs text-slate-500">Syncing with Firebase Realtime Database...</p>
         </div>
-        <button onclick="loadAllData()" class="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold">
+        <button type="button" onclick="loadAllData()" class="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold">
           Refresh Cloud Data
         </button>
       </div>
@@ -383,10 +532,97 @@ function getAllAdminFacilities() {
   return { hospitals, diagnostics };
 }
 
-function switchTab(tabKey) {
-  document.querySelectorAll("#sidebarNav button").forEach(b => {
-    b.classList.toggle("active", b.dataset.tab === tabKey);
+function toggleNavGroup(groupId, forceExpand) {
+  const groupEl = document.querySelector(`#sidebarNav .nav-group[data-group="${groupId}"]`);
+  if (!groupEl) return;
+  const toggleBtn = groupEl.querySelector(".nav-group-toggle");
+  const itemsEl = groupEl.querySelector(".nav-group-items");
+  if (!toggleBtn || !itemsEl) return;
+  const currentlyExpanded = toggleBtn.getAttribute("aria-expanded") === "true";
+  const nextExpanded = typeof forceExpand === "boolean" ? forceExpand : !currentlyExpanded;
+  toggleBtn.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
+  itemsEl.classList.toggle("collapsed", !nextExpanded);
+}
+
+function openMobileMenu() {
+  const sidebar = document.getElementById("adminSidebar");
+  const backdrop = document.getElementById("mobileMenuBackdrop");
+  const btn = document.getElementById("mobileMenuBtn");
+  if (sidebar) {
+    sidebar.classList.remove("-translate-x-full");
+    sidebar.classList.add("translate-x-0");
+  }
+  if (backdrop) backdrop.classList.remove("hidden");
+  if (btn) btn.setAttribute("aria-expanded", "true");
+}
+
+function closeMobileMenu() {
+  const sidebar = document.getElementById("adminSidebar");
+  const backdrop = document.getElementById("mobileMenuBackdrop");
+  const btn = document.getElementById("mobileMenuBtn");
+  if (sidebar) {
+    sidebar.classList.add("-translate-x-full");
+    sidebar.classList.remove("translate-x-0");
+  }
+  if (backdrop) backdrop.classList.add("hidden");
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+
+function toggleMobileMenu() {
+  const sidebar = document.getElementById("adminSidebar");
+  if (!sidebar) return;
+  if (sidebar.classList.contains("-translate-x-full")) {
+    openMobileMenu();
+  } else {
+    closeMobileMenu();
+  }
+}
+
+function syncActiveNav(tabKey) {
+  let activeBtn = null;
+  document.querySelectorAll("#sidebarNav button[data-tab]").forEach(b => {
+    const isMatch = b.dataset.tab === tabKey;
+    b.classList.toggle("active", isMatch);
+    if (isMatch) activeBtn = b;
   });
+  if (activeBtn) {
+    const groupEl = activeBtn.closest(".nav-group");
+    if (groupEl && groupEl.dataset.group) {
+      toggleNavGroup(groupEl.dataset.group, true);
+    }
+  }
+  if (window.innerWidth < 1024) {
+    closeMobileMenu();
+  }
+}
+
+function updateNavBadges() {
+  const allAds = Object.values(dbState.sponsors || {});
+  const pendingAdsCount = allAds.filter(ad => {
+    const st = typeof computeAdStatus === "function" ? computeAdStatus(ad) : (ad.status || "");
+    return st === "PENDING_APPROVAL" || st === "PENDING_PAYMENT";
+  }).length;
+  const activeAdsCount = allAds.filter(ad => {
+    const st = typeof computeAdStatus === "function" ? computeAdStatus(ad) : (ad.status || "");
+    return st === "ACTIVE";
+  }).length;
+  const pendingPaymentsCount = Object.values(dbState.ad_payments || {}).filter(p => (p.status || "PENDING") === "PENDING").length;
+  const docsCount = Object.keys(dbState.doctors || {}).length;
+
+  const setBadge = (id, count) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = String(count);
+    el.classList.toggle("hidden", count <= 0);
+  };
+  setBadge("navBadgeActiveAds", activeAdsCount);
+  setBadge("navBadgePendingAds", pendingAdsCount);
+  setBadge("navBadgePayments", pendingPaymentsCount);
+  setBadge("navBadgeDoctors", docsCount);
+}
+
+function switchTab(tabKey) {
+  syncActiveNav(tabKey);
   activeTab = tabKey;
   editing = {};
   renderTab();
@@ -567,14 +803,14 @@ window.addEventListener("DOMContentLoaded", () => {
   initAdminAuthScreen();
 });
 
-document.querySelectorAll("#sidebarNav button").forEach(btn => {
+document.querySelectorAll("#sidebarNav button[data-tab]").forEach(btn => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll("#sidebarNav button").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    activeTab = btn.dataset.tab;
-    editing = {};
-    renderTab();
+    switchTab(btn.dataset.tab);
   });
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeMobileMenu();
 });
 
 function toast(msg) {
@@ -689,7 +925,11 @@ function renderTab() {
     notifications: "App Notifications",
     settings: "App Settings, Admin Security & CSV Export"
   };
-  document.getElementById("pageTitle").textContent = titles[activeTab] || "Admin";
+  const resolvedTitle = titles[activeTab] || "Admin";
+  document.getElementById("pageTitle").textContent = resolvedTitle;
+  const mobileBadge = document.getElementById("mobileActivePageBadge");
+  if (mobileBadge) mobileBadge.textContent = resolvedTitle;
+  updateNavBadges();
   const el = document.getElementById("tabContent");
   if (activeTab === "dashboard") el.innerHTML = renderDashboard();
   else if (activeTab === "advertisers") el.innerHTML = renderAdvertisers();
@@ -1840,12 +2080,7 @@ async function submitLocation(e) {
 
 // --- HYBRID AD NETWORK SETUP (ONLINE: Start.io + Unity Ads + Direct Sponsors | OFFLINE: Direct Sponsors ONLY) ---
 function openTabQuick(tabId) {
-  activeTab = tabId;
-  editing = {};
-  document.querySelectorAll("#sidebarNav button").forEach(b => {
-    b.classList.toggle("active", b.dataset.tab === tabId);
-  });
-  renderTab();
+  switchTab(tabId);
 }
 
 function getSponsorCampaignStatus(sp) {

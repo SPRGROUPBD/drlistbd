@@ -945,7 +945,11 @@ function renderAdvertisements(filterMode = "ALL") {
 }
 
 function switchTabKeepEdit(tabKey) {
-  document.querySelectorAll("#sidebarNav button").forEach(b => b.classList.toggle("active", b.dataset.tab === tabKey));
+  if (typeof syncActiveNav === "function") {
+    syncActiveNav(tabKey);
+  } else {
+    document.querySelectorAll("#sidebarNav button[data-tab]").forEach(b => b.classList.toggle("active", b.dataset.tab === tabKey));
+  }
   activeTab = tabKey;
   renderTab();
 }

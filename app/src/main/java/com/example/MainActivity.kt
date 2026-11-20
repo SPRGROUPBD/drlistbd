@@ -18,6 +18,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -30,6 +33,7 @@ import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
 import com.example.ui.ads.AppOpenSponsorPopupDialog
+import com.example.ui.ads.ConnectivityMonitor
 import com.example.ui.ads.HybridNetworkAdController
 import com.example.ui.ads.ManagedBannerAd
 import com.example.ui.ads.RewardedAdOutcome
@@ -105,6 +109,20 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
         if (isOnline && adConfig.adsEnabled) {
             HybridNetworkAdController.syncOnlineSdks(appContext, adConfig, isOnline = true)
         }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, adConfig, isOnline) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                ConnectivityMonitor.refreshNow(appContext)
+                if (isOnline && adConfig.adsEnabled) {
+                    HybridNetworkAdController.preloadRewardedForOnline(appContext, adConfig, isOnline = true)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // Direct Sponsor Popup Advertisement (Online + Offline cached; server-authoritative expiry)
@@ -191,7 +209,9 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
             when (outcome) {
                 RewardedAdOutcome.COMPLETED,
                 RewardedAdOutcome.FAILED_TO_SHOW -> {
-                    navController.navigate(Routes.doctorProfile(doctorId))
+                    navController.navigate(Routes.doctorProfile(doctorId)) {
+                        launchSingleTop = true
+                    }
                 }
                 RewardedAdOutcome.SKIPPED -> {
                     vm.showMessage(
@@ -245,28 +265,34 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                 handleRewardOutcome(act, targetDoctorId, outcome)
             }
             if (!shownAfterWait) {
-                navController.navigate(Routes.doctorProfile(targetDoctorId))
+                navController.navigate(Routes.doctorProfile(targetDoctorId)) {
+                    launchSingleTop = true
+                }
             }
         }
     }
 
     // Show online Rewarded Ad when clicking a doctor; open Doctor Profile upon reward completion
     val openDoctorProfile: (String) -> Unit = { doctorId ->
-        val act = appContext.findActivity()
-        val shouldShowReward = isOnline &&
-            adConfig.adsEnabled &&
-            adConfig.rewardedEnabled &&
-            HybridNetworkAdController.getOrderedNetworksForOnline(adConfig).isNotEmpty() &&
-            act != null
-        if (!shouldShowReward) {
-            navController.navigate(Routes.doctorProfile(doctorId))
-        } else {
-            val shownNow = HybridNetworkAdController.showOnlineRewardedIfReady(act!!, adConfig, isOnline = true) { outcome ->
-                handleRewardOutcome(act, doctorId, outcome)
-            }
-            if (!shownNow) {
-                HybridNetworkAdController.preloadRewardedForOnline(appContext, adConfig, isOnline = true)
-                pendingRewardDoctorId = doctorId
+        if (pendingRewardDoctorId == null) {
+            val act = appContext.findActivity()
+            val shouldShowReward = isOnline &&
+                adConfig.adsEnabled &&
+                adConfig.rewardedEnabled &&
+                HybridNetworkAdController.getOrderedNetworksForOnline(adConfig).isNotEmpty() &&
+                act != null
+            if (!shouldShowReward) {
+                navController.navigate(Routes.doctorProfile(doctorId)) {
+                    launchSingleTop = true
+                }
+            } else {
+                val shownNow = HybridNetworkAdController.showOnlineRewardedIfReady(act!!, adConfig, isOnline = true) { outcome ->
+                    handleRewardOutcome(act, doctorId, outcome)
+                }
+                if (!shownNow) {
+                    HybridNetworkAdController.preloadRewardedForOnline(appContext, adConfig, isOnline = true)
+                    pendingRewardDoctorId = doctorId
+                }
             }
         }
     }
@@ -356,8 +382,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                     }
                     if (showMainChrome && !isWideScreen) {
                         NavigationBar(
-                            containerColor = SurfaceWhite,
-                            modifier = Modifier.navigationBarsPadding()
+                            containerColor = SurfaceWhite
                         ) {
                             mainTabs.forEach { tab ->
                                 val selected = currentRoute == tab.route

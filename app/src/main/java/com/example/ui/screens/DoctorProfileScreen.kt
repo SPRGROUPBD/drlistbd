@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -39,6 +40,7 @@ import com.example.data.model.startMinutesOfDay
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
+import com.example.ui.ads.ManagedNativeBannerAd
 import com.example.ui.ads.NativeSponsorAdCard
 import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.ExternalImageAvatar
@@ -173,7 +175,15 @@ fun DoctorProfileScreen(
                                     putExtra(Intent.EXTRA_TEXT, shareText)
                                     type = "text/plain"
                                 }
-                                context.startActivity(Intent.createChooser(sendIntent, AppStrings.shareProfile(lang)))
+                                runCatching {
+                                    context.startActivity(Intent.createChooser(sendIntent, AppStrings.shareProfile(lang)))
+                                }.onFailure {
+                                    Toast.makeText(
+                                        context,
+                                        tr(lang, "শেয়ার করার অ্যাপ পাওয়া যায়নি", "No sharing app available"),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
                             },
                             modifier = Modifier.weight(1f)
                         ) {
@@ -210,6 +220,14 @@ fun DoctorProfileScreen(
                 onSponsorDisplayed = onSponsorDisplayed,
                 onSponsorClicked = onSponsorClicked
             )
+            if (isOnline && adConfig.nativeBannerEnabled) {
+                Spacer(Modifier.height(8.dp))
+                ManagedNativeBannerAd(
+                    adConfig = adConfig,
+                    isOnline = isOnline,
+                    refreshKey = "doc_profile_${doc.id}"
+                )
+            }
         }
 
         // Active Chambers & Weekly Schedules (Only Active Chambers are visible in the patient app)
@@ -298,8 +316,16 @@ fun DoctorProfileScreen(
                                 if (ch.serialPhone.isNotBlank()) {
                                     Button(
                                         onClick = {
-                                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${ch.serialPhone}"))
-                                            context.startActivity(intent)
+                                            runCatching {
+                                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${ch.serialPhone.trim()}"))
+                                                context.startActivity(intent)
+                                            }.onFailure {
+                                                Toast.makeText(
+                                                    context,
+                                                    tr(lang, "কল করার অ্যাপ পাওয়া যায়নি", "No phone dialer app available"),
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = MedicalTeal),
                                         modifier = Modifier.weight(1f)
@@ -312,8 +338,22 @@ fun DoctorProfileScreen(
                                 if (ch.googleMapsUrl.isNotBlank()) {
                                     OutlinedButton(
                                         onClick = {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(ch.googleMapsUrl))
-                                            context.startActivity(intent)
+                                            val rawUrl = ch.googleMapsUrl.trim()
+                                            val normalizedUrl = if (
+                                                rawUrl.startsWith("http://", ignoreCase = true) ||
+                                                rawUrl.startsWith("https://", ignoreCase = true) ||
+                                                rawUrl.startsWith("geo:", ignoreCase = true)
+                                            ) rawUrl else "https://$rawUrl"
+                                            runCatching {
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(normalizedUrl))
+                                                context.startActivity(intent)
+                                            }.onFailure {
+                                                Toast.makeText(
+                                                    context,
+                                                    tr(lang, "ম্যাপ খোলার অ্যাপ পাওয়া যায়নি", "Unable to open map link"),
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
                                         },
                                         modifier = Modifier.weight(1f)
                                     ) {

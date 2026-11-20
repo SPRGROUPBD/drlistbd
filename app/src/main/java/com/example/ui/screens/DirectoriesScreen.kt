@@ -1,7 +1,9 @@
 package com.example.ui.screens
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -126,9 +128,7 @@ fun DirectoriesScreen(
                                 isDemo = h.isDemoData,
                                 icon = Icons.Rounded.LocalHospital,
                                 lang = lang,
-                                onCall = {
-                                    context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${h.contactNumber}")))
-                                },
+                                onCall = { safeDialPhone(context, h.contactNumber, lang) },
                                 onViewDoctors = { onSelectFacility(h.nameEn.removePrefix("[DEMO] ")) }
                             )
                             if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(idx, adConfig.nativeSponsorInterval)) {
@@ -144,11 +144,12 @@ fun DirectoriesScreen(
                                     onSponsorDisplayed = onSponsorDisplayed,
                                     onSponsorClicked = onSponsorClicked
                                 )
-                            } else if (isOnline && adConfig.nativeBannerEnabled && idx == 2) {
+                            } else if (isOnline && adConfig.nativeBannerEnabled && idx == minOf(2, list.lastIndex)) {
                                 Spacer(Modifier.height(10.dp))
                                 ManagedNativeBannerAd(
                                     adConfig = adConfig,
-                                    isOnline = isOnline
+                                    isOnline = isOnline,
+                                    refreshKey = "fac_hosp_$idx"
                                 )
                             }
                         }
@@ -174,9 +175,7 @@ fun DirectoriesScreen(
                                 isDemo = dc.isDemoData,
                                 icon = Icons.Rounded.Biotech,
                                 lang = lang,
-                                onCall = {
-                                    context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${dc.contactNumber}")))
-                                },
+                                onCall = { safeDialPhone(context, dc.contactNumber, lang) },
                                 onViewDoctors = { onSelectFacility(dc.nameEn.removePrefix("[DEMO] ")) }
                             )
                             if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(idx, adConfig.nativeSponsorInterval)) {
@@ -192,11 +191,12 @@ fun DirectoriesScreen(
                                     onSponsorDisplayed = onSponsorDisplayed,
                                     onSponsorClicked = onSponsorClicked
                                 )
-                            } else if (isOnline && adConfig.nativeBannerEnabled && idx == 2) {
+                            } else if (isOnline && adConfig.nativeBannerEnabled && idx == minOf(2, list.lastIndex)) {
                                 Spacer(Modifier.height(10.dp))
                                 ManagedNativeBannerAd(
                                     adConfig = adConfig,
-                                    isOnline = isOnline
+                                    isOnline = isOnline,
+                                    refreshKey = "fac_diag_$idx"
                                 )
                             }
                         }
@@ -379,9 +379,7 @@ fun DirectoriesScreen(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.End
                                         ) {
-                                            TextButton(onClick = {
-                                                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${ch.serialPhone}")))
-                                            }) {
+                                            TextButton(onClick = { safeDialPhone(context, ch.serialPhone, lang) }) {
                                                 Icon(Icons.Rounded.Call, null, Modifier.size(16.dp))
                                                 Spacer(Modifier.width(4.dp))
                                                 Text(AppStrings.callForSerial(lang))
@@ -466,5 +464,19 @@ private fun FacilityCard(
                 }
             }
         }
+    }
+}
+
+private fun safeDialPhone(context: Context, phone: String, lang: AppLang) {
+    val clean = phone.trim()
+    if (clean.isEmpty()) return
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$clean")))
+    }.onFailure {
+        Toast.makeText(
+            context,
+            tr(lang, "কল করার অ্যাপ পাওয়া যায়নি", "No phone dialer app available"),
+            Toast.LENGTH_SHORT
+        ).show()
     }
 }

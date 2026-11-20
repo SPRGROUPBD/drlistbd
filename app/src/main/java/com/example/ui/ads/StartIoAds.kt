@@ -3,17 +3,25 @@ package com.example.ui.ads
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.graphics.Color as AndroidColor
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.text.TextUtils
 import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -34,6 +42,11 @@ import com.example.data.local.AdConfigEntity
 import com.startapp.sdk.ads.banner.Banner
 import com.startapp.sdk.ads.banner.BannerListener
 import com.startapp.sdk.ads.banner.Mrec
+import com.startapp.sdk.ads.nativead.NativeAdDetails
+import com.startapp.sdk.ads.nativead.NativeAdDisplayListener
+import com.startapp.sdk.ads.nativead.NativeAdInterface
+import com.startapp.sdk.ads.nativead.NativeAdPreferences
+import com.startapp.sdk.ads.nativead.StartAppNativeAd
 import com.startapp.sdk.adsbase.Ad
 import com.startapp.sdk.adsbase.StartAppAd
 import com.startapp.sdk.adsbase.StartAppSDK
@@ -357,10 +370,6 @@ internal tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
-/**
- * Online-ONLY Start.io + Unity Ads Banner with automatic failover between networks.
- * Strictly renders NOTHING (0dp) when offline so Offline Mode serves Custom Direct Sponsor Ads ONLY.
- */
 @Composable
 fun ManagedBannerAd(
     adConfig: AdConfigEntity,
@@ -369,18 +378,33 @@ fun ManagedBannerAd(
     modifier: Modifier = Modifier
 ) {
     if (!isOnline || !adConfig.adsEnabled || !adConfig.bannerEnabled) return
-    val ordered = remember(adConfig.activeNetwork, adConfig.unityGameId, adConfig.startIoAppId, adConfig.adsEnabled) {
+    val ordered = remember(
+        adConfig.activeNetwork,
+        adConfig.unityGameId,
+        adConfig.startIoAppId,
+        adConfig.adsEnabled,
+        adConfig.unityBannerPlacement
+    ) {
         HybridNetworkAdController.getOrderedNetworksForOnline(adConfig)
     }
     if (ordered.isEmpty()) return
 
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() } ?: return
-    var attemptIdx by remember(ordered, refreshKey) { mutableIntStateOf(0) }
-    var filled by remember(ordered, refreshKey) { mutableStateOf(false) }
+    var retryCycle by remember(ordered, refreshKey) { mutableIntStateOf(0) }
+    var attemptIdx by remember(ordered, refreshKey, retryCycle) { mutableIntStateOf(0) }
+    var filled by remember(ordered, refreshKey, retryCycle) { mutableStateOf(false) }
 
     LaunchedEffect(isOnline, adConfig.unityGameId, adConfig.startIoAppId, adConfig.testMode) {
         HybridNetworkAdController.syncOnlineSdks(context, adConfig, isOnline)
+    }
+
+    // Automatic cooldown recovery if initial cold-start request received NO FILL
+    LaunchedEffect(attemptIdx, ordered.size, isOnline, retryCycle) {
+        if (isOnline && attemptIdx >= ordered.size) {
+            delay(45_000L)
+            retryCycle++
+        }
     }
 
     if (attemptIdx >= ordered.size) return
@@ -392,7 +416,7 @@ fun ManagedBannerAd(
             .testTag("online_network_banner_${currentNet.lowercase()}"),
         contentAlignment = Alignment.Center
     ) {
-        key(currentNet, refreshKey) {
+        key(currentNet, refreshKey, retryCycle) {
             when (currentNet) {
                 "UNITY" -> {
                     UnityBannerViewSlot(
@@ -424,17 +448,18 @@ fun ManagedBannerAd(
 }
 
 /**
- * Online-ONLY Start.io (MREC/Banner) + Unity Ads in-feed Native Banner with automatic failover.
+ * Online-ONLY Start.io (Native Ad -> MREC -> Banner) + Unity Ads in-feed Native Banner with automatic failover.
  * Strictly renders NOTHING (0dp) when offline so Offline Mode serves Custom Direct Sponsor Ads ONLY.
  */
 @Composable
 fun ManagedNativeBannerAd(
     adConfig: AdConfigEntity,
     isOnline: Boolean,
+    refreshKey: String = "default",
     modifier: Modifier = Modifier
 ) {
     if (!isOnline || !adConfig.adsEnabled || !adConfig.nativeBannerEnabled) return
-    val ordered = remember(
+    val steps = remember(
         adConfig.activeNetwork,
         adConfig.unityGameId,
         adConfig.startIoAppId,
@@ -445,36 +470,70 @@ fun ManagedNativeBannerAd(
         val base = HybridNetworkAdController.getOrderedNetworksForOnline(adConfig)
         val bannerPid = adConfig.unityBannerPlacement.ifBlank { "Banner_Android" }
         val nativePid = adConfig.unityNativeBannerPlacement.ifBlank { bannerPid }
-        if (base.size > 1 && "STARTIO" in base && nativePid.equals(bannerPid, ignoreCase = true)) {
+        val prioritizeStartIo = base.size > 1 && "STARTIO" in base &&
+            (adConfig.activeNetwork.equals("BOTH_STARTIO_PRIMARY", ignoreCase = true) ||
+                nativePid.equals(bannerPid, ignoreCase = true))
+        val networkOrder = if (prioritizeStartIo) {
             listOf("STARTIO") + base.filter { it != "STARTIO" }
         } else {
             base
         }
+        buildList {
+            for (net in networkOrder) {
+                when (net) {
+                    "STARTIO" -> {
+                        add("STARTIO_NATIVE")
+                        add("STARTIO_MREC")
+                        add("STARTIO_BANNER")
+                    }
+                    "UNITY" -> add("UNITY_NATIVE")
+                }
+            }
+        }
     }
-    if (ordered.isEmpty()) return
+    if (steps.isEmpty()) return
 
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() } ?: return
-    var attemptIdx by remember(ordered) { mutableIntStateOf(0) }
-    var filled by remember(ordered) { mutableStateOf(false) }
+    var retryCycle by remember(steps, refreshKey) { mutableIntStateOf(0) }
+    var attemptIdx by remember(steps, refreshKey, retryCycle) { mutableIntStateOf(0) }
+    var filled by remember(steps, refreshKey, retryCycle) { mutableStateOf(false) }
 
     LaunchedEffect(isOnline, adConfig.unityGameId, adConfig.startIoAppId, adConfig.testMode) {
         HybridNetworkAdController.syncOnlineSdks(context, adConfig, isOnline)
     }
 
-    if (attemptIdx >= ordered.size) return
-    val currentNet = ordered[attemptIdx]
+    LaunchedEffect(attemptIdx, steps.size, isOnline, retryCycle) {
+        if (isOnline && attemptIdx >= steps.size) {
+            delay(45_000L)
+            retryCycle++
+        }
+    }
+
+    if (attemptIdx >= steps.size) return
+    val currentStep = steps[attemptIdx]
+    val netTag = if (currentStep.startsWith("STARTIO")) "startio" else "unity"
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = if (filled) 4.dp else 0.dp)
-            .testTag("online_network_native_${currentNet.lowercase()}"),
+            .testTag("online_network_native_$netTag"),
         contentAlignment = Alignment.Center
     ) {
-        key(currentNet) {
-            when (currentNet) {
-                "STARTIO" -> {
+        key(currentStep, refreshKey, retryCycle) {
+            when (currentStep) {
+                "STARTIO_NATIVE" -> {
+                    StartIoNativeAdSlot(
+                        activity = activity,
+                        adConfig = adConfig,
+                        onLoaded = { filled = true },
+                        onFailed = {
+                            if (!filled) attemptIdx++
+                        }
+                    )
+                }
+                "STARTIO_MREC" -> {
                     StartIoBannerViewSlot(
                         activity = activity,
                         adConfig = adConfig,
@@ -486,7 +545,19 @@ fun ManagedNativeBannerAd(
                         }
                     )
                 }
-                "UNITY" -> {
+                "STARTIO_BANNER" -> {
+                    StartIoBannerViewSlot(
+                        activity = activity,
+                        adConfig = adConfig,
+                        isMrec = false,
+                        formatKey = "native",
+                        onLoaded = { filled = true },
+                        onFailed = {
+                            if (!filled) attemptIdx++
+                        }
+                    )
+                }
+                "UNITY_NATIVE" -> {
                     UnityBannerViewSlot(
                         activity = activity,
                         adConfig = adConfig,
@@ -501,6 +572,218 @@ fun ManagedNativeBannerAd(
             }
         }
     }
+}
+
+@Composable
+private fun StartIoNativeAdSlot(
+    activity: Activity,
+    adConfig: AdConfigEntity,
+    onLoaded: () -> Unit,
+    onFailed: () -> Unit
+) {
+    var nativeDetails by remember { mutableStateOf<NativeAdDetails?>(null) }
+    var failedReported by remember { mutableStateOf(false) }
+    val latestOnLoaded by rememberUpdatedState(onLoaded)
+    val latestOnFailed by rememberUpdatedState(onFailed)
+
+    fun reportFail() {
+        if (!failedReported) {
+            failedReported = true
+            latestOnFailed()
+        }
+    }
+
+    LaunchedEffect(adConfig.startIoAppId, adConfig.testMode) {
+        if (!ConnectivityMonitor.isOnline.value) {
+            reportFail()
+            return@LaunchedEffect
+        }
+        StartIoAdManager.ensureInitialized(activity, adConfig)
+        AdRevenueTracker.trackNetworkRequest("startio", "native")
+        val nativeAd = StartAppNativeAd(activity.applicationContext)
+        val prefs = NativeAdPreferences()
+            .setAdsNumber(1)
+            .setAutoBitmapDownload(true)
+            .setPrimaryImageSize(4)
+            .setSecondaryImageSize(2)
+        runCatching {
+            nativeAd.loadAd(prefs, object : AdEventListener {
+                override fun onReceiveAd(ad: Ad) {
+                    val details = nativeAd.nativeAds?.firstOrNull()
+                    if (details != null) {
+                        nativeDetails = details
+                        AdRevenueTracker.trackNetworkLoad("startio", "native")
+                        latestOnLoaded()
+                    } else {
+                        AdRevenueTracker.trackNetworkError("startio", "native")
+                        reportFail()
+                    }
+                }
+
+                override fun onFailedToReceiveAd(ad: Ad?) {
+                    AdRevenueTracker.trackNetworkError("startio", "native")
+                    reportFail()
+                }
+            })
+        }.onFailure {
+            reportFail()
+        }
+        delay(9000L)
+        if (nativeDetails == null && !failedReported) {
+            reportFail()
+        }
+    }
+
+    DisposableEffect(nativeDetails) {
+        onDispose {
+            runCatching { nativeDetails?.unregisterView() }
+        }
+    }
+
+    val details = nativeDetails ?: return
+
+    AndroidView(
+        factory = { ctx ->
+            val density = ctx.resources.displayMetrics.density
+            fun dp(v: Int): Int = (v * density).toInt()
+
+            LinearLayout(ctx).apply {
+                id = R.id.startio_native_container
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                background = GradientDrawable().apply {
+                    setColor(AndroidColor.WHITE)
+                    cornerRadius = dp(16).toFloat()
+                    setStroke(dp(1), AndroidColor.parseColor("#CBD5E1"))
+                }
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                    override fun onViewAttachedToWindow(v: View) = ensureAncestorViewIds(v)
+                    override fun onViewDetachedFromWindow(v: View) = Unit
+                })
+
+                val topRow = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+
+                val iconBmp = details.secondaryImageBitmap ?: details.imageBitmap
+                if (iconBmp != null) {
+                    val iconView = ImageView(ctx).apply {
+                        setImageBitmap(iconBmp)
+                        scaleType = ImageView.ScaleType.CENTER_CROP
+                        layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply {
+                            marginEnd = dp(10)
+                        }
+                    }
+                    topRow.addView(iconView)
+                }
+
+                val titleCol = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }
+
+                val badgeAndCat = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                val adBadge = TextView(ctx).apply {
+                    text = "Ad"
+                    textSize = 10f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(AndroidColor.parseColor("#0369A1"))
+                    setPadding(dp(6), dp(1), dp(6), dp(1))
+                    background = GradientDrawable().apply {
+                        setColor(AndroidColor.parseColor("#E0F2FE"))
+                        cornerRadius = dp(6).toFloat()
+                    }
+                }
+                badgeAndCat.addView(adBadge)
+                if (!details.category.isNullOrBlank()) {
+                    val catText = TextView(ctx).apply {
+                        text = " • ${details.category}"
+                        textSize = 11f
+                        setTextColor(AndroidColor.parseColor("#64748B"))
+                    }
+                    badgeAndCat.addView(catText)
+                }
+                titleCol.addView(badgeAndCat)
+
+                val titleTv = TextView(ctx).apply {
+                    text = details.title.orEmpty()
+                    textSize = 14f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(AndroidColor.parseColor("#0F172A"))
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                }
+                titleCol.addView(titleTv)
+                topRow.addView(titleCol)
+
+                val ctaBtn = TextView(ctx).apply {
+                    text = details.callToAction.orEmpty().ifBlank { "Open" }
+                    textSize = 12f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(AndroidColor.WHITE)
+                    setPadding(dp(14), dp(8), dp(14), dp(8))
+                    background = GradientDrawable().apply {
+                        setColor(AndroidColor.parseColor("#0284C7"))
+                        cornerRadius = dp(999).toFloat()
+                    }
+                }
+                topRow.addView(ctaBtn)
+                addView(topRow)
+
+                if (!details.description.isNullOrBlank()) {
+                    val descTv = TextView(ctx).apply {
+                        text = details.description
+                        textSize = 12f
+                        setTextColor(AndroidColor.parseColor("#475569"))
+                        maxLines = 2
+                        ellipsize = TextUtils.TruncateAt.END
+                        setPadding(0, dp(8), 0, 0)
+                    }
+                    addView(descTv)
+                }
+
+                if (details.imageBitmap != null && details.imageBitmap != iconBmp) {
+                    val mainImg = ImageView(ctx).apply {
+                        setImageBitmap(details.imageBitmap)
+                        scaleType = ImageView.ScaleType.CENTER_CROP
+                        layoutParams = LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            dp(140)
+                        ).apply {
+                            topMargin = dp(8)
+                        }
+                    }
+                    addView(mainImg)
+                }
+
+                details.registerViewForInteraction(
+                    this,
+                    listOf(this, ctaBtn),
+                    object : NativeAdDisplayListener {
+                        override fun adHidden(adInterface: NativeAdInterface?) = Unit
+                        override fun adDisplayed(adInterface: NativeAdInterface?) {
+                            AdRevenueTracker.trackNetworkImpression("startio", "native")
+                        }
+                        override fun adClicked(adInterface: NativeAdInterface?) {
+                            AdRevenueTracker.trackNetworkClick("startio", "native")
+                        }
+                        override fun adNotDisplayed(adInterface: NativeAdInterface?) {
+                            AdRevenueTracker.trackNetworkError("startio", "native")
+                        }
+                    }
+                )
+            }
+        },
+        modifier = Modifier.fillMaxWidth()
+    )
 }
 
 @Composable
@@ -531,14 +814,20 @@ private fun StartIoBannerViewSlot(
         }
     }
 
+    val targetWidthDp = if (isMrec) 300 else 320
+    val targetHeightDp = if (isMrec) 250 else 50
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (isMrec) 252.dp else 52.dp)
+            .height((targetHeightDp + 2).dp)
             .clipToBounds()
     ) {
         AndroidView(
             factory = { ctx ->
+                val density = ctx.resources.displayMetrics.density
+                val wPx = (targetWidthDp * density).toInt().coerceAtLeast(1)
+                val hPx = (targetHeightDp * density).toInt().coerceAtLeast(1)
                 FrameLayout(ctx).apply {
                     id = R.id.startio_banner_container
                     val listener = object : BannerListener {
@@ -574,11 +863,7 @@ private fun StartIoBannerViewSlot(
                         runCatching {
                             val adView: View = if (isMrec) Mrec(activity, listener) else Banner(activity, listener)
                             adView.id = R.id.startio_banner_view
-                            val params = FrameLayout.LayoutParams(
-                                ViewGroup.LayoutParams.WRAP_CONTENT,
-                                ViewGroup.LayoutParams.WRAP_CONTENT,
-                                Gravity.CENTER
-                            )
+                            val params = FrameLayout.LayoutParams(wPx, hPx, Gravity.CENTER)
                             addView(adView, params)
                         }.onFailure {
                             reportFailed()
@@ -590,7 +875,7 @@ private fun StartIoBannerViewSlot(
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .requiredHeight(if (isMrec) 250.dp else 50.dp)
+                .requiredHeight(targetHeightDp.dp)
         )
     }
 }

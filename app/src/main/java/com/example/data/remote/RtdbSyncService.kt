@@ -301,17 +301,17 @@ object RtdbSyncService {
                         rewardedEnabled = adCfgObj?.optBoolean("rewardedEnabled", true) ?: true,
                         nativeAdInterval = (adCfgObj?.optInt("nativeAdInterval", 5) ?: 5).coerceIn(3, 12),
                         appOpenCooldownSeconds = (adCfgObj?.optInt("appOpenCooldownSeconds", 120) ?: 120).coerceIn(15, 3600),
-                        unityGameId = adCfgObj?.optString("unityGameId", "")?.trim().orEmpty(),
-                        unityBannerPlacement = adCfgObj?.optString("unityBannerPlacement", "Banner_Android")
-                            ?.ifBlank { "Banner_Android" } ?: "Banner_Android",
-                        unityAppOpenPlacement = adCfgObj?.optString("unityAppOpenPlacement", "Interstitial_Android")
-                            ?.ifBlank { "Interstitial_Android" } ?: "Interstitial_Android",
-                        unityNativeBannerPlacement = adCfgObj?.optString("unityNativeBannerPlacement", "Banner_Android")
-                            ?.ifBlank { "Banner_Android" } ?: "Banner_Android",
-                        unityRewardedPlacement = adCfgObj?.optString("unityRewardedPlacement", "Rewarded_Android")
-                            ?.ifBlank { "Rewarded_Android" } ?: "Rewarded_Android",
-                        startIoAppId = adCfgObj?.optString("startIoAppId", "210630916")
-                            ?.ifBlank { "210630916" } ?: "210630916",
+                        unityGameId = cleanOptString(adCfgObj, "unityGameId", ""),
+                        unityBannerPlacement = cleanOptString(adCfgObj, "unityBannerPlacement", "Banner_Android")
+                            .ifBlank { "Banner_Android" },
+                        unityAppOpenPlacement = cleanOptString(adCfgObj, "unityAppOpenPlacement", "Interstitial_Android")
+                            .ifBlank { "Interstitial_Android" },
+                        unityNativeBannerPlacement = cleanOptString(adCfgObj, "unityNativeBannerPlacement", "Banner_Android")
+                            .ifBlank { "Banner_Android" },
+                        unityRewardedPlacement = cleanOptString(adCfgObj, "unityRewardedPlacement", "Rewarded_Android")
+                            .ifBlank { "Rewarded_Android" },
+                        startIoAppId = cleanOptString(adCfgObj, "startIoAppId", "210630916")
+                            .ifBlank { "210630916" },
                         sponsorBannerEnabled = adCfgObj?.optBoolean("sponsorBannerEnabled", true) ?: true,
                         appOpenPopupEnabled = adCfgObj?.optBoolean("appOpenPopupEnabled", true) ?: true,
                         appOpenPopupFrequency = adCfgObj?.optString("appOpenPopupFrequency", SponsorCampaignSelector.FREQ_EVERY_LAUNCH)
@@ -504,6 +504,12 @@ object RtdbSyncService {
         OutputStreamWriter(conn.outputStream).use { it.write(payload) }
         conn.responseCode
         conn.disconnect()
+    }
+
+    private fun cleanOptString(obj: JSONObject?, key: String, fallback: String = ""): String {
+        if (obj == null || !obj.has(key) || obj.isNull(key)) return fallback
+        val v = obj.optString(key, fallback).trim()
+        return if (v.equals("null", ignoreCase = true)) fallback else v
     }
 
     private fun <T> parseMap(obj: JSONObject, mapper: (String, JSONObject) -> T): List<T> {

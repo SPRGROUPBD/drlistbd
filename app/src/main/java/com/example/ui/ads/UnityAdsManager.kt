@@ -295,13 +295,16 @@ internal fun UnityBannerViewSlot(
     var loadRequested by remember(placementId) { mutableStateOf(false) }
     var failedReported by remember(placementId) { mutableStateOf(false) }
 
+    val density = activity.resources.displayMetrics.density
     val bannerRef = remember(activity, placementId) {
+        val widthPx = (320 * density).toInt().coerceAtLeast(1)
+        val heightPx = (50 * density).toInt().coerceAtLeast(1)
         runCatching {
             BannerView(activity, placementId, UnityBannerSize(320, 50)).apply {
                 id = R.id.unity_banner_view
                 layoutParams = FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    widthPx,
+                    heightPx,
                     Gravity.CENTER
                 )
                 listener = object : BannerView.IListener {
@@ -378,7 +381,10 @@ internal fun UnityBannerViewSlot(
 
     DisposableEffect(bannerRef) {
         onDispose {
-            runCatching { bannerRef?.destroy() }
+            runCatching {
+                (bannerRef?.parent as? ViewGroup)?.removeView(bannerRef)
+                bannerRef?.destroy()
+            }
         }
     }
 

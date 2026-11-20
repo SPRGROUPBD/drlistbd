@@ -133,14 +133,21 @@ object ConnectivityMonitor {
 
         scope.launch {
             val wasOnline = _isOnline.value
-            val reachable = if (!hasValidatedTransport(cm)) {
+            val hasTransport = hasValidatedTransport(cm)
+            var reachable = if (!hasTransport) {
                 false
             } else {
                 probeActualInternet()
             }
+            if (!reachable && hasTransport) {
+                kotlinx.coroutines.delay(4000L)
+                if (hasValidatedTransport(cm)) {
+                    reachable = probeActualInternet()
+                }
+            }
             setOnlineState(reachable)
             Log.d(TAG, "Verified internet reachability: online=$reachable (wasOnline=$wasOnline)")
-            if (reachable && !wasOnline && triggerReconnect) {
+            if (reachable && (!wasOnline || force) && triggerReconnect) {
                 onReconnect?.invoke()
             }
         }

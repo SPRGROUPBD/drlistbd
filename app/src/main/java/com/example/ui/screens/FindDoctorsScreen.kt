@@ -226,8 +226,12 @@ fun FindDoctorsScreen(
                         onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
                         onClick = { onDoctorClick(doc.doctor.id) }
                     )
+                    val showSponsorHere = SponsorCampaignSelector.shouldInsertNativeSponsorAfter(
+                        index,
+                        adConfig.nativeSponsorInterval
+                    )
                     // 1. Native Sponsor Ad Card every configured 4/5/6 cards (works Online + Offline)
-                    if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(index, adConfig.nativeSponsorInterval)) {
+                    if (showSponsorHere) {
                         val slot = index / adConfig.nativeSponsorInterval.coerceIn(4, 6)
                         Spacer(Modifier.height(10.dp))
                         NativeSponsorAdCard(
@@ -241,12 +245,20 @@ fun FindDoctorsScreen(
                             onSponsorDisplayed = onSponsorDisplayed,
                             onSponsorClicked = onSponsorClicked
                         )
-                    } else if (isOnline && adConfig.nativeBannerEnabled && (index + 1) % adConfig.nativeAdInterval.coerceIn(4, 8) == 2) {
-                        // 2. Online-ONLY Start.io / Unity Native Banner (auto-disabled offline)
+                    }
+                    // 2. Online-ONLY Start.io / Unity Native Banner (shown after 1st/2nd doctor and periodically)
+                    val interval = adConfig.nativeAdInterval.coerceIn(4, 8)
+                    val firstNativeIdx = minOf(1, pagedDoctors.lastIndex)
+                    val shouldShowNetworkNativeHere = isOnline && adConfig.nativeBannerEnabled && (
+                        index == firstNativeIdx ||
+                            (index > firstNativeIdx && (index + 1) % interval == 2 && !showSponsorHere)
+                        )
+                    if (shouldShowNetworkNativeHere) {
                         Spacer(Modifier.height(10.dp))
                         ManagedNativeBannerAd(
                             adConfig = adConfig,
-                            isOnline = isOnline
+                            isOnline = isOnline,
+                            refreshKey = "find_doc_$index"
                         )
                     }
                 }

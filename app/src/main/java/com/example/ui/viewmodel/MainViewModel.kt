@@ -240,6 +240,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshDirectory() {
         viewModelScope.launch {
             _isSyncing.value = true
+            ConnectivityMonitor.refreshNow(getApplication())
             repo.syncFromAdminCloud()
                 .onSuccess { count ->
                     showMessage(

@@ -21,7 +21,14 @@
     @android.webkit.JavascriptInterface <methods>;
 }
 
-# 4. Serializable & Reflection Safety
+# 4. Google Advertising ID & Coroutines (for Start.io & Unity release builds)
+-keep class com.google.android.gms.ads.identifier.** { *; }
+-dontwarn com.google.android.gms.ads.identifier.**
+-keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
+-keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
+-dontwarn java.lang.invoke.StringConcatFactory
+
+# 5. Serializable & Reflection Safety
 -keepclassmembers class * implements java.io.Serializable {
     static long serialVersionUID;
     private static final java.io.ObjectStreamField[] serialPersistentFields;
