@@ -84,6 +84,23 @@ jobs:
       - name: Ensure Secrets Gradle Plugin environment file exists
         run: touch .env
 
+      # This project explicitly points debugConfig at the standard local debug keystore.
+      # CI runners are clean machines, so create the standard DEBUG-only key when absent.
+      # It is never used for Release signing or Play Store updates.
+      - name: Create standard Debug keystore when missing
+        run: |
+          set -euo pipefail
+          if [[ ! -s debug.keystore ]]; then
+            keytool -genkeypair -v \\
+              -keystore debug.keystore \\
+              -storepass android \\
+              -alias androiddebugkey \\
+              -keypass android \\
+              -dname \"CN=Android Debug,O=Android,C=US\" \\
+              -keyalg RSA -keysize 2048 -validity 10000
+          fi
+          keytool -list -keystore debug.keystore -storepass android -alias androiddebugkey >/dev/null
+
       - name: Build signed Release APK
         if: steps.signing.outputs.configured == 'true'
         run: gradle :app:assembleRelease --no-daemon --stacktrace
