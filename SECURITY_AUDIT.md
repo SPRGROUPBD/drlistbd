@@ -20,6 +20,18 @@ In `database.rules.json`, `/directory/.write` is set to `true`. This grants unau
 
 **Why this branch does not change the production rules:** the Admin Panel currently uses a browser-side password hash stored at `/directory/admin_auth/config` and a `sessionStorage` flag. It does not establish a Firebase Auth identity. The Android app also reads directory data and posts installation/analytics events through unauthenticated RTDB REST calls. Tightening rules before migrating these clients would break existing Admin and app functionality.
 
+### Critical — Public directory read exposes non-public business and user data
+
+Because `.read: true` is granted at `/directory`, the Android client and any unauthenticated internet client can download the entire directory tree, not just approved doctor listings. The tree includes advertiser account records (mobile/email/address and password hashes), advertiser submissions and payment records, sponsor campaign data, Admin configuration, analytics, and potentially patient appointment/report submissions. Password hashes are not safe to expose: the advertiser service uses a fast SHA-256 construction that can be brute-forced offline if copied. The Android `RtdbSyncService` requests `/directory.json` as a whole rather than fetching only public collections. This creates unnecessary data disclosure and oversized sync responses.
+
+**Required remediation:** split public directory content from private/admin/account/payment/patient nodes; fetch only the public allowlisted paths in Android; move advertiser authentication and payment/account access behind Firebase Auth rules or a trusted backend; never return password hashes to public clients. Treat existing exposed hashes and user data as potentially disclosed and plan credential resets/incident review.
+
+### Critical — Public appointment/report writes permit spam and expose patient details
+
+The Android app submits appointment requests containing patient name, phone, doctor/chamber and notes, and doctor reports. With the ancestor `/directory/.write: true`, these endpoints have no authenticated ownership or rate-limit boundary. This allows automated spam and unauthorized edits/deletions, and makes submitted patient details publicly readable under the ancestor read grant.
+
+**Required remediation:** use authenticated, narrowly scoped writes; separate private appointment/report data from public directory records; validate ownership and payload shape server-side; add App Check/rate limiting or a trusted API for abuse-sensitive submissions.
+
 ### High — Admin Panel login is not database authorization
 
 The login check in the browser verifies an ID and SHA-256 password hash, then sets `sessionStorage`. Firebase RTDB never receives an authenticated principal, so Security Rules cannot distinguish an administrator from an ordinary visitor. A client-side session flag is not an authorization boundary.
@@ -31,6 +43,12 @@ The login check in the browser verifies an ID and SHA-256 password hash, then se
 The original APK workflow generated a release keystore with a fixed password whenever GitHub signing secrets were absent. This is unsafe and can also produce an APK that cannot update an already-published app signed with the original upload key.
 
 **Change made on this branch:** release APKs now require the owner's persistent keystore and all three GitHub Actions secrets (`KEYSTORE_BASE64`, `STORE_PASSWORD`, `KEY_PASSWORD`). On ordinary branch/PR builds, the workflow can still build and upload a Debug APK when these secrets are not configured. Version-tag builds fail clearly if persistent signing secrets are missing. The key alias expected by the existing Gradle signing configuration is `upload`.
+
+### High — Advertiser login is also client-side SHA-256 authentication
+
+The advertiser portal and Android `AdvertiserRemoteService` read advertiser records directly from the public RTDB tree and compare a salted SHA-256 hash in client code. The salt/hash are therefore retrievable by any visitor while public read remains enabled; the hash is not a server-side login boundary. Advertiser ownership checks performed by the client do not protect database records from direct REST access.
+
+**Required remediation:** migrate advertiser accounts to Firebase Authentication or a trusted backend, enforce advertiser UID ownership in rules, keep password hashes out of readable RTDB paths, and migrate existing accounts with a forced password reset or secure account linking flow.
 
 ### High — app-ads.txt is incomplete
 
@@ -66,4 +84,5 @@ The source currently declares the Start.io, Unity Ads, and Wortise Android SDK d
 ## Branch changes
 
 - `.github/workflows/build-apk.yml`: removed predictable release-key fallback; release signing now requires persistent owner-provided secrets; debug builds remain possible without release secrets.
+- Added a CI-only standard Debug keystore generation step because the project explicitly points debugConfig at an ignored local `debug.keystore`; this does not touch Release signing.
 - No production Firebase rules, ad IDs, publisher IDs, app data, or existing ad integrations were changed.
