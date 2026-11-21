@@ -2,7 +2,7 @@ name: Build Doctor List BD APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, "audit/**" ]
     tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build-apk:
-    name: Build Release & Debug APKs
+    name: Build Debug APK and (when configured) signed Release APK
     runs-on: ubuntu-latest
 
     steps:
@@ -26,86 +26,76 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Accept Android SDK licenses & install required SDK packages
+      - name: Install required Android SDK packages
         run: |
+          set -euo pipefail
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          echo "Using sdkmanager at: $SDKMANAGER"
-          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0" || true
-          "$SDKMANAGER" "platforms;android-36.1" || true
+          test -x "$SDKMANAGER" || { echo "::error::Android sdkmanager not found at $SDKMANAGER"; exit 1; }
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          "$SDKMANAGER" "platform-tools" "platforms;android-36" "platforms;android-36.1" "build-tools;36.0.0"
 
-      - name: Set up Gradle 9.3.1
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '9.3.1'
 
-      - name: Prepare Debug & Release Signing Keystores
+      # Never generate a predictable or throwaway release key. A new random key
+      # cannot update an app signed by the previous key, so release builds require
+      # the owner's persistent upload keystore in GitHub Actions Secrets.
+      - name: Configure persistent release signing (optional for non-release builds)
+        id: signing
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           SECRET_STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           SECRET_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          # 1. Debug keystore (decode committed debug.keystore.base64 or generate fallback)
-          if [ ! -f debug.keystore ]; then
-            if [ -f debug.keystore.base64 ]; then
-              base64 -d debug.keystore.base64 > debug.keystore
-            else
-              keytool -genkeypair -v \
-                -keystore debug.keystore \
-                -storepass android \
-                -alias androiddebugkey \
-                -keypass android \
-                -keyalg RSA \
-                -keysize 2048 \
-                -validity 10000 \
-                -dname "CN=Android Debug,O=Android,C=US"
+          set -euo pipefail
+          if [[ -z "$KEYSTORE_BASE64" && -z "$SECRET_STORE_PASSWORD" && -z "$SECRET_KEY_PASSWORD" ]]; then
+            if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+              echo "::error::A version tag requires the persistent KEYSTORE_BASE64, STORE_PASSWORD and KEY_PASSWORD secrets."
+              exit 1
             fi
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Release APK skipped: persistent signing secrets are not configured. Debug APK will still be built."
+            exit 0
           fi
 
-          # 2. Release upload keystore (uses GitHub Secrets if configured; otherwise generates a valid signing key)
-          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$SECRET_STORE_PASSWORD" ] && [ -n "$SECRET_KEY_PASSWORD" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
-            echo "KEYSTORE_PATH=${GITHUB_WORKSPACE}/my-upload-key.jks" >> "$GITHUB_ENV"
-            echo "STORE_PASSWORD=${SECRET_STORE_PASSWORD}" >> "$GITHUB_ENV"
-            echo "KEY_PASSWORD=${SECRET_KEY_PASSWORD}" >> "$GITHUB_ENV"
-            echo "Using production upload keystore from GitHub Secrets."
-          else
-            FALLBACK_PASS="DoctorListBD2026"
-            keytool -genkeypair -v \
-              -keystore my-upload-key.jks \
-              -storepass "$FALLBACK_PASS" \
-              -alias upload \
-              -keypass "$FALLBACK_PASS" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Doctor List BD,OU=Mobile,O=DoctorListBD,L=Dhaka,ST=Dhaka,C=BD"
-            echo "KEYSTORE_PATH=${GITHUB_WORKSPACE}/my-upload-key.jks" >> "$GITHUB_ENV"
-            echo "STORE_PASSWORD=${FALLBACK_PASS}" >> "$GITHUB_ENV"
-            echo "KEY_PASSWORD=${FALLBACK_PASS}" >> "$GITHUB_ENV"
-            echo "Generated signing keystore for release APK build (add KEYSTORE_BASE64, STORE_PASSWORD, KEY_PASSWORD secrets for Play Store uploads)."
+          if [[ -z "$KEYSTORE_BASE64" || -z "$SECRET_STORE_PASSWORD" || -z "$SECRET_KEY_PASSWORD" ]]; then
+            echo "::error::Configure all three release signing secrets together."
+            exit 1
           fi
 
-          # 3. Ensure .env file exists for Secrets Gradle Plugin
-          touch .env
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > my-upload-key.jks
+          test -s my-upload-key.jks
+          keytool -list -keystore my-upload-key.jks -storepass "$SECRET_STORE_PASSWORD" -alias upload >/dev/null
+          echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> "$GITHUB_ENV"
+          echo "STORE_PASSWORD=$SECRET_STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "KEY_PASSWORD=$SECRET_KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "configured=true" >> "$GITHUB_OUTPUT"
 
-      - name: Build Signed Release APK
-        run: |
-          gradle :app:assembleRelease --no-daemon --stacktrace
+      - name: Ensure Secrets Gradle Plugin environment file exists
+        run: touch .env
+
+      - name: Build signed Release APK
+        if: steps.signing.outputs.configured == 'true'
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
 
       - name: Build Debug APK
-        run: |
-          gradle :app:assembleDebug --no-daemon --stacktrace
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
 
       - name: Prepare APK Outputs
         run: |
+          set -euo pipefail
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk dist/Doctor-List-BD-release.apk
           cp app/build/outputs/apk/debug/app-debug.apk dist/Doctor-List-BD-debug.apk
+          if [[ "${{ steps.signing.outputs.configured }}" == "true" ]]; then
+            cp app/build/outputs/apk/release/app-release.apk dist/Doctor-List-BD-release.apk
+          fi
           ls -lh dist/
 
       - name: Upload Release APK Artifact
+        if: steps.signing.outputs.configured == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: Doctor-List-BD-Release-APK
@@ -120,7 +110,7 @@ jobs:
           retention-days: 14
 
       - name: Publish GitHub Release on Version Tag
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && steps.signing.outputs.configured == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -129,9 +119,14 @@ jobs:
           generate_release_notes: true
 
       - name: Build Summary
+        if: always()
         run: |
-          echo "### Doctor List BD — APK Build Complete" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **App Name:** Doctor List BD" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Package Name:** \`com.doctorlist.bd\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Ad Networks:** Unity Ads SDK v4.14.1 + Start.io App ID \`210630916\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Artifacts:** \`Doctor-List-BD-release.apk\` & \`Doctor-List-BD-debug.apk\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Doctor List BD — APK Build Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Package Name:** `com.doctorlist.bd`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Ad SDK dependencies preserved:** Unity Ads, Start.io and Wortise" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Debug APK:** built on successful workflow runs" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${{ steps.signing.outputs.configured }}" == "true" ]]; then
+            echo "- **Release APK:** signed with the persistent upload keystore" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- **Release APK:** skipped because persistent signing secrets are not configured" >> "$GITHUB_STEP_SUMMARY"
+          fi
