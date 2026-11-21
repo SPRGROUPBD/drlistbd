@@ -64,6 +64,12 @@ The manifest sets `android:usesCleartextTraffic="true"`. This permits cleartext 
 
 The manifest sets `android:allowBackup="true"`. Review the backup/data-extraction rules and ensure no credentials, admin session data, tokens, or private app state are included in device/cloud backups. The app already stores its installation identity in a no-backup preference file; keep that behavior.
 
+### Review — Sponsor package total does not match the requested daily-rate formula
+
+The current advertiser portal calculates the payable total as `priceBdt` only (`calculateFixedPackageTotal` ignores `durationDays`) and labels the amount as a fixed total. For packages configured with a per-day fixed rate and a duration in days, this does not implement the requested formula `Total Package Price = Fixed Rate × Duration in Days`. For example, a ৳300 daily rate for 30 days currently displays/requests ৳300 rather than ৳9,000. The Admin package model and Android advertiser flow should be checked together before changing this calculation so existing saved package prices are not reinterpreted unexpectedly.
+
+**Required remediation:** confirm that `priceBdt` represents a per-day rate, then apply the same rate × duration formula consistently in Admin package setup, advertiser web portal, Android advertiser service, payment submission, renewal, and reporting. Add unit tests for 1-day, 30-day, and custom-duration packages.
+
 ### Review — Release shrinking is disabled
 
 The release build currently has `isMinifyEnabled = false`. This is not a confirmed functional defect. Enable R8 only after adding/validating keep rules for Room, Compose, Start.io, Unity Ads, Wortise, and any reflection/serialization code, then run release smoke tests. Blindly enabling shrinking could break SDK callbacks or database mapping.
