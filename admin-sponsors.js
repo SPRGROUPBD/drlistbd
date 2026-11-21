@@ -5,14 +5,37 @@
 // ============================================================================
 
 const PLACEMENT_TYPES = [
-  { key: "BANNER_300x200", label: "300×200 Banner", w: 300, h: 200 },
-  { key: "BANNER_320x100", label: "320×100 Banner", w: 320, h: 100 },
-  { key: "BANNER_728x90", label: "728×90 Leaderboard Banner", w: 728, h: 90 },
-  { key: "BANNER_CUSTOM", label: "Custom-Size Banner", w: 300, h: 200 },
-  { key: "SPONSORED_NATIVE_CARD", label: "Sponsored Native Card", w: 320, h: 180 },
-  { key: "POPUP_AD", label: "Popup Advertisement", w: 320, h: 200 },
-  { key: "ABOUT_US_SPONSOR", label: "About Us Page Sponsor Section", w: 300, h: 200 },
-  { key: "ALL", label: "All Placements (Universal)", w: 300, h: 200 }
+  { key: "BANNER_300x50", label: "Banner All Screen (300×50 px)", w: 300, h: 50, adType: "BANNER", sizeLabel: "300×50 px", adPlacement: "ALL" },
+  { key: "BANNER_300x200", label: "Native Banner All Screen (300×200 px)", w: 300, h: 200, adType: "NATIVE_BANNER", sizeLabel: "300×200 px", adPlacement: "ALL" },
+  { key: "POPUP_AD", label: "Popup App Open (Responsive)", w: 320, h: 200, adType: "POPUP", sizeLabel: "Responsive", adPlacement: "APP_OPEN" },
+  { key: "REWARD_VIDEO_DOCTOR_CLICK", label: "Reward Video – Doctor Click (Video)", w: 360, h: 200, adType: "REWARD_VIDEO", sizeLabel: "Video", adPlacement: "DOCTOR_CLICK" },
+  { key: "BANNER_320x100", label: "Large Banner (320×100 px)", w: 320, h: 100, adType: "BANNER", sizeLabel: "320×100 px", adPlacement: "ALL" },
+  { key: "SPONSORED_NATIVE_CARD", label: "Sponsored Native Card", w: 320, h: 180, adType: "NATIVE_BANNER", sizeLabel: "Responsive", adPlacement: "ALL" },
+  { key: "ABOUT_US_SPONSOR", label: "About Us Page Sponsor Section", w: 300, h: 200, adType: "NATIVE_BANNER", sizeLabel: "300×200 px", adPlacement: "ABOUT_US" },
+  { key: "BANNER_CUSTOM", label: "Custom-Size Banner", w: 300, h: 200, adType: "BANNER", sizeLabel: "Custom", adPlacement: "ALL" },
+  { key: "ALL", label: "All Placements (Universal)", w: 300, h: 200, adType: "BANNER", sizeLabel: "Responsive", adPlacement: "ALL" }
+];
+
+const PACKAGE_AD_TYPES = [
+  { key: "BANNER", label: "Banner Ad" },
+  { key: "NATIVE_BANNER", label: "Native Banner" },
+  { key: "POPUP", label: "Popup App Open" },
+  { key: "REWARD_VIDEO", label: "Reward Video" },
+  { key: "SPONSOR_CARD", label: "Sponsor Card" }
+];
+
+const PACKAGE_PLACEMENTS = [
+  { key: "ALL", label: "All Screens" },
+  { key: "APP_OPEN", label: "App Open (Popup)" },
+  { key: "DOCTOR_CLICK", label: "Doctor Click (Reward Video)" },
+  { key: "HOME", label: "Home Screen" },
+  { key: "DOCTOR_LIST", label: "Doctor List" },
+  { key: "DOCTOR_DETAILS", label: "Doctor Details" },
+  { key: "HOSPITAL_LIST", label: "Hospital List" },
+  { key: "DIAGNOSTIC_LIST", label: "Diagnostic Center List" },
+  { key: "SPECIALIST", label: "Medical Specialist" },
+  { key: "CHAMBER_SCHEDULE", label: "Chamber Schedule" },
+  { key: "ABOUT_US", label: "About Us Page" }
 ];
 
 const AD_SIZE_FORMATS = [
@@ -274,9 +297,9 @@ function placementLabel(key) {
 }
 
 function getEffectiveAdStatus(sp, nowMs = Date.now()) {
-  if (!sp) return "PENDING_APPROVAL";
+  if (!sp) return "PENDING";
   const raw = String(sp.status || (sp.isActive === false ? "PAUSED" : "ACTIVE")).toUpperCase();
-  if (raw === "REJECTED" || raw === "PAUSED" || raw === "PENDING_PAYMENT" || raw === "PENDING_APPROVAL" || raw === "EXPIRED") {
+  if (["REJECTED", "PAUSED", "PENDING", "PAYMENT_PENDING", "PENDING_PAYMENT", "PENDING_APPROVAL", "EXPIRED", "CANCELLED"].includes(raw)) {
     return raw;
   }
   const expiryAt = Number(sp.expiryAt || 0);
@@ -310,10 +333,13 @@ function statusBadgeHtml(status) {
     ACTIVE: "bg-emerald-100 text-emerald-800 border-emerald-200",
     VERIFIED: "bg-emerald-100 text-emerald-800 border-emerald-200",
     PENDING: "bg-amber-100 text-amber-800 border-amber-200",
+    PAYMENT_PENDING: "bg-amber-100 text-amber-800 border-amber-200",
     PENDING_PAYMENT: "bg-amber-100 text-amber-800 border-amber-200",
     PENDING_APPROVAL: "bg-amber-100 text-amber-800 border-amber-200",
     PAUSED: "bg-slate-200 text-slate-700 border-slate-300",
+    INACTIVE: "bg-slate-200 text-slate-700 border-slate-300",
     DISABLED: "bg-slate-200 text-slate-700 border-slate-300",
+    CANCELLED: "bg-slate-200 text-slate-600 border-slate-300",
     SUSPENDED: "bg-rose-100 text-rose-800 border-rose-200",
     EXPIRED: "bg-orange-100 text-orange-800 border-orange-200",
     REJECTED: "bg-rose-100 text-rose-800 border-rose-200"
@@ -402,9 +428,10 @@ function getSponsorArrays() {
 function computeDirectSponsorMetrics() {
   const { allAds, allPayments, allPackages, allAdvertisers } = getSponsorArrays();
   const activeAds = allAds.filter(a => a.effectiveStatus === "ACTIVE");
-  const pendingAds = allAds.filter(a => a.effectiveStatus === "PENDING_APPROVAL" || a.effectiveStatus === "PENDING_PAYMENT");
+  const pendingAds = allAds.filter(a => ["PENDING", "PAYMENT_PENDING", "PENDING_APPROVAL", "PENDING_PAYMENT"].includes(a.effectiveStatus));
   const expiredAds = allAds.filter(a => a.effectiveStatus === "EXPIRED");
   const renewalAds = allAds.filter(a => Boolean(a.renewalOfAdId));
+  const activePackagesCount = allPackages.filter(pk => String(pk.status || "ACTIVE").toUpperCase() === "ACTIVE").length;
 
   const pendingPayments = allPayments.filter(p => String(p.status || "").toUpperCase() === "PENDING");
   const verifiedPayments = allPayments.filter(p => String(p.status || "").toUpperCase() === "VERIFIED");
@@ -414,6 +441,8 @@ function computeDirectSponsorMetrics() {
   const bkashRevenueBdt = verifiedPayments.filter(p => String(p.paymentMethod || "").toUpperCase() === "BKASH")
     .reduce((sum, p) => sum + Number(p.amountBdt || 0), 0);
   const nagadRevenueBdt = verifiedPayments.filter(p => String(p.paymentMethod || "").toUpperCase() === "NAGAD")
+    .reduce((sum, p) => sum + Number(p.amountBdt || 0), 0);
+  const rocketRevenueBdt = verifiedPayments.filter(p => String(p.paymentMethod || "").toUpperCase() === "ROCKET")
     .reduce((sum, p) => sum + Number(p.amountBdt || 0), 0);
 
   // View analytics from /directory/ad_analytics
@@ -550,8 +579,8 @@ function computeDirectSponsorMetrics() {
   return {
     allAds, activeAds, pendingAds, expiredAds, renewalAds,
     allPayments, pendingPayments, verifiedPayments, rejectedPayments,
-    allPackages, allAdvertisers,
-    verifiedRevenueBdt, monthlyRevenueBdt, bkashRevenueBdt, nagadRevenueBdt,
+    allPackages, activePackagesCount, allAdvertisers,
+    verifiedRevenueBdt, monthlyRevenueBdt, bkashRevenueBdt, nagadRevenueBdt, rocketRevenueBdt,
     totalImpressions, totalUniqueViews, totalClicks, totalOfflineSynced,
     adStatsMap, dailyRows, pkgNode,
     rateCards, totalSlots, usedSlots, availableSlots,
@@ -560,85 +589,73 @@ function computeDirectSponsorMetrics() {
 }
 
 // ============================================================================
-// MODULE 1: ADMIN DASHBOARD (Direct Sponsor + Rate Card Metrics + Directory)
+// MODULE 1: ADMIN DASHBOARD (Direct Sponsor Package Management + Directory)
 // ============================================================================
 function renderDashboard() {
   const m = computeDirectSponsorMetrics();
   const docs = Object.values(dbState.doctors || {});
   const chambers = Object.values(dbState.chambers || {});
   const activeChambers = chambers.filter(c => c.isActive !== false).length;
-
-  const topRevPlacements = [...m.placementStats]
-    .filter(p => p.revenueBdt > 0 || p.bookingsCount > 0 || p.usedSlots > 0)
-    .sort((a, b) => (b.revenueBdt - a.revenueBdt) || (b.bookingsCount - a.bookingsCount))
-    .slice(0, 8);
-  const modRevEntries = Object.entries(m.moduleRevenue || {}).sort((a, b) => b[1] - a[1]);
+  const recentApplications = [...m.allAds].slice(0, 8);
 
   return `
-    <!-- Hero Direct Sponsor Monetization Banner -->
+    <!-- Hero Direct Sponsor Package Dashboard -->
     <div class="bg-gradient-to-r from-slate-900 via-sky-900 to-teal-900 text-white p-6 rounded-3xl shadow-sm mb-6">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div>
           <div class="flex flex-wrap items-center gap-2 mb-1">
-            <span class="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[11px] font-bold">Direct Sponsor + Rate Card Engine</span>
-            <span class="px-2.5 py-0.5 rounded-full bg-white/10 text-sky-100 text-[11px] font-semibold">Start.io + Unity Ads (Online) &bull; Direct Sponsors (Online &amp; Offline)</span>
+            <span class="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[11px] font-bold">Direct Sponsor Package System</span>
+            <span class="px-2.5 py-0.5 rounded-full bg-white/10 text-sky-100 text-[11px] font-semibold">Online: Start.io + Unity Ads + Direct Sponsors &bull; Offline: Cached Direct Sponsors Only</span>
           </div>
-          <h3 class="text-xl font-bold">Placement Revenue, Ad Slots &amp; Booking Analytics</h3>
+          <h3 class="text-xl font-bold">Direct Sponsor Package Dashboard</h3>
         </div>
         <div class="flex flex-wrap gap-2">
-          <button onclick="switchTab('rate_cards')" class="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold shadow">
-            Manage Rate Cards &rarr;
+          <button onclick="switchTab('ad_packages')" class="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold shadow">
+            Manage Packages &rarr;
+          </button>
+          <button onclick="switchTab('payments')" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow">
+            Verify Payments (${m.pendingPayments.length})
           </button>
           <button onclick="switchTab('advertisements')" class="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold shadow">
             + Direct Upload Ad
           </button>
           <a href="advertiser.html" target="_blank" class="px-4 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-semibold">
-            Advertiser Portal &nearr;
+            Sponsor Booking Page &nearr;
           </a>
         </div>
       </div>
 
-      <!-- Core 8 Placement & Sponsor Metrics -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('payments')">
-          <div class="text-xs text-sky-200 font-semibold">Total Bookings</div>
-          <div class="text-2xl font-extrabold mt-1">${m.allPayments.length}</div>
-          <div class="text-[11px] text-sky-100 mt-0.5">${m.verifiedPayments.length} verified &bull; ${m.allAds.length} total campaigns</div>
+      <!-- Required 6 Core Sponsor Package KPIs -->
+      <div class="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('ad_packages')">
+          <div class="text-xs text-sky-200 font-semibold">Total Packages</div>
+          <div class="text-2xl font-extrabold mt-1">${m.allPackages.length}</div>
+          <div class="text-[11px] text-sky-100 mt-0.5">${m.activePackagesCount} active &bull; Fixed Package Rate only</div>
         </div>
-        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('active_ads')">
-          <div class="text-xs text-emerald-200 font-semibold">Active Ads</div>
-          <div class="text-2xl font-extrabold mt-1">${m.activeAds.length}</div>
-          <div class="text-[11px] text-emerald-100 mt-0.5">Live on mobile screens now</div>
+        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('advertisements')">
+          <div class="text-xs text-cyan-200 font-semibold">Total Sponsor Requests</div>
+          <div class="text-2xl font-extrabold mt-1">${m.allAds.length}</div>
+          <div class="text-[11px] text-sky-100 mt-0.5">${m.allPayments.length} payment submissions</div>
         </div>
         <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('pending_ads')">
-          <div class="text-xs text-amber-200 font-semibold">Pending Approval</div>
-          <div class="text-2xl font-extrabold mt-1">${m.pendingAds.length} <span class="text-xs font-normal text-amber-100">(${m.pendingPayments.length} pay)</span></div>
-          <div class="text-[11px] text-amber-100 mt-0.5">Awaiting TrxID verification</div>
+          <div class="text-xs text-amber-200 font-semibold">Pending Requests</div>
+          <div class="text-2xl font-extrabold mt-1">${m.pendingAds.length}</div>
+          <div class="text-[11px] text-amber-100 mt-0.5">${m.pendingPayments.length} awaiting payment verification</div>
+        </div>
+        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('active_ads')">
+          <div class="text-xs text-emerald-200 font-semibold">Active Campaigns</div>
+          <div class="text-2xl font-extrabold mt-1">${m.activeAds.length}</div>
+          <div class="text-[11px] text-emerald-100 mt-0.5">Live online &amp; cached offline</div>
         </div>
         <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('expired_ads')">
-          <div class="text-xs text-orange-200 font-semibold">Expired Ads</div>
+          <div class="text-xs text-orange-200 font-semibold">Expired Campaigns</div>
           <div class="text-2xl font-extrabold mt-1">${m.expiredAds.length}</div>
-          <div class="text-[11px] text-orange-100 mt-0.5">${m.renewalAds.length} renewal(s)</div>
+          <div class="text-[11px] text-orange-100 mt-0.5">Auto-removed from active placements</div>
         </div>
-        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('revenue_reports')">
-          <div class="text-xs text-emerald-200 font-semibold">Monthly Sponsor Revenue (30d)</div>
-          <div class="text-2xl font-extrabold mt-1">&#2547;${m.monthlyRevenueBdt.toLocaleString()}</div>
-          <div class="text-[11px] text-sky-100 mt-0.5">All-time: &#2547;${m.verifiedRevenueBdt.toLocaleString()}</div>
-        </div>
-        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('rate_cards')">
-          <div class="text-xs text-teal-200 font-semibold">Available Ad Slots</div>
-          <div class="text-2xl font-extrabold mt-1">${m.availableSlots} <span class="text-sm font-normal text-sky-200">/ ${m.totalSlots}</span></div>
-          <div class="text-[11px] text-sky-100 mt-0.5">${m.usedSlots} occupied across ${m.rateCards.length} placements</div>
-        </div>
-        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('rate_cards')">
-          <div class="text-xs text-indigo-200 font-semibold">Most Popular Placement</div>
-          <div class="text-lg font-extrabold mt-1 truncate">${esc(m.mostPopularPlacement ? m.mostPopularPlacement.placementId : "—")}</div>
-          <div class="text-[11px] text-sky-100 mt-0.5 truncate">${esc(m.mostPopularPlacement ? `${m.mostPopularPlacement.name} (${m.mostPopularPlacement.bookingsCount} orders)` : "No bookings yet")}</div>
-        </div>
-        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('view_reports')">
-          <div class="text-xs text-sky-200 font-semibold">Total Impressions</div>
-          <div class="text-2xl font-extrabold mt-1">${m.totalImpressions.toLocaleString()}</div>
-          <div class="text-[11px] text-sky-100 mt-0.5">${m.totalUniqueViews.toLocaleString()} unique &bull; ${m.totalClicks} clicks</div>
+        <div class="p-4 rounded-2xl bg-white/10 border border-white/15 cursor-pointer hover:bg-white/15" onclick="switchTab('payments')">
+          <div class="text-xs text-emerald-200 font-semibold">Total Sponsor Package Sales</div>
+          <div class="text-2xl font-extrabold mt-1">&#2547;${m.verifiedRevenueBdt.toLocaleString()}</div>
+          <div class="text-[11px] text-sky-100 mt-0.5">bKash &#2547;${m.bkashRevenueBdt.toLocaleString()} &bull; Nagad &#2547;${m.nagadRevenueBdt.toLocaleString()} &bull; Rocket &#2547;${m.rocketRevenueBdt.toLocaleString()}</div>
         </div>
       </div>
     </div>
@@ -646,7 +663,7 @@ function renderDashboard() {
     ${m.pendingPayments.length > 0 ? `
       <div class="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-300 flex flex-wrap items-center justify-between gap-3">
         <div class="text-sm text-amber-900">
-          <strong>Action Required:</strong> You have <strong>${m.pendingPayments.length}</strong> manual bKash/Nagad payment(s) waiting for Admin verification.
+          <strong>Action Required:</strong> You have <strong>${m.pendingPayments.length}</strong> manual bKash / Nagad / Rocket payment(s) waiting for Admin verification.
         </div>
         <button onclick="switchTab('payments')" class="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold">
           Verify Payments Now &rarr;
@@ -654,57 +671,62 @@ function renderDashboard() {
       </div>
     ` : ""}
 
-    <!-- Placement-wise & Module-wise Revenue Breakdown -->
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-        <div class="flex items-center justify-between mb-3">
-          <h4 class="font-bold text-slate-900 text-base">Placement-Wise Revenue &amp; Slot Occupancy</h4>
-          <button onclick="switchTab('rate_cards')" class="text-xs font-bold text-sky-700 hover:underline">All 37+ Placements &rarr;</button>
+    <!-- Recent Sponsor Applications & Quick Controls -->
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-6">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <h4 class="font-bold text-slate-900 text-base">Recent Sponsor Applications (${recentApplications.length})</h4>
+          <p class="text-xs text-slate-500">Latest package requests submitted via the Mobile App or Website</p>
         </div>
-        ${topRevPlacements.length === 0 ? `
-          <div class="text-xs text-slate-400 p-4 rounded-xl bg-slate-50 border border-dashed border-slate-200">No placement bookings recorded yet. All ${m.totalSlots} slots across ${m.rateCards.length} placements are ready for advertisers.</div>
-        ` : `
-          <div class="space-y-2">
-            ${topRevPlacements.map(p => `
-              <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
-                <div>
-                  <span class="px-2 py-0.5 rounded bg-sky-900 text-white font-bold text-[10px] mr-1.5">${esc(p.placementId)}</span>
-                  <strong class="text-slate-900">${esc(p.name)}</strong>
-                  <span class="text-slate-500 ml-1">(${p.usedSlots}/${p.maxSlots} slots &bull; ${p.bookingsCount} orders)</span>
-                </div>
-                <strong class="text-emerald-700 text-sm">&#2547;${p.revenueBdt.toLocaleString()}</strong>
-              </div>
-            `).join("")}
-          </div>
-        `}
-      </div>
-
-      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-        <div class="flex items-center justify-between mb-3">
-          <h4 class="font-bold text-slate-900 text-base">Module-Wise Revenue (Verified BDT)</h4>
-          <button onclick="switchTab('revenue_reports')" class="text-xs font-bold text-sky-700 hover:underline">Full Reports &rarr;</button>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="switchTab('payment_settings')" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold">Payment Numbers</button>
+          <button onclick="switchTab('rate_cards')" class="px-3 py-1.5 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-semibold">Placement Display Settings</button>
+          <button onclick="switchTab('advertisements')" class="px-3 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-bold">View All Campaigns &rarr;</button>
         </div>
-        ${modRevEntries.length === 0 ? `
-          <div class="text-xs text-slate-400 p-4 rounded-xl bg-slate-50 border border-dashed border-slate-200">No verified module revenue yet.</div>
-        ` : `
-          <div class="space-y-2.5">
-            ${modRevEntries.map(([mod, amt]) => {
-              const pct = m.verifiedRevenueBdt > 0 ? Math.min(100, Math.round((amt / m.verifiedRevenueBdt) * 100)) : 0;
-              return `
-                <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-                  <div class="flex items-center justify-between mb-1">
-                    <strong class="text-slate-900">${esc(MODULE_LABELS[mod] || mod)}</strong>
-                    <strong class="text-teal-800">&#2547;${amt.toLocaleString()} (${pct}%)</strong>
-                  </div>
-                  <div class="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
-                    <div class="h-full bg-teal-600 rounded-full" style="width:${pct}%"></div>
-                  </div>
-                </div>
-              `;
-            }).join("")}
-          </div>
-        `}
       </div>
+      ${recentApplications.length === 0 ? `
+        <div class="p-6 text-center rounded-xl bg-slate-50 border border-dashed border-slate-200 text-xs text-slate-500">
+          No sponsor applications yet. Add packages in <strong>Sponsor Packages</strong> so businesses can start booking.
+        </div>
+      ` : `
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-left border-collapse">
+            <thead>
+              <tr class="border-b border-slate-200 text-slate-500 uppercase">
+                <th class="py-2.5 px-3">Business &amp; Title</th>
+                <th class="py-2.5 px-3">Package</th>
+                <th class="py-2.5 px-3">Fixed Price</th>
+                <th class="py-2.5 px-3">Duration / Expiry</th>
+                <th class="py-2.5 px-3">Status</th>
+                <th class="py-2.5 px-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              ${recentApplications.map(ad => `
+                <tr class="hover:bg-slate-50">
+                  <td class="py-2.5 px-3">
+                    <div class="font-bold text-slate-900">${esc(ad.name)}</div>
+                    <div class="text-slate-500">${esc(ad.promoTitle || "—")}${ad.contactPersonName ? ` &bull; ${esc(ad.contactPersonName)}` : ""}</div>
+                  </td>
+                  <td class="py-2.5 px-3">
+                    <div class="font-semibold text-sky-900">${esc(ad.packageName || placementLabel(ad.placementType))}</div>
+                    <div class="text-[11px] text-slate-500">${esc(ad.adPlacement || ad.targetPages || "ALL")}</div>
+                  </td>
+                  <td class="py-2.5 px-3 font-extrabold text-emerald-700">&#2547;${Number(ad.priceBdt || 0).toLocaleString()}</td>
+                  <td class="py-2.5 px-3">
+                    <div>${ad.durationDays || 30} Days</div>
+                    <div class="text-[11px] text-slate-500">${ad.expiryAt > 0 && ad.expiryAt < Number.MAX_SAFE_INTEGER ? `Exp: ${formatDateOnly(ad.expiryAt)}` : "Not started"}</div>
+                  </td>
+                  <td class="py-2.5 px-3">${statusBadgeHtml(ad.effectiveStatus)}</td>
+                  <td class="py-2.5 px-3 text-right">
+                    <button onclick="editing.ad='${esc(ad.id)}';switchTabKeepEdit('advertisements')" class="px-2.5 py-1 rounded-lg bg-sky-100 text-sky-800 font-semibold hover:bg-sky-200">Manage</button>
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `}
     </div>
 
     <!-- Doctor Directory KPIs -->
@@ -826,7 +848,7 @@ async function deleteAdvertiser(advId) {
 }
 
 // ============================================================================
-// MODULE 3: DYNAMIC ADVERTISEMENT PACKAGE MANAGEMENT
+// MODULE 3: DIRECT SPONSOR ADVERTISEMENT PACKAGE MANAGEMENT (FIXED RATE ONLY)
 // ============================================================================
 function renderAdPackages() {
   const { allPackages } = getSponsorArrays();
@@ -837,92 +859,128 @@ function renderAdPackages() {
       <div class="xl:col-span-5 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div class="flex items-center justify-between mb-4">
           <div>
-            <h3 class="font-bold text-base text-sky-900">${pk ? "Edit Advertising Package" : "Create Dynamic Ad Package"}</h3>
-            <p class="text-xs text-slate-500">All prices, pixel dimensions &amp; durations are 100% dynamic — never hardcoded.</p>
+            <h3 class="font-bold text-base text-sky-900">${pk ? "Edit Sponsor Package" : "Create Sponsor Package"}</h3>
+            <p class="text-xs text-slate-500">Only active packages created here appear in the Mobile App &amp; Website for purchase.</p>
           </div>
           ${pk ? `<button type="button" onclick="editing={};renderTab()" class="text-xs font-semibold text-slate-500">Cancel</button>` : ""}
         </div>
 
-        <form onsubmit="submitAdPackage(event)" class="space-y-3.5">
+        <div class="p-3 mb-4 rounded-xl bg-teal-50 border border-teal-200 text-xs text-teal-900">
+          <strong>Fixed Package Pricing Rule:</strong> Total Package Price = <strong>Fixed Package Rate</strong>. Never multiplied by duration days. Duration only controls campaign expiry.
+        </div>
+
+        <form onsubmit="submitAdPackage(event)" class="space-y-3">
           <input type="hidden" id="pkg_id" value="${esc(pk?.id || "")}" />
           <div>
             <label class="block text-xs font-semibold text-slate-700 mb-1">Package Name *</label>
-            <input id="pkg_name" required value="${esc(pk?.name || "")}" placeholder="e.g. Standard 300x200 Monthly Banner" class="input bg-white" />
+            <input id="pkg_name" required value="${esc(pk?.name || "")}" placeholder="e.g. Banner All Screen" class="input bg-white" />
           </div>
-          <div>
-            <label class="block text-xs font-semibold text-slate-700 mb-1">Placement Type *</label>
-            <select id="pkg_placement" onchange="onPkgPlacementChange(this.value)" class="input bg-white">
-              ${PLACEMENT_TYPES.map(p => `<option value="${p.key}" ${(pk?.placementType || "BANNER_300x200") === p.key ? "selected" : ""}>${p.label}</option>`).join("")}
-            </select>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Format Preset *</label>
+              <select id="pkg_placement" onchange="onPkgPlacementChange(this.value)" class="input bg-white text-xs">
+                ${PLACEMENT_TYPES.map(p => `<option value="${p.key}" ${(pk?.placementType || "BANNER_300x50") === p.key ? "selected" : ""}>${p.label}</option>`).join("")}
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Advertisement Type *</label>
+              <select id="pkg_ad_type" class="input bg-white text-xs">
+                ${PACKAGE_AD_TYPES.map(t => `<option value="${t.key}" ${(pk?.adType || "BANNER") === t.key ? "selected" : ""}>${t.label}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Advertisement Size Label *</label>
+              <input id="pkg_size_label" required value="${esc(pk?.sizeLabel || "300×50 px")}" placeholder="300×50 px / Responsive / Video" class="input bg-white text-xs" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Advertisement Placement *</label>
+              <select id="pkg_ad_placement" class="input bg-white text-xs">
+                ${PACKAGE_PLACEMENTS.map(pl => `<option value="${pl.key}" ${(pk?.adPlacement || "ALL") === pl.key ? "selected" : ""}>${pl.label}</option>`).join("")}
+              </select>
+            </div>
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Width (px) *</label>
-              <input id="pkg_w" type="number" min="100" max="2000" required value="${esc(pk?.widthPx || 300)}" class="input bg-white" />
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Width (px)</label>
+              <input id="pkg_w" type="number" min="0" max="2000" value="${esc(pk?.widthPx ?? 300)}" class="input bg-white text-xs" />
             </div>
             <div>
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Height (px) *</label>
-              <input id="pkg_h" type="number" min="50" max="2000" required value="${esc(pk?.heightPx || 200)}" class="input bg-white" />
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Height (px)</label>
+              <input id="pkg_h" type="number" min="0" max="2000" value="${esc(pk?.heightPx ?? 50)}" class="input bg-white text-xs" />
             </div>
           </div>
           <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Fixed Package Rate (BDT &#2547;) *</label>
+              <input id="pkg_price" type="number" min="0" required value="${esc(pk?.priceBdt ?? 200)}" class="input bg-white font-bold" />
+            </div>
             <div>
               <label class="block text-xs font-semibold text-slate-700 mb-1">Duration (Days) *</label>
               <input id="pkg_days" type="number" min="1" max="3650" required value="${esc(pk?.durationDays || 30)}" class="input bg-white" />
             </div>
-            <div>
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Price (BDT &#2547;) *</label>
-              <input id="pkg_price" type="number" min="0" required value="${esc(pk?.priceBdt ?? 300)}" class="input bg-white" />
-            </div>
           </div>
           <div>
-            <label class="block text-xs font-semibold text-slate-700 mb-1">Description (Optional)</label>
-            <textarea id="pkg_desc" rows="2" placeholder="Explain visibility benefits for advertisers..." class="input bg-white">${esc(pk?.description || "")}</textarea>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Package Description</label>
+            <textarea id="pkg_desc" rows="2" placeholder="Describe ad placement & campaign benefits..." class="input bg-white">${esc(pk?.description || "")}</textarea>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Optional Package Image (HTTPS URL or Upload)</label>
+            <input id="pkg_image_url" value="${esc(pk?.packageImageUrl || "")}" placeholder="https://.../package-preview.jpg" class="input bg-white text-xs mb-1.5" />
+            <input type="file" accept="image/png,image/jpeg,image/webp" onchange="handleValidatedAdImageUpload(event, 'pkg_image_url')" class="text-[11px] text-slate-600 w-full" />
           </div>
           <div>
             <label class="block text-xs font-semibold text-slate-700 mb-1">Package Status *</label>
             <select id="pkg_status" class="input bg-white">
-              <option value="ACTIVE" ${(pk?.status || "ACTIVE") === "ACTIVE" ? "selected" : ""}>ACTIVE (Visible to Advertisers)</option>
-              <option value="DISABLED" ${pk?.status === "DISABLED" ? "selected" : ""}>DISABLED (Hidden)</option>
+              <option value="ACTIVE" ${(pk?.status || "ACTIVE") === "ACTIVE" ? "selected" : ""}>ACTIVE (Visible &amp; Purchasable)</option>
+              <option value="INACTIVE" ${pk?.status === "INACTIVE" || pk?.status === "DISABLED" ? "selected" : ""}>INACTIVE (Hidden from Sponsors)</option>
             </select>
           </div>
           <button type="submit" class="w-full py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm">
-            ${pk ? "Update Package" : "Create Advertising Package"}
+            ${pk ? "Update Package" : "Create Sponsor Package"}
           </button>
         </form>
       </div>
 
       <div class="xl:col-span-7 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
-          <h3 class="font-bold text-base text-slate-900">Configured Advertising Packages (${allPackages.length})</h3>
+          <div>
+            <h3 class="font-bold text-base text-slate-900">Sponsor Advertisement Packages (${allPackages.length})</h3>
+            <p class="text-xs text-slate-500">Create, edit, duplicate, activate/deactivate, or delete unlimited packages.</p>
+          </div>
           <button type="button" onclick="seedStarterPackages()" class="px-3 py-1.5 rounded-lg bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100 text-xs font-bold">
-            + Add Sample Starter Packages
+            + Load 4 Default Demo Packages
           </button>
         </div>
         ${allPackages.length === 0 ? `
           <div class="p-8 text-center rounded-2xl bg-slate-50 border border-dashed border-slate-300 text-sm text-slate-500">
-            No packages created yet. Create your first dynamic package on the left (e.g. 300×200 px, 30 days, &#2547;300).
+            No packages created yet. Click <strong>+ Load 4 Default Demo Packages</strong> or create a package on the left.
           </div>
         ` : `
           <div class="space-y-3">
             ${allPackages.map(item => `
               <div class="p-4 rounded-2xl border border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <strong class="text-sm text-slate-900">${esc(item.name)}</strong>
-                    ${statusBadgeHtml(item.status || "ACTIVE")}
-                  </div>
-                  <div class="text-xs text-sky-800 font-semibold mt-1">
-                    ${esc(item.widthPx)}&times;${esc(item.heightPx)} px &bull; ${esc(item.durationDays)} Days &bull; &#2547;${Number(item.priceBdt || 0).toLocaleString()} BDT
-                  </div>
-                  <div class="text-[11px] text-slate-500 mt-0.5">
-                    Placement: ${esc(placementLabel(item.placementType))}${item.description ? " &bull; " + esc(item.description) : ""}
+                <div class="flex items-start gap-3">
+                  ${isValidSponsorImageSrc(item.packageImageUrl) ? `<img src="${esc(item.packageImageUrl)}" class="w-16 h-12 rounded-xl object-cover border border-slate-200 flex-shrink-0" alt="" />` : ""}
+                  <div>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <strong class="text-sm text-slate-900">${esc(item.name)}</strong>
+                      ${statusBadgeHtml(item.status || "ACTIVE")}
+                    </div>
+                    <div class="text-xs text-sky-900 font-bold mt-1">
+                      &#2547;${Number(item.priceBdt || 0).toLocaleString()} Fixed Rate &bull; ${esc(item.durationDays)} Days &bull; ${esc(item.sizeLabel || `${item.widthPx}×${item.heightPx} px`)}
+                    </div>
+                    <div class="text-[11px] text-slate-500 mt-0.5">
+                      Type: ${esc(item.adType || "BANNER")} &bull; Placement: ${esc(item.adPlacement || placementLabel(item.placementType))}${item.description ? " &bull; " + esc(item.description) : ""}
+                    </div>
                   </div>
                 </div>
                 <div class="flex flex-wrap gap-1.5">
                   <button onclick="togglePackageStatus('${esc(item.id)}')" class="px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-800 text-xs font-semibold hover:bg-amber-100">
-                    ${item.status === "ACTIVE" ? "Disable" : "Enable"}
+                    ${String(item.status).toUpperCase() === "ACTIVE" ? "Deactivate" : "Activate"}
                   </button>
+                  <button onclick="duplicatePackage('${esc(item.id)}')" class="px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-800 text-xs font-semibold hover:bg-indigo-100">Duplicate</button>
                   <button onclick="editing.pkg='${esc(item.id)}';renderTab()" class="px-2.5 py-1.5 rounded-lg bg-sky-100 text-sky-800 text-xs font-semibold hover:bg-sky-200">Edit</button>
                   <button onclick="deletePackage('${esc(item.id)}')" class="px-2.5 py-1.5 rounded-lg bg-rose-100 text-rose-700 text-xs font-semibold hover:bg-rose-200">Delete</button>
                 </div>
@@ -940,35 +998,63 @@ function onPkgPlacementChange(val) {
   if (!found || val === "BANNER_CUSTOM") return;
   const w = document.getElementById("pkg_w");
   const h = document.getElementById("pkg_h");
+  const adType = document.getElementById("pkg_ad_type");
+  const sizeLbl = document.getElementById("pkg_size_label");
+  const adPlace = document.getElementById("pkg_ad_placement");
   if (w) w.value = found.w;
   if (h) h.value = found.h;
+  if (adType && found.adType) adType.value = found.adType;
+  if (sizeLbl && found.sizeLabel) sizeLbl.value = found.sizeLabel;
+  if (adPlace && found.adPlacement) adPlace.value = found.adPlacement;
 }
 
 async function submitAdPackage(e) {
   e.preventDefault();
   const id = document.getElementById("pkg_id").value.trim() || uid("pkg");
+  const pkgImg = (document.getElementById("pkg_image_url")?.value || "").trim();
+  if (pkgImg && !isValidSponsorImageSrc(pkgImg)) {
+    return toast("Package image must be a valid HTTPS image URL or PNG/JPEG/WebP upload.");
+  }
   const payload = {
     id,
     name: document.getElementById("pkg_name").value.trim(),
     placementType: document.getElementById("pkg_placement").value,
-    widthPx: Math.max(100, parseInt(document.getElementById("pkg_w").value, 10) || 300),
-    heightPx: Math.max(50, parseInt(document.getElementById("pkg_h").value, 10) || 200),
+    adType: document.getElementById("pkg_ad_type")?.value || "BANNER",
+    sizeLabel: (document.getElementById("pkg_size_label")?.value || "").trim() || "Responsive",
+    adPlacement: document.getElementById("pkg_ad_placement")?.value || "ALL",
+    widthPx: Math.max(0, parseInt(document.getElementById("pkg_w").value, 10) || 0),
+    heightPx: Math.max(0, parseInt(document.getElementById("pkg_h").value, 10) || 0),
     durationDays: Math.max(1, parseInt(document.getElementById("pkg_days").value, 10) || 30),
     priceBdt: Math.max(0, parseInt(document.getElementById("pkg_price").value, 10) || 0),
     description: document.getElementById("pkg_desc").value.trim(),
+    packageImageUrl: pkgImg,
     status: document.getElementById("pkg_status").value || "ACTIVE",
     updatedAt: Date.now()
   };
   await saveNode("ad_packages", id, payload);
-  await writeAuditLog(editing.pkg ? "EDIT_PACKAGE" : "CREATE_PACKAGE", "PACKAGE", id, `${payload.name} (${payload.widthPx}x${payload.heightPx}, ${payload.durationDays}d, BDT ${payload.priceBdt})`);
+  await writeAuditLog(editing.pkg ? "EDIT_PACKAGE" : "CREATE_PACKAGE", "PACKAGE", id, `${payload.name} (${payload.sizeLabel}, ${payload.durationDays}d, Fixed BDT ${payload.priceBdt})`);
   editing = {};
   renderTab();
+}
+
+async function duplicatePackage(id) {
+  const cur = dbState.ad_packages?.[id];
+  if (!cur) return;
+  const newId = uid("pkg");
+  const copy = {
+    ...cur,
+    id: newId,
+    name: `${cur.name} (Copy)`,
+    updatedAt: Date.now()
+  };
+  await saveNode("ad_packages", newId, copy);
+  await writeAuditLog("DUPLICATE_PACKAGE", "PACKAGE", newId, `Duplicated package ${cur.name}`);
 }
 
 async function togglePackageStatus(id) {
   const cur = dbState.ad_packages?.[id];
   if (!cur) return;
-  const next = cur.status === "ACTIVE" ? "DISABLED" : "ACTIVE";
+  const next = String(cur.status || "ACTIVE").toUpperCase() === "ACTIVE" ? "INACTIVE" : "ACTIVE";
   await saveNode("ad_packages", id, { ...cur, status: next, updatedAt: Date.now() });
   await writeAuditLog("TOGGLE_PACKAGE", "PACKAGE", id, `Set ${cur.name} to ${next}`);
 }
@@ -982,14 +1068,73 @@ async function deletePackage(id) {
 async function seedStarterPackages() {
   const now = Date.now();
   const batch = {
-    pkg_300x200_30d: { id: "pkg_300x200_30d", name: "Standard Banner 300×200 (30 Days)", widthPx: 300, heightPx: 200, durationDays: 30, priceBdt: 300, placementType: "BANNER_300x200", description: "Displayed across app pages & offline cached.", status: "ACTIVE", updatedAt: now },
-    pkg_320x100_30d: { id: "pkg_320x100_30d", name: "Mobile Banner 320×100 (30 Days)", widthPx: 320, heightPx: 100, durationDays: 30, priceBdt: 500, placementType: "BANNER_320x100", description: "Persistent bottom banner on all screens.", status: "ACTIVE", updatedAt: now },
-    pkg_native_30d: { id: "pkg_native_30d", name: "Sponsored Native Card (30 Days)", widthPx: 320, heightPx: 180, durationDays: 30, priceBdt: 800, placementType: "SPONSORED_NATIVE_CARD", description: "High-visibility native card inside doctor lists.", status: "ACTIVE", updatedAt: now },
-    pkg_popup_15d: { id: "pkg_popup_15d", name: "App Open Popup Sponsor (15 Days)", widthPx: 320, heightPx: 200, durationDays: 15, priceBdt: 1200, placementType: "POPUP_AD", description: "Featured launch popup with Close (X) button.", status: "ACTIVE", updatedAt: now },
-    pkg_about_30d: { id: "pkg_about_30d", name: "About Us Partner Spotlight (30 Days)", widthPx: 300, heightPx: 200, durationDays: 30, priceBdt: 400, placementType: "ABOUT_US_SPONSOR", description: "Featured partner section on About Us screen.", status: "ACTIVE", updatedAt: now }
+    pkg_banner_all_300x50: {
+      id: "pkg_banner_all_300x50",
+      name: "Banner All Screen",
+      adType: "BANNER",
+      sizeLabel: "300×50 px",
+      adPlacement: "ALL",
+      widthPx: 300,
+      heightPx: 50,
+      durationDays: 30,
+      priceBdt: 200,
+      placementType: "BANNER_300x50",
+      packageImageUrl: "",
+      description: "Compact 300×50 banner displayed across all app screens (online & offline cached). Fixed package price ৳200 for 30 days.",
+      status: "ACTIVE",
+      updatedAt: now
+    },
+    pkg_native_all_300x200: {
+      id: "pkg_native_all_300x200",
+      name: "Native Banner All Screen",
+      adType: "NATIVE_BANNER",
+      sizeLabel: "300×200 px",
+      adPlacement: "ALL",
+      widthPx: 300,
+      heightPx: 200,
+      durationDays: 30,
+      priceBdt: 300,
+      placementType: "BANNER_300x200",
+      packageImageUrl: "",
+      description: "Rich 300×200 native banner displayed between directory cards across all screens. Fixed package price ৳300 for 30 days.",
+      status: "ACTIVE",
+      updatedAt: now
+    },
+    pkg_popup_app_open: {
+      id: "pkg_popup_app_open",
+      name: "Popup App Open",
+      adType: "POPUP",
+      sizeLabel: "Responsive",
+      adPlacement: "APP_OPEN",
+      widthPx: 320,
+      heightPx: 200,
+      durationDays: 30,
+      priceBdt: 180,
+      placementType: "POPUP_AD",
+      packageImageUrl: "",
+      description: "High-visibility responsive popup shown when users open the app. Fixed package price ৳180 for 30 days.",
+      status: "ACTIVE",
+      updatedAt: now
+    },
+    pkg_reward_video_doctor: {
+      id: "pkg_reward_video_doctor",
+      name: "Reward Video – Doctor Click",
+      adType: "REWARD_VIDEO",
+      sizeLabel: "Video",
+      adPlacement: "DOCTOR_CLICK",
+      widthPx: 360,
+      heightPx: 200,
+      durationDays: 30,
+      priceBdt: 600,
+      placementType: "REWARD_VIDEO_DOCTOR_CLICK",
+      packageImageUrl: "",
+      description: "Direct sponsor reward video shown when users click a doctor profile. Fixed package price ৳600 for 30 days.",
+      status: "ACTIVE",
+      updatedAt: now
+    }
   };
-  await patchCollectionNodes("ad_packages", batch, "Starter dynamic packages created! You can edit or delete any package anytime.");
-  await writeAuditLog("SEED_PACKAGES", "PACKAGE", "starter", "Added 5 starter editable packages");
+  await patchCollectionNodes("ad_packages", batch, "4 default demo packages loaded! You can edit rates, durations, or duplicate anytime.");
+  await writeAuditLog("SEED_PACKAGES", "PACKAGE", "demo_4", "Loaded 4 default Direct Sponsor demo packages");
 }
 
 // ============================================================================
@@ -1002,7 +1147,7 @@ function renderAdvertisements(filterMode = "ALL") {
 
   let list = allAds;
   if (filterMode === "ACTIVE") list = allAds.filter(a => a.effectiveStatus === "ACTIVE");
-  else if (filterMode === "PENDING") list = allAds.filter(a => a.effectiveStatus === "PENDING_APPROVAL" || a.effectiveStatus === "PENDING_PAYMENT");
+  else if (filterMode === "PENDING") list = allAds.filter(a => ["PENDING", "PAYMENT_PENDING", "PENDING_APPROVAL", "PENDING_PAYMENT"].includes(a.effectiveStatus));
   else if (filterMode === "EXPIRED") list = allAds.filter(a => a.effectiveStatus === "EXPIRED");
   else if (filterMode === "RENEWALS") list = allAds.filter(a => Boolean(a.renewalOfAdId));
 
@@ -1172,9 +1317,12 @@ function renderAdvertisements(filterMode = "ALL") {
                 <label class="text-xs font-semibold text-slate-700">Publish Status:</label>
                 <select id="ad_status" class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-bold bg-white">
                   <option value="ACTIVE" ${(sp?.status || "ACTIVE") === "ACTIVE" ? "selected" : ""}>ACTIVE (Live Immediately)</option>
+                  <option value="PENDING" ${sp?.status === "PENDING" ? "selected" : ""}>PENDING</option>
+                  <option value="PAYMENT_PENDING" ${sp?.status === "PAYMENT_PENDING" || sp?.status === "PENDING_APPROVAL" || sp?.status === "PENDING_PAYMENT" ? "selected" : ""}>PAYMENT_PENDING</option>
                   <option value="PAUSED" ${sp?.status === "PAUSED" ? "selected" : ""}>PAUSED</option>
-                  <option value="PENDING_APPROVAL" ${sp?.status === "PENDING_APPROVAL" ? "selected" : ""}>PENDING_APPROVAL</option>
                   <option value="EXPIRED" ${sp?.status === "EXPIRED" ? "selected" : ""}>EXPIRED</option>
+                  <option value="REJECTED" ${sp?.status === "REJECTED" ? "selected" : ""}>REJECTED</option>
+                  <option value="CANCELLED" ${sp?.status === "CANCELLED" ? "selected" : ""}>CANCELLED</option>
                 </select>
               </div>
               <button type="submit" class="px-6 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs shadow-sm">
@@ -1278,8 +1426,11 @@ function renderAdvertisements(filterMode = "ALL") {
                     <button onclick="adminSetAdStatus('${esc(ad.id)}','PAUSED')" class="px-3 py-1.5 rounded-lg bg-amber-100 text-amber-900 hover:bg-amber-200 text-xs font-semibold">Pause</button>
                     <button onclick="adminSetAdStatus('${esc(ad.id)}','EXPIRED')" class="px-3 py-1.5 rounded-lg bg-orange-100 text-orange-900 hover:bg-orange-200 text-xs font-semibold">Expire Now</button>
                   `}
-                  ${ad.effectiveStatus === "PENDING_APPROVAL" || ad.effectiveStatus === "PENDING_PAYMENT" ? `
+                  ${["PENDING", "PAYMENT_PENDING", "PENDING_APPROVAL", "PENDING_PAYMENT"].includes(ad.effectiveStatus) ? `
                     <button onclick="adminSetAdStatus('${esc(ad.id)}','REJECTED')" class="px-3 py-1.5 rounded-lg bg-rose-100 text-rose-800 hover:bg-rose-200 text-xs font-semibold">Reject</button>
+                  ` : ""}
+                  ${ad.effectiveStatus !== "CANCELLED" ? `
+                    <button onclick="adminSetAdStatus('${esc(ad.id)}','CANCELLED')" class="px-3 py-1.5 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 text-xs font-semibold">Cancel</button>
                   ` : ""}
                   <button onclick="editing.ad='${esc(ad.id)}';switchTabKeepEdit('advertisements')" class="px-3 py-1.5 rounded-lg bg-sky-100 text-sky-800 hover:bg-sky-200 text-xs font-semibold">Edit</button>
                   <button onclick="deleteSponsorAd('${esc(ad.id)}')" class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-semibold">Delete</button>
@@ -1584,8 +1735,8 @@ function renderPaymentVerification() {
     <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div>
-          <h3 class="font-bold text-lg text-slate-900">Manual bKash &amp; Nagad Payment Verification</h3>
-          <p class="text-xs text-slate-500">Advertisements NEVER start before Admin verifies the TrxID &amp; payment amount. Approval prevents duplicate activation and starts the duration clock server-side.</p>
+          <h3 class="font-bold text-lg text-slate-900">Manual bKash, Nagad &amp; Rocket Payment Verification</h3>
+          <p class="text-xs text-slate-500">Campaigns NEVER start before Admin verifies the TrxID &amp; fixed package amount. Approval prevents duplicate TrxIDs and starts the campaign duration clock.</p>
         </div>
         <div class="flex gap-1.5">
           ${["ALL","PENDING","VERIFIED","REJECTED"].map(st => `
@@ -1608,12 +1759,14 @@ function renderPaymentVerification() {
             const adv = advMap[pay.advertiserId];
             const normTrx = normalizeTrxId(pay.transactionIdNormalized || pay.transactionId);
             const isDupTrx = normTrx && trxCounts[normTrx] > 1;
+            const pm = String(pay.paymentMethod || "BKASH").toUpperCase();
+            const pmCls = pm === "BKASH" ? "bg-pink-100 text-pink-800" : pm === "ROCKET" ? "bg-purple-100 text-purple-800" : "bg-orange-100 text-orange-800";
             return `
               <div class="p-4 rounded-2xl border ${isDupTrx ? "border-rose-400 bg-rose-50/40" : "border-slate-200 bg-slate-50/60"} flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div class="space-y-1">
                   <div class="flex flex-wrap items-center gap-2">
-                    <span class="px-2.5 py-0.5 rounded-lg text-xs font-extrabold ${String(pay.paymentMethod).toUpperCase() === "BKASH" ? "bg-pink-100 text-pink-800" : "bg-orange-100 text-orange-800"}">
-                      ${esc(pay.paymentMethod || "BKASH")}
+                    <span class="px-2.5 py-0.5 rounded-lg text-xs font-extrabold ${pmCls}">
+                      ${esc(pm)}
                     </span>
                     <strong class="text-base text-slate-900">&#2547;${Number(pay.amountBdt || 0).toLocaleString()} BDT</strong>
                     ${statusBadgeHtml(st)}
@@ -1753,14 +1906,14 @@ function openImageModal(src, title) {
 }
 
 // ============================================================================
-// MODULE 10: bKash & Nagad PAYMENT SETTINGS
+// MODULE 10: bKash, Nagad & Rocket PAYMENT SETTINGS
 // ============================================================================
 function renderPaymentSettings() {
   const p = dbState.payment_settings || {};
   return `
     <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm max-w-3xl">
-      <h3 class="font-bold text-lg text-sky-900 mb-1">bKash &amp; Nagad Payment Settings</h3>
-      <p class="text-xs text-slate-500 mb-5">Displayed dynamically to advertisers inside both the Android App and Web Advertiser Portal during payment submission.</p>
+      <h3 class="font-bold text-lg text-sky-900 mb-1">bKash, Nagad &amp; Rocket Payment Settings</h3>
+      <p class="text-xs text-slate-500 mb-5">Displayed dynamically to sponsors inside both the Android App and Website during package booking &amp; payment submission.</p>
 
       <form onsubmit="submitPaymentSettings(event)" class="space-y-4">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-2xl bg-pink-50/50 border border-pink-200">
@@ -1789,17 +1942,30 @@ function renderPaymentSettings() {
           </div>
         </div>
 
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-2xl bg-purple-50/50 border border-purple-200">
+          <div>
+            <label class="block text-xs font-bold text-purple-900 mb-1">Rocket Number *</label>
+            <input id="ps_rocket" value="${esc(p.rocketNumber || "")}" placeholder="01XXXXXXXXX" class="input bg-white" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-purple-900 mb-1">Rocket Account Type</label>
+            <select id="ps_rocket_type" class="input bg-white">
+              ${["Personal", "Merchant", "Agent"].map(t => `<option value="${t}" ${(p.rocketAccountType || "Personal") === t ? "selected" : ""}>${t}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+
         <div>
           <label class="block text-xs font-semibold text-slate-700 mb-1">Payment Instructions (Bangla)</label>
-          <textarea id="ps_ins_bn" rows="2" placeholder="বিকাশ বা নগদ Send Money / Payment করে TrxID সাবমিট করুন। অ্যাডমিন যাচাইয়ের পর বিজ্ঞাপন চালু হবে।" class="input bg-white">${esc(p.instructionsBn || "")}</textarea>
+          <textarea id="ps_ins_bn" rows="2" placeholder="বিকাশ, নগদ বা রকেট Send Money / Payment করে TrxID সাবমিট করুন। অ্যাডমিন যাচাইয়ের পর ক্যাম্পেইন চালু হবে।" class="input bg-white">${esc(p.instructionsBn || "")}</textarea>
         </div>
         <div>
           <label class="block text-xs font-semibold text-slate-700 mb-1">Payment Instructions (English)</label>
-          <textarea id="ps_ins_en" rows="2" placeholder="Send package amount via bKash or Nagad and submit your Transaction ID (TrxID). Your ad activates automatically after Admin verification." class="input bg-white">${esc(p.instructionsEn || "")}</textarea>
+          <textarea id="ps_ins_en" rows="2" placeholder="Send the fixed package amount via bKash, Nagad, or Rocket and submit your Transaction ID (TrxID). Campaign activates automatically after Admin verification." class="input bg-white">${esc(p.instructionsEn || "")}</textarea>
         </div>
 
         <button type="submit" class="px-6 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm">
-          Save bKash &amp; Nagad Settings
+          Save Payment Settings
         </button>
       </form>
     </div>
@@ -1813,12 +1979,14 @@ async function submitPaymentSettings(e) {
     bkashAccountType: document.getElementById("ps_bkash_type").value,
     nagadNumber: document.getElementById("ps_nagad").value.trim(),
     nagadAccountType: document.getElementById("ps_nagad_type").value,
+    rocketNumber: document.getElementById("ps_rocket").value.trim(),
+    rocketAccountType: document.getElementById("ps_rocket_type").value,
     instructionsBn: document.getElementById("ps_ins_bn").value.trim(),
     instructionsEn: document.getElementById("ps_ins_en").value.trim(),
     updatedAt: Date.now()
   };
   await saveNode("payment_settings", null, payload);
-  await writeAuditLog("UPDATE_PAYMENT_SETTINGS", "PAYMENT_SETTINGS", "global", `Updated bKash (${payload.bkashNumber}) & Nagad (${payload.nagadNumber})`);
+  await writeAuditLog("UPDATE_PAYMENT_SETTINGS", "PAYMENT_SETTINGS", "global", `Updated bKash (${payload.bkashNumber}), Nagad (${payload.nagadNumber}) & Rocket (${payload.rocketNumber})`);
 }
 
 // ============================================================================

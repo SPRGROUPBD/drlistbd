@@ -259,22 +259,45 @@ data class ProfileChangeRequestEntity(
 data class AdConfigEntity(
     @PrimaryKey val id: String = "global",
     val adsEnabled: Boolean = true,
-    // Online Ad Network Policy (ZERO AdMob; disabled completely in Offline Mode):
-    // BOTH_UNITY_PRIMARY | BOTH_STARTIO_PRIMARY | UNITY | STARTIO | SPONSORS_ONLY
+    // Legacy compatibility field (preserved):
+    // BOTH_UNITY_PRIMARY | BOTH_STARTIO_PRIMARY | UNITY | STARTIO | WORTISE | MULTI_CUSTOM | SPONSORS_ONLY
     val activeNetwork: String = "BOTH_UNITY_PRIMARY",
+    // Multi-Network Priority Order CSV (default: Unity Ads -> Start.io -> Wortise; Admin configurable remotely)
+    val networkPriorityOrder: String = "UNITY,STARTIO,WORTISE",
+    // Independent Network Enable Switches (ONLINE ONLY; all 3 disabled automatically when offline)
+    val unityEnabled: Boolean = true,
+    val startIoEnabled: Boolean = true,
+    val wortiseEnabled: Boolean = true,
     val testMode: Boolean = false,
+    // Independent Ad Format Switches
     val bannerEnabled: Boolean = true,
     val appOpenEnabled: Boolean = true,
+    val interstitialEnabled: Boolean = true,
     val nativeBannerEnabled: Boolean = true,
     val rewardedEnabled: Boolean = true,
+    // Smart Fallback, Timeout, Retry & Frequency Cap Controls
     val nativeAdInterval: Int = 5,
     val appOpenCooldownSeconds: Int = 120,
+    val adRequestTimeoutSeconds: Int = 10,
+    val adRetryCooldownSeconds: Int = 60,
+    val bannerRefreshSeconds: Int = 60,
+    val maxInterstitialsPerSession: Int = 4,
+    val maxRewardedPerSession: Int = 10,
+    // Unity Ads Configuration (Preserved)
     val unityGameId: String = "",
     val unityBannerPlacement: String = "Banner_Android",
     val unityAppOpenPlacement: String = "Interstitial_Android",
     val unityNativeBannerPlacement: String = "Banner_Android",
     val unityRewardedPlacement: String = "Rewarded_Android",
+    // Start.io Configuration (Preserved)
     val startIoAppId: String = "210630916",
+    // Wortise Configuration (Admin-configurable — never hardcoded)
+    val wortiseAppId: String = "",
+    val wortiseBannerAdUnitId: String = "",
+    val wortiseNativeAdUnitId: String = "",
+    val wortiseInterstitialAdUnitId: String = "",
+    val wortiseRewardedAdUnitId: String = "",
+    val wortiseAppOpenAdUnitId: String = "",
     // Custom Direct Sponsor Controls (Works ONLINE + OFFLINE Cached)
     val sponsorBannerEnabled: Boolean = true,
     val appOpenPopupEnabled: Boolean = true,
@@ -308,15 +331,21 @@ data class SponsorEntity(
     val heightPx: Int = 100,
     val durationDays: Int = 30,
     val priceBdt: Int = 0,
-    // BANNER_300x200 | BANNER_320x100 | BANNER_728x90 | BANNER_CUSTOM | SPONSORED_NATIVE_CARD | POPUP_AD | ABOUT_US_SPONSOR | ALL
-    val placementType: String = "BANNER_320x100",
-    // PENDING_PAYMENT | PENDING_APPROVAL | ACTIVE | PAUSED | EXPIRED | REJECTED
+    // BANNER_300x50 | BANNER_300x200 | BANNER_320x100 | BANNER_728x90 | BANNER_CUSTOM | SPONSORED_NATIVE_CARD | POPUP_AD | REWARD_VIDEO_DOCTOR_CLICK | ABOUT_US_SPONSOR | ALL
+    val placementType: String = "BANNER_300x50",
+    // PENDING | PAYMENT_PENDING | ACTIVE | PAUSED | EXPIRED | REJECTED | CANCELLED (plus legacy PENDING_PAYMENT | PENDING_APPROVAL)
     val status: String = "ACTIVE",
     val name: String,
+    val contactPersonName: String = "",
     val logoUrl: String = "",
     val bannerImageUrl: String = "",
     val localLogoPath: String = "",
     val localBannerPath: String = "",
+    val mediaType: String = "IMAGE", // IMAGE | VIDEO
+    val videoUrl: String = "",
+    val localVideoPath: String = "",
+    val adType: String = "",
+    val adPlacement: String = "ALL",
     val promoTitle: String = "",
     val description: String = "",
     val websiteUrl: String = "",
@@ -337,11 +366,11 @@ data class SponsorEntity(
     val uniqueViews: Int = 0,
     val cachedAt: Long = 0L,
     val updatedAt: Long = System.currentTimeMillis(),
-    // Screen-Based Placement & Multi-Placement Rate Card metadata
-    val placementIds: String = "", // Comma-separated e.g. "HOME-01,DOC-01,HOS-01"
-    val moduleNames: String = "",  // Comma-separated e.g. "HOME,DOCTOR,HOSPITAL"
-    val adSizeKey: String = "",    // 320x50 | 320x100 | 300x200 | 300x250 | 336x280 | 300x300 | RESPONSIVE | FULL_WIDTH | CUSTOM
-    val placementBreakdownJson: String = "", // {"HOME-01":500,"DOC-01":300}
+    // Screen-Based Placement metadata (kept for backward compatibility)
+    val placementIds: String = "",
+    val moduleNames: String = "",
+    val adSizeKey: String = "",
+    val placementBreakdownJson: String = "",
     val subtotalBdt: Int = 0,
     val bundleDiscountBdt: Int = 0
 )
@@ -354,10 +383,15 @@ data class SponsorPackageEntity(
     val heightPx: Int,
     val durationDays: Int,
     val priceBdt: Int,
-    // BANNER_300x200 | BANNER_320x100 | BANNER_728x90 | BANNER_CUSTOM | SPONSORED_NATIVE_CARD | POPUP_AD | ABOUT_US_SPONSOR
+    // BANNER_300x50 | BANNER_300x200 | BANNER_320x100 | BANNER_728x90 | BANNER_CUSTOM | SPONSORED_NATIVE_CARD | POPUP_AD | REWARD_VIDEO_DOCTOR_CLICK | ABOUT_US_SPONSOR
     val placementType: String,
+    // Human-readable & structured Direct Sponsor Package metadata
+    val adType: String = "BANNER", // BANNER | NATIVE_BANNER | POPUP | REWARD_VIDEO | SPONSOR_CARD
+    val sizeLabel: String = "",    // e.g. "300×50 px", "300×200 px", "Responsive", "Video"
+    val adPlacement: String = "ALL", // ALL | APP_OPEN | DOCTOR_CLICK | HOME | DOCTOR_LIST | DOCTOR_DETAILS | HOSPITAL_LIST | DIAGNOSTIC_LIST | SPECIALIST | CHAMBER_SCHEDULE | ABOUT_US
+    val packageImageUrl: String = "",
     val description: String = "",
-    // ACTIVE | DISABLED
+    // ACTIVE | INACTIVE | DISABLED
     val status: String = "ACTIVE",
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -405,6 +439,8 @@ data class PaymentSettingsEntity(
     val bkashAccountType: String = "Personal",
     val nagadNumber: String = "",
     val nagadAccountType: String = "Personal",
+    val rocketNumber: String = "",
+    val rocketAccountType: String = "Personal",
     val instructionsBn: String = "",
     val instructionsEn: String = "",
     val updatedAt: Long = System.currentTimeMillis()
@@ -460,6 +496,22 @@ data class PendingAppAnalyticsEventEntity(
     val wasOffline: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "screen_ad_placements")
+data class ScreenAdPlacementEntity(
+    @PrimaryKey val placementKey: String, // HOME | DOCTOR_LIST | DOCTOR_DETAILS | HOSPITAL_LIST | DIAGNOSTIC_CENTER | MEDICAL_SPECIALIST | CHAMBER_SCHEDULE | OTHER_SCREENS
+    val screenName: String,
+    val enabled: Boolean = true,
+    // AUTO (follow global priority) | UNITY | STARTIO | WORTISE
+    val preferredNetwork: String = "AUTO",
+    // BANNER | NATIVE | INTERSTITIAL | REWARDED | APP_OPEN
+    val adFormat: String = "BANNER",
+    val priority: Int = 10,
+    val frequencyCap: Int = 5,
+    val refreshIntervalSeconds: Int = 60,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
 
 
 

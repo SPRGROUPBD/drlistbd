@@ -106,10 +106,11 @@ dependencies {
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)
-  // Hybrid Online Ad Networks (Start.io + Unity Ads ONLY — AdMob strictly removed)
+  // Multi-Network Online Ad SDKs (Unity Ads + Start.io + Wortise)
   // Offline mode disables all network SDKs and serves cached Direct Sponsor Ads ONLY.
   implementation("com.startapp:inapp-sdk:5.1.0")
   implementation("com.unity3d.ads:unity-ads:4.14.1")
+  implementation("com.wortise:android-sdk:1.8.0")
   implementation(libs.play.services.ads.identifier)
   // implementation(libs.converter.moshi)
   // implementation(libs.firebase.ai)

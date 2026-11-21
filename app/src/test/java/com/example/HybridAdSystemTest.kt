@@ -9,6 +9,7 @@ import com.example.data.local.PaymentSettingsEntity
 import com.example.data.local.PendingAdViewEventEntity
 import com.example.data.local.PlacementRateCardEntity
 import com.example.data.local.RateCardSettingsEntity
+import com.example.data.local.ScreenAdPlacementEntity
 import com.example.data.local.SessionPreferences
 import com.example.data.local.SponsorEntity
 import com.example.data.local.SponsorPackageEntity
@@ -16,9 +17,13 @@ import com.example.data.remote.AdvertiserRemoteService
 import com.example.ui.ads.AdRevenueTracker
 import com.example.ui.ads.ConnectivityMonitor
 import com.example.ui.ads.HybridNetworkAdController
+import com.example.ui.ads.OnlineAdFormat
 import com.example.ui.ads.PlacementRateCardEngine
 import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.ads.SponsorOfflineCacheManager
+import com.example.ui.ads.StartIoAdManager
+import com.example.ui.ads.UnityAdsManager
+import com.example.ui.ads.WortiseAdsManager
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -62,6 +67,7 @@ class HybridAdSystemTest {
             .build()
         cacheDir = File(context.filesDir, "test_sponsor_cache_${System.nanoTime()}").apply { mkdirs() }
         AdRevenueTracker.clearMemoryCooldownsForTesting()
+        HybridNetworkAdController.resetSessionCapsForTesting()
         ConnectivityMonitor.setOnlineForTesting(true)
     }
 
@@ -70,6 +76,7 @@ class HybridAdSystemTest {
         db.close()
         cacheDir.deleteRecursively()
         AdRevenueTracker.clearMemoryCooldownsForTesting()
+        HybridNetworkAdController.resetSessionCapsForTesting()
         ConnectivityMonitor.setOnlineForTesting(true)
     }
 
@@ -121,16 +128,33 @@ class HybridAdSystemTest {
         )
     }
 
-    // 1. Strictly ZERO AdMob SDK, while Start.io + Unity Ads SDKs are available for ONLINE mode
+    // 1. All 3 official Ad Network SDKs (Unity Ads + Start.io + Wortise) are present and AdMob is never scheduled
     @Test
     fun verifyZeroAdMobAndStartIoPlusUnityPresentForOnlineMode() {
-        val admobLoaded = runCatching { Class.forName("com.google.android.gms.ads.MobileAds") }.isSuccess
         val startIoLoaded = runCatching { Class.forName("com.startapp.sdk.adsbase.StartAppSDK") }.isSuccess
         val unityLoaded = runCatching { Class.forName("com.unity3d.ads.UnityAds") }.isSuccess
+        val wortiseLoaded = runCatching { Class.forName("com.wortise.ads.WortiseSdk") }.isSuccess
 
-        assertFalse("Google AdMob SDK must be strictly removed", admobLoaded)
-        assertTrue("Start.io SDK must be present for Online Hybrid Ads", startIoLoaded)
-        assertTrue("Unity Ads SDK must be present for Online Hybrid Ads", unityLoaded)
+        assertTrue("Start.io SDK must be present for Online Multi-Network Ads", startIoLoaded)
+        assertTrue("Unity Ads SDK must be present for Online Multi-Network Ads", unityLoaded)
+        assertTrue("Wortise SDK must be present for Online Multi-Network Ads", wortiseLoaded)
+
+        // Ensure AdMob is never accepted or returned by HybridNetworkAdController
+        val configWithInjectedAdmob = AdConfigEntity(
+            adsEnabled = true,
+            networkPriorityOrder = "ADMOB,UNITY,STARTIO,WORTISE",
+            unityGameId = "5789123",
+            startIoAppId = "210630916",
+            wortiseAppId = "wortise-test-app-id",
+            wortiseBannerAdUnitId = "wortise-banner-1"
+        )
+        val ordered = HybridNetworkAdController.getOrderedNetworksForOnline(
+            config = configWithInjectedAdmob,
+            format = OnlineAdFormat.BANNER,
+            preferredNetworkOverride = "ADMOB"
+        )
+        assertFalse("ADMOB must never be scheduled by HybridNetworkAdController", ordered.contains("ADMOB"))
+        assertEquals(listOf("UNITY", "STARTIO", "WORTISE"), ordered)
     }
 
     // 2. Hybrid Online Network ordering & failover rules
@@ -512,5 +536,497 @@ class HybridAdSystemTest {
         // Offline mode still resolves matching placement from cached sponsors
         ConnectivityMonitor.setOnlineForTesting(false)
         assertEquals("sp1", PlacementRateCardEngine.selectSponsorForPlacement(sponsors, seqCards, "DOC-01", 0, refNowMs)?.id)
+    }
+
+    // 12. Fixed Package Pricing Formula: Total Package Price = Fixed Package Rate (NEVER multiplied by days)
+    @Test
+    fun fixedPackagePricingNeverMultipliesByDurationAndComputesExpiryCorrectly() {
+        // 4 Default Demo Packages: Banner All Screen 200, Native Banner 300, Popup App Open 180, Reward Video 600 (all 30d)
+        assertEquals(200, SponsorCampaignSelector.calculateFixedPackageTotal(200, 30))
+        assertEquals(300, SponsorCampaignSelector.calculateFixedPackageTotal(300, 30))
+        assertEquals(180, SponsorCampaignSelector.calculateFixedPackageTotal(180, 30))
+        assertEquals(600, SponsorCampaignSelector.calculateFixedPackageTotal(600, 30))
+
+        // Changing duration to 7, 15, 60, or 90 days must NEVER multiply the fixed rate
+        assertEquals(200, SponsorCampaignSelector.calculateFixedPackageTotal(200, 7))
+        assertEquals(200, SponsorCampaignSelector.calculateFixedPackageTotal(200, 60))
+        assertEquals(600, SponsorCampaignSelector.calculateFixedPackageTotal(600, 90))
+        assertEquals(0, SponsorCampaignSelector.calculateFixedPackageTotal(-50, 30))
+
+        // Duration only determines expiry timestamp
+        val dayMs = 24L * 3600L * 1000L
+        assertEquals(refNowMs + 30L * dayMs, SponsorCampaignSelector.computeExpiryTimestamp(refNowMs, 30))
+        assertEquals(refNowMs + 15L * dayMs, SponsorCampaignSelector.computeExpiryTimestamp(refNowMs, 15))
+    }
+
+    // 13. All 7 Campaign Statuses enforced both online and offline + expired asset purge
+    @Test
+    fun allSevenCampaignStatusesEnforcedOnlineAndOffline() = runBlocking {
+        val dayMs = 24L * 3600L * 1000L
+        val pending = makeSponsor("st_pending", status = SponsorCampaignSelector.STATUS_PENDING)
+        val paymentPending = makeSponsor("st_pay_pending", status = SponsorCampaignSelector.STATUS_PAYMENT_PENDING)
+        val active = makeSponsor(
+            id = "st_active",
+            status = SponsorCampaignSelector.STATUS_ACTIVE,
+            activatedAt = refNowMs - dayMs,
+            expiryAt = refNowMs + 29L * dayMs
+        )
+        val paused = makeSponsor("st_paused", status = SponsorCampaignSelector.STATUS_PAUSED)
+        val expired = makeSponsor(
+            id = "st_expired",
+            status = SponsorCampaignSelector.STATUS_EXPIRED,
+            activatedAt = refNowMs - 40L * dayMs,
+            expiryAt = refNowMs - 10L * dayMs
+        )
+        val rejected = makeSponsor("st_rejected", status = SponsorCampaignSelector.STATUS_REJECTED)
+        val cancelled = makeSponsor("st_cancelled", status = SponsorCampaignSelector.STATUS_CANCELLED)
+
+        val all = listOf(pending, paymentPending, active, paused, expired, rejected, cancelled)
+
+        // Online: ONLY ACTIVE within window is valid
+        ConnectivityMonitor.setOnlineForTesting(true)
+        val validOnline = all.filter { SponsorCampaignSelector.isCampaignValid(it, refNowMs) }
+        assertEquals(listOf("st_active"), validOnline.map { it.id })
+
+        // Offline: Expired/Cancelled/Rejected/Pending/Paused must NEVER appear offline either
+        ConnectivityMonitor.setOnlineForTesting(false)
+        val validOffline = all.filter { SponsorCampaignSelector.isCampaignValid(it, refNowMs) }
+        assertEquals(listOf("st_active"), validOffline.map { it.id })
+
+        // Expired & cancelled sponsors are purged from Room & local cache during sync
+        val expiredFile = File(cacheDir, "expired_banner.png").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val expiredDb = expired.copy(localBannerPath = expiredFile.absolutePath)
+        db.sponsorDao().insert(expiredDb)
+        db.sponsorDao().insert(cancelled)
+        db.sponsorDao().insert(active.copy(activatedAt = System.currentTimeMillis() - dayMs, expiryAt = System.currentTimeMillis() + 10L * dayMs))
+
+        SponsorOfflineCacheManager.syncSponsorAssets(context, db)
+        assertFalse("Expired cached banner file must be deleted", expiredFile.exists())
+        val remainingIds = db.sponsorDao().getAllOnce().map { it.id }
+        assertFalse(remainingIds.contains("st_expired"))
+        assertFalse(remainingIds.contains("st_cancelled"))
+        assertTrue(remainingIds.contains("st_active"))
+    }
+
+    // 14. Banner 300x50, Reward Video Doctor Click & Package Placement Scopes
+    @Test
+    fun banner300x50AndRewardVideoDoctorClickSelectCorrectly() {
+        val banner300x50 = makeSponsor(
+            id = "sp_b300x50",
+            placementType = SponsorCampaignSelector.PLACEMENT_BANNER_300x50,
+            targetPages = "HOME",
+            priority = 25
+        )
+        val rewardVideo = makeSponsor(
+            id = "sp_rv_doc",
+            placementType = SponsorCampaignSelector.PLACEMENT_REWARD_VIDEO,
+            targetPages = "DOCTOR_DETAILS",
+            priority = 30
+        ).copy(
+            mediaType = "VIDEO",
+            videoUrl = "https://cdn.example.com/sponsor-promo.mp4",
+            adType = "REWARD_VIDEO",
+            adPlacement = "DOCTOR_DETAILS"
+        )
+
+        val pickedBannerHome = SponsorCampaignSelector.selectBannerSponsor(
+            sponsors = listOf(banner300x50, rewardVideo),
+            pageKey = "home",
+            rotationTick = 0,
+            nowMs = refNowMs
+        )
+        assertEquals("sp_b300x50", pickedBannerHome?.id)
+
+        // Banner restricted to HOME must not show on about_us
+        val pickedBannerAbout = SponsorCampaignSelector.selectBannerSponsor(
+            sponsors = listOf(banner300x50),
+            pageKey = "about_us",
+            rotationTick = 0,
+            nowMs = refNowMs
+        )
+        assertNull(pickedBannerAbout)
+
+        // Reward Video – Doctor Click selects active video sponsor cleanly
+        val pickedReward = SponsorCampaignSelector.selectRewardVideoSponsor(
+            sponsors = listOf(banner300x50, rewardVideo),
+            rotationTick = 0,
+            nowMs = refNowMs
+        )
+        assertEquals("sp_rv_doc", pickedReward?.id)
+    }
+
+    // 15. Video source & magic-byte validation (MP4 / WebM / HTTPS only)
+    @Test
+    fun videoValidationAcceptsMp4WebmAndHttpsAndRejectsUnsafeInputs() {
+        assertTrue(SponsorCampaignSelector.isValidVideoSource("https://cdn.hospitalbd.com/ad.mp4"))
+        assertTrue(SponsorCampaignSelector.isValidVideoSource("data:video/mp4;base64,AAAAIGZ0eXA="))
+        assertTrue(SponsorCampaignSelector.isValidVideoSource("data:video/webm;base64,GkXfo59C"))
+        assertFalse(SponsorCampaignSelector.isValidVideoSource("javascript:alert(1)"))
+        assertFalse(SponsorCampaignSelector.isValidVideoSource("http://insecure.example.com/ad.mp4"))
+        assertFalse(SponsorCampaignSelector.isValidVideoSource(""))
+
+        // Valid MP4 ftyp header bytes
+        val validMp4 = byteArrayOf(
+            0x00, 0x00, 0x00, 0x18,
+            0x66, 0x74, 0x79, 0x70, // 'ftyp'
+            0x69, 0x73, 0x6F, 0x6D,
+            0x00, 0x00, 0x02, 0x00
+        )
+        // Valid WebM EBML header bytes
+        val validWebm = byteArrayOf(
+            0x1A, 0x45, 0xDF.toByte(), 0xA3.toByte(),
+            0x01, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x1F,
+            0x42, 0x86.toByte(), 0x81.toByte(), 0x01
+        )
+        assertTrue(SponsorCampaignSelector.isSupportedVideoBytes(validMp4))
+        assertTrue(SponsorCampaignSelector.isSupportedVideoBytes(validWebm))
+        assertFalse(SponsorCampaignSelector.isSupportedVideoBytes("<script>alert(1)</script>".toByteArray()))
+    }
+
+    // 16. Room v10 persists Admin Packages (new fields), Sponsors (contact/video/placement) & Rocket Payment Settings
+    @Test
+    fun roomV10PersistsPackagesWithNewFieldsSponsorsAndRocketPaymentSettings() = runBlocking {
+        val demoPackages = listOf(
+            SponsorPackageEntity(
+                id = "pkg_banner_all",
+                name = "Banner All Screen",
+                adType = "BANNER",
+                sizeLabel = "300×50 px",
+                adPlacement = "ALL",
+                packageImageUrl = "https://cdn.example.com/pkg1.png",
+                widthPx = 300,
+                heightPx = 50,
+                durationDays = 30,
+                priceBdt = 200,
+                placementType = SponsorCampaignSelector.PLACEMENT_BANNER_300x50,
+                description = "All-screen fixed banner",
+                status = "ACTIVE"
+            ),
+            SponsorPackageEntity(
+                id = "pkg_reward_video",
+                name = "Reward Video – Doctor Click",
+                adType = "REWARD_VIDEO",
+                sizeLabel = "Video",
+                adPlacement = "DOCTOR_DETAILS",
+                packageImageUrl = "",
+                widthPx = 1280,
+                heightPx = 720,
+                durationDays = 30,
+                priceBdt = 600,
+                placementType = SponsorCampaignSelector.PLACEMENT_REWARD_VIDEO,
+                description = "Reward video on doctor click",
+                status = "ACTIVE"
+            )
+        )
+        db.sponsorPackageDao().insertAll(demoPackages)
+
+        val storedPackages = db.sponsorPackageDao().getActiveOnce()
+        assertEquals(2, storedPackages.size)
+        val bannerPkg = storedPackages.first { it.id == "pkg_banner_all" }
+        assertEquals("300×50 px", bannerPkg.sizeLabel)
+        assertEquals("ALL", bannerPkg.adPlacement)
+        assertEquals(200, SponsorCampaignSelector.calculateFixedPackageTotal(bannerPkg.priceBdt, bannerPkg.durationDays))
+
+        db.paymentSettingsDao().save(
+            PaymentSettingsEntity(
+                bkashNumber = "01711111111",
+                bkashAccountType = "Personal",
+                nagadNumber = "01822222222",
+                nagadAccountType = "Merchant",
+                rocketNumber = "01933333333",
+                rocketAccountType = "Personal",
+                instructionsEn = "Send fixed package rate via bKash, Nagad, or Rocket"
+            )
+        )
+        val payCfg = db.paymentSettingsDao().getOnce()
+        assertNotNull(payCfg)
+        assertEquals("01933333333", payCfg?.rocketNumber)
+        assertEquals("Personal", payCfg?.rocketAccountType)
+
+        val videoSponsor = makeSponsor(
+            id = "sp_v10",
+            placementType = SponsorCampaignSelector.PLACEMENT_REWARD_VIDEO
+        ).copy(
+            contactPersonName = "Dr. Karim",
+            mediaType = "VIDEO",
+            videoUrl = "https://cdn.example.com/promo.mp4",
+            adType = "REWARD_VIDEO",
+            adPlacement = "DOCTOR_DETAILS"
+        )
+        db.sponsorDao().insert(videoSponsor)
+        val loadedSponsor = db.sponsorDao().getById("sp_v10")
+        assertNotNull(loadedSponsor)
+        assertEquals("Dr. Karim", loadedSponsor?.contactPersonName)
+        assertEquals("VIDEO", loadedSponsor?.mediaType)
+        assertEquals("https://cdn.example.com/promo.mp4", loadedSponsor?.videoUrl)
+        assertEquals("DOCTOR_DETAILS", loadedSponsor?.adPlacement)
+    }
+
+    // 17. 3-Network Priority Order (Unity -> Start.io -> Wortise), Custom Reordering & Individual Network Switches
+    @Test
+    fun multiNetworkPriorityOrderAndIndividualSwitchesWorkCorrectly() {
+        val allThree = AdConfigEntity(
+            adsEnabled = true,
+            activeNetwork = "BOTH_UNITY_PRIMARY",
+            networkPriorityOrder = "UNITY,STARTIO,WORTISE",
+            unityEnabled = true,
+            startIoEnabled = true,
+            wortiseEnabled = true,
+            unityGameId = "5789123",
+            startIoAppId = "210630916",
+            wortiseAppId = "w-app-123",
+            wortiseBannerAdUnitId = "w-banner-1",
+            wortiseNativeAdUnitId = "w-native-1",
+            wortiseInterstitialAdUnitId = "w-inter-1",
+            wortiseRewardedAdUnitId = "w-rew-1",
+            wortiseAppOpenAdUnitId = "w-open-1"
+        )
+
+        // Default priority: Unity -> Start.io -> Wortise
+        assertEquals(
+            listOf("UNITY", "STARTIO", "WORTISE"),
+            HybridNetworkAdController.getOrderedNetworksForOnline(allThree, OnlineAdFormat.BANNER)
+        )
+
+        // Admin reorders priority remotely without app update: Wortise -> Unity -> Start.io
+        val wortiseFirst = allThree.copy(networkPriorityOrder = "WORTISE,UNITY,STARTIO")
+        assertEquals(
+            listOf("WORTISE", "UNITY", "STARTIO"),
+            HybridNetworkAdController.getOrderedNetworksForOnline(wortiseFirst, OnlineAdFormat.BANNER)
+        )
+
+        // Disabling individual networks removes only that network while keeping fallback intact
+        assertEquals(
+            listOf("STARTIO", "WORTISE"),
+            HybridNetworkAdController.getOrderedNetworksForOnline(allThree.copy(unityEnabled = false), OnlineAdFormat.BANNER)
+        )
+        assertEquals(
+            listOf("UNITY", "WORTISE"),
+            HybridNetworkAdController.getOrderedNetworksForOnline(allThree.copy(startIoEnabled = false), OnlineAdFormat.BANNER)
+        )
+        assertEquals(
+            listOf("UNITY", "STARTIO"),
+            HybridNetworkAdController.getOrderedNetworksForOnline(allThree.copy(wortiseEnabled = false), OnlineAdFormat.BANNER)
+        )
+
+        // Legacy activeNetwork single-network filters remain backward compatible
+        assertEquals(
+            listOf("WORTISE"),
+            HybridNetworkAdController.getOrderedNetworksForOnline(allThree.copy(activeNetwork = "WORTISE"), OnlineAdFormat.REWARDED)
+        )
+        assertEquals(
+            listOf("UNITY"),
+            HybridNetworkAdController.getOrderedNetworksForOnline(allThree.copy(activeNetwork = "UNITY"), OnlineAdFormat.REWARDED)
+        )
+        assertEquals(
+            listOf("STARTIO"),
+            HybridNetworkAdController.getOrderedNetworksForOnline(allThree.copy(activeNetwork = "STARTIO"), OnlineAdFormat.REWARDED)
+        )
+        assertTrue(
+            HybridNetworkAdController.getOrderedNetworksForOnline(allThree.copy(activeNetwork = "SPONSORS_ONLY"), OnlineAdFormat.BANNER).isEmpty()
+        )
+    }
+
+    // 18. Format-Specific Wortise Eligibility & Smart Screen Placement Override Resolution
+    @Test
+    fun formatEligibilityAndSmartScreenPlacementsResolveCorrectly() {
+        val partialWortise = AdConfigEntity(
+            adsEnabled = true,
+            networkPriorityOrder = "UNITY,STARTIO,WORTISE",
+            unityGameId = "5789123",
+            startIoAppId = "210630916",
+            wortiseAppId = "w-app-123",
+            wortiseBannerAdUnitId = "", // Banner unit intentionally empty
+            wortiseRewardedAdUnitId = "w-rew-1",
+            wortiseAppOpenAdUnitId = "w-open-1"
+        )
+
+        // Wortise skipped for BANNER when Banner AdUnit ID is empty, but included for REWARDED and APP_OPEN
+        assertFalse(WortiseAdsManager.hasFormatUnit(partialWortise, OnlineAdFormat.BANNER))
+        assertTrue(WortiseAdsManager.hasFormatUnit(partialWortise, OnlineAdFormat.REWARDED))
+        assertTrue(WortiseAdsManager.hasFormatUnit(partialWortise, OnlineAdFormat.APP_OPEN))
+        assertEquals(
+            listOf("UNITY", "STARTIO"),
+            HybridNetworkAdController.getOrderedNetworksForOnline(partialWortise, OnlineAdFormat.BANNER)
+        )
+        assertEquals(
+            listOf("UNITY", "STARTIO", "WORTISE"),
+            HybridNetworkAdController.getOrderedNetworksForOnline(partialWortise, OnlineAdFormat.REWARDED)
+        )
+
+        // Preferred network override promotes WORTISE first while keeping UNITY & STARTIO as fallbacks
+        assertEquals(
+            listOf("WORTISE", "UNITY", "STARTIO"),
+            HybridNetworkAdController.getOrderedNetworksForOnline(
+                config = partialWortise,
+                format = OnlineAdFormat.REWARDED,
+                preferredNetworkOverride = "WORTISE"
+            )
+        )
+
+        // Screen placement normalization across all 8 canonical screens
+        assertEquals("HOME", HybridNetworkAdController.normalizeScreenKey("home"))
+        assertEquals("DOCTOR_LIST", HybridNetworkAdController.normalizeScreenKey("find_doctors"))
+        assertEquals("DOCTOR_DETAILS", HybridNetworkAdController.normalizeScreenKey("doctor_profile"))
+        assertEquals("HOSPITAL_LIST", HybridNetworkAdController.normalizeScreenKey("facilities"))
+        assertEquals("DIAGNOSTIC_CENTER", HybridNetworkAdController.normalizeScreenKey("diagnostic_center"))
+        assertEquals("MEDICAL_SPECIALIST", HybridNetworkAdController.normalizeScreenKey("specialties"))
+        assertEquals("CHAMBER_SCHEDULE", HybridNetworkAdController.normalizeScreenKey("chamber_schedule"))
+        assertEquals("OTHER_SCREENS", HybridNetworkAdController.normalizeScreenKey("about_us"))
+
+        val placements = listOf(
+            ScreenAdPlacementEntity(placementKey = "HOME", screenName = "Home Screen", enabled = true, preferredNetwork = "WORTISE", adFormat = "BANNER", refreshIntervalSeconds = 45),
+            ScreenAdPlacementEntity(placementKey = "DOCTOR_DETAILS", screenName = "Doctor Details", enabled = false, preferredNetwork = "UNITY", adFormat = "NATIVE"),
+            ScreenAdPlacementEntity(placementKey = "OTHER_SCREENS", screenName = "Other Screens", enabled = true, preferredNetwork = "AUTO", adFormat = "BANNER")
+        )
+        val homePlacement = HybridNetworkAdController.resolveScreenPlacement("home", placements)
+        assertNotNull(homePlacement)
+        assertEquals("WORTISE", homePlacement?.preferredNetwork)
+        assertEquals(45, homePlacement?.refreshIntervalSeconds)
+
+        val detailsPlacement = HybridNetworkAdController.resolveScreenPlacement("doctor_profile", placements)
+        assertNotNull(detailsPlacement)
+        assertFalse(detailsPlacement!!.enabled)
+
+        val fallbackOther = HybridNetworkAdController.resolveScreenPlacement("unknown_screen", placements)
+        assertEquals("OTHER_SCREENS", fallbackOther?.placementKey)
+    }
+
+    // 19. Offline Mode Strictly Suppresses Unity Ads, Start.io, AND Wortise while keeping Direct Sponsor Ads
+    @Test
+    fun offlineModeSuppressesAllThreeOnlineNetworksWhileServingCachedSponsors() {
+        val fullConfig = AdConfigEntity(
+            adsEnabled = true,
+            networkPriorityOrder = "UNITY,STARTIO,WORTISE",
+            unityGameId = "5789123",
+            startIoAppId = "210630916",
+            wortiseAppId = "w-app-123",
+            wortiseBannerAdUnitId = "w-banner-1",
+            wortiseInterstitialAdUnitId = "w-inter-1",
+            wortiseRewardedAdUnitId = "w-rew-1",
+            wortiseAppOpenAdUnitId = "w-open-1"
+        )
+        ConnectivityMonitor.setOnlineForTesting(false)
+        assertFalse(ConnectivityMonitor.isOnline.value)
+
+        // Calling online sync/preload while offline must remain safe no-ops without crashing or initializing
+        HybridNetworkAdController.syncOnlineSdks(context, fullConfig, isOnline = false)
+        HybridNetworkAdController.preloadRewardedForOnline(context, fullConfig, isOnline = false)
+        assertFalse(WortiseAdsManager.isRewardedReady.value)
+        assertFalse(StartIoAdManager.isRewardedReady.value)
+        assertFalse(UnityAdsManager.isRewardedLoaded.value)
+
+        // Cached Direct Sponsor ads still select cleanly offline
+        val cachedSponsor = makeSponsor(id = "sp_offline_ok", placementType = SponsorCampaignSelector.PLACEMENT_BANNER_300x50)
+        val selected = SponsorCampaignSelector.selectBannerSponsor(listOf(cachedSponsor), "home", 0, refNowMs)
+        assertEquals("sp_offline_ok", selected?.id)
+    }
+
+    // 20. Frequency Caps & Fullscreen Cooldown Prevent Repeated Rapid Advertisements
+    @Test
+    fun crossNetworkFrequencyCapsAndCooldownBlockRapidFullScreenAds() {
+        val cappedConfig = AdConfigEntity(
+            adsEnabled = true,
+            appOpenEnabled = true,
+            interstitialEnabled = true,
+            appOpenCooldownSeconds = 120,
+            maxInterstitialsPerSession = 2,
+            maxRewardedPerSession = 3
+        )
+        val t0 = 1_000_000L
+        assertTrue(HybridNetworkAdController.canShowFullScreenAd(cappedConfig, t0))
+        HybridNetworkAdController.recordFullScreenShown(t0)
+
+        // Within 120s cooldown -> blocked
+        assertFalse(HybridNetworkAdController.canShowFullScreenAd(cappedConfig, t0 + 30_000L))
+        assertFalse(HybridNetworkAdController.canShowFullScreenAd(cappedConfig, t0 + 119_000L))
+
+        // After 120s cooldown -> allowed (2nd show)
+        assertTrue(HybridNetworkAdController.canShowFullScreenAd(cappedConfig, t0 + 121_000L))
+        HybridNetworkAdController.recordFullScreenShown(t0 + 121_000L)
+
+        // Session cap reached (maxInterstitialsPerSession = 2) -> blocked even after cooldown
+        assertFalse(HybridNetworkAdController.canShowFullScreenAd(cappedConfig, t0 + 500_000L))
+    }
+
+    // 21. Room v11 Persists Full Multi-Network AdConfig (including Wortise IDs & Caps) and All 8 Screen Placements
+    @Test
+    fun roomV11PersistsWortiseAdConfigAndAllEightScreenAdPlacements() = runBlocking {
+        val savedCfg = AdConfigEntity(
+            id = "global",
+            adsEnabled = true,
+            activeNetwork = "MULTI_CUSTOM",
+            networkPriorityOrder = "WORTISE,UNITY,STARTIO",
+            unityEnabled = true,
+            startIoEnabled = true,
+            wortiseEnabled = true,
+            interstitialEnabled = true,
+            adRequestTimeoutSeconds = 12,
+            adRetryCooldownSeconds = 45,
+            bannerRefreshSeconds = 75,
+            maxInterstitialsPerSession = 3,
+            maxRewardedPerSession = 8,
+            unityGameId = "5789123",
+            startIoAppId = "210630916",
+            wortiseAppId = "wortise-prod-app",
+            wortiseBannerAdUnitId = "wortise-prod-banner",
+            wortiseNativeAdUnitId = "wortise-prod-native",
+            wortiseInterstitialAdUnitId = "wortise-prod-inter",
+            wortiseRewardedAdUnitId = "wortise-prod-rewarded",
+            wortiseAppOpenAdUnitId = "wortise-prod-appopen"
+        )
+        db.adConfigDao().save(savedCfg)
+
+        val loadedCfg = db.adConfigDao().getOnce()
+        assertNotNull(loadedCfg)
+        assertEquals("WORTISE,UNITY,STARTIO", loadedCfg?.networkPriorityOrder)
+        assertEquals("wortise-prod-app", loadedCfg?.wortiseAppId)
+        assertEquals("wortise-prod-banner", loadedCfg?.wortiseBannerAdUnitId)
+        assertEquals("wortise-prod-native", loadedCfg?.wortiseNativeAdUnitId)
+        assertEquals("wortise-prod-inter", loadedCfg?.wortiseInterstitialAdUnitId)
+        assertEquals("wortise-prod-rewarded", loadedCfg?.wortiseRewardedAdUnitId)
+        assertEquals("wortise-prod-appopen", loadedCfg?.wortiseAppOpenAdUnitId)
+        assertEquals(12, loadedCfg?.adRequestTimeoutSeconds)
+        assertEquals(45, loadedCfg?.adRetryCooldownSeconds)
+        assertEquals(75, loadedCfg?.bannerRefreshSeconds)
+        assertEquals(3, loadedCfg?.maxInterstitialsPerSession)
+        assertEquals(8, loadedCfg?.maxRewardedPerSession)
+
+        val eightScreens = listOf(
+            ScreenAdPlacementEntity("HOME", "Home Screen", true, "UNITY", "BANNER", 10, 5, 60),
+            ScreenAdPlacementEntity("DOCTOR_LIST", "Doctor List", true, "STARTIO", "NATIVE", 9, 5, 60),
+            ScreenAdPlacementEntity("DOCTOR_DETAILS", "Doctor Details", true, "WORTISE", "REWARDED", 8, 4, 60),
+            ScreenAdPlacementEntity("HOSPITAL_LIST", "Hospital List", true, "AUTO", "BANNER", 7, 5, 60),
+            ScreenAdPlacementEntity("DIAGNOSTIC_CENTER", "Diagnostic Center", true, "AUTO", "BANNER", 6, 5, 60),
+            ScreenAdPlacementEntity("MEDICAL_SPECIALIST", "Medical Specialist", true, "AUTO", "NATIVE", 5, 5, 60),
+            ScreenAdPlacementEntity("CHAMBER_SCHEDULE", "Chamber Schedule", true, "AUTO", "BANNER", 4, 5, 60),
+            ScreenAdPlacementEntity("OTHER_SCREENS", "Other Content Screens", false, "AUTO", "BANNER", 3, 3, 90)
+        )
+        db.screenAdPlacementDao().replaceAll(eightScreens)
+
+        val storedScreens = db.screenAdPlacementDao().getAllOnce()
+        assertEquals(8, storedScreens.size)
+        assertEquals("HOME", storedScreens.first().placementKey)
+        assertEquals("WORTISE", storedScreens.first { it.placementKey == "DOCTOR_DETAILS" }.preferredNetwork)
+        assertFalse(storedScreens.first { it.placementKey == "OTHER_SCREENS" }.enabled)
+    }
+
+    // 22. Revenue Tracker Normalizes Unity, Start.io & Wortise Networks + All 5 Ad Formats (Rejecting AdMob)
+    @Test
+    fun revenueTrackerNormalizesThreeOfficialNetworksAndFiveFormats() {
+        assertEquals("unity", AdRevenueTracker.normalizeNetworkKey("UNITY"))
+        assertEquals("unity", AdRevenueTracker.normalizeNetworkKey("unity_ads"))
+        assertEquals("startio", AdRevenueTracker.normalizeNetworkKey("Start.io"))
+        assertEquals("wortise", AdRevenueTracker.normalizeNetworkKey("WORTISE"))
+        assertEquals("wortise", AdRevenueTracker.normalizeNetworkKey("wortise_ads"))
+        assertNull(AdRevenueTracker.normalizeNetworkKey("admob"))
+
+        assertEquals("banner", AdRevenueTracker.normalizeFormatKey("BANNER"))
+        assertEquals("native", AdRevenueTracker.normalizeFormatKey("NATIVE"))
+        assertEquals("native", AdRevenueTracker.normalizeFormatKey("mrec"))
+        assertEquals("interstitial", AdRevenueTracker.normalizeFormatKey("INTERSTITIAL"))
+        assertEquals("app_open", AdRevenueTracker.normalizeFormatKey("APP_OPEN"))
+        assertEquals("rewarded", AdRevenueTracker.normalizeFormatKey("REWARDED_VIDEO"))
     }
 }

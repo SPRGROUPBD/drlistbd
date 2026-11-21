@@ -6,6 +6,16 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
+    <!-- Strip unused Privacy Sandbox AdServices permissions merged by third-party ad SDKs -->
+    <uses-permission
+        android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_ADSERVICES_TOPICS"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_ADSERVICES_AD_ID"
+        tools:node="remove" />
 
     <queries>
         <package android:name="com.android.vending" />
@@ -45,13 +55,17 @@
         android:theme="@style/Theme.MyApplication"
         android:usesCleartextTraffic="true">
 
-        <!-- Start.io Online SDK configuration (disabled automatically when offline; AdMob strictly removed) -->
+        <!-- Start.io Online SDK configuration (disabled automatically when offline) -->
         <meta-data
             android:name="com.startapp.sdk.APPLICATION_ID"
             android:value="@string/startio_app_id" />
         <meta-data
             android:name="com.startapp.sdk.RETURN_ADS_ENABLED"
             android:value="false" />
+        <!-- Required by official Wortise Android SDK runtime (no direct AdMob ad units used) -->
+        <meta-data
+            android:name="com.google.android.gms.ads.AD_MANAGER_APP"
+            android:value="true" />
 
         <activity
             android:name=".MainActivity"

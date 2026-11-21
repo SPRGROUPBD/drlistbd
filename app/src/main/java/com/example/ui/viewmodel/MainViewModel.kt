@@ -55,6 +55,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val paymentSettings: StateFlow<PaymentSettingsEntity> = repo.paymentSettings
         .stateIn(viewModelScope, SharingStarted.Eagerly, PaymentSettingsEntity())
 
+    val screenAdPlacements: StateFlow<List<ScreenAdPlacementEntity>> = repo.screenAdPlacements
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     val lastServerSyncAtMs: StateFlow<Long> = repo.prefs.lastServerSyncAtMs
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
 

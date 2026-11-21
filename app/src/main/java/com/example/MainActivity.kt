@@ -1,5 +1,6 @@
 package com.example
 
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -34,15 +35,18 @@ import com.example.i18n.AppStrings
 import com.example.i18n.tr
 import com.example.ui.ads.AppOpenSponsorPopupDialog
 import com.example.ui.ads.ConnectivityMonitor
+import com.example.ui.ads.DirectSponsorRewardVideoDialog
 import com.example.ui.ads.FullScreenSponsorDialog
 import com.example.ui.ads.HybridNetworkAdController
 import com.example.ui.ads.ManagedBannerAd
+import com.example.ui.ads.OnlineAdFormat
 import com.example.ui.ads.PlacementRateCardEngine
 import com.example.ui.ads.RewardedAdOutcome
 import com.example.ui.ads.SponsorBannerView
 import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.ads.StartIoAdManager
 import com.example.ui.ads.UnityAdsManager
+import com.example.ui.ads.WortiseAdsManager
 import com.example.ui.ads.findActivity
 import com.example.ui.components.MedicalTopBar
 import com.example.ui.screens.*
@@ -82,6 +86,17 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun getSystemService(name: String): Any? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            HybridNetworkAdController.isDebugOrEmulator() &&
+            (name.contains("adservices", ignoreCase = true) ||
+                name.contains("measurement", ignoreCase = true))
+        ) {
+            return null
+        }
+        return super.getSystemService(name)
+    }
 }
 
 @Composable
@@ -93,6 +108,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     val placementRateCards by vm.placementRateCards.collectAsStateWithLifecycle()
     val rateCardSettings by vm.rateCardSettings.collectAsStateWithLifecycle()
     val paymentSettings by vm.paymentSettings.collectAsStateWithLifecycle()
+    val screenAdPlacements by vm.screenAdPlacements.collectAsStateWithLifecycle()
     val advertiserSession by vm.advertiserSession.collectAsStateWithLifecycle()
     val authoritativeNowMs by vm.authoritativeNowMs.collectAsStateWithLifecycle()
     val isOnline by vm.isOnline.collectAsStateWithLifecycle()
@@ -100,14 +116,19 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     var showSplash by remember { mutableStateOf(true) }
     val appContext = LocalContext.current
 
-    // Initialize Online-ONLY ad networks (Start.io + Unity Ads) once when internet is available.
+    // Initialize Online-ONLY ad networks (Unity Ads + Start.io + Wortise) once when internet is available.
     // Strictly disabled in Offline Mode so Offline serves Custom Direct Sponsor Ads ONLY.
     LaunchedEffect(
         isOnline,
         adConfig.adsEnabled,
         adConfig.activeNetwork,
+        adConfig.networkPriorityOrder,
+        adConfig.unityEnabled,
+        adConfig.startIoEnabled,
+        adConfig.wortiseEnabled,
         adConfig.unityGameId,
         adConfig.startIoAppId,
+        adConfig.wortiseAppId,
         adConfig.testMode
     ) {
         if (isOnline && adConfig.adsEnabled) {
@@ -219,7 +240,9 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
 
     val unityRewardedReady by UnityAdsManager.isRewardedLoaded.collectAsStateWithLifecycle()
     val startIoRewardedReady by StartIoAdManager.isRewardedReady.collectAsStateWithLifecycle()
+    val wortiseRewardedReady by WortiseAdsManager.isRewardedReady.collectAsStateWithLifecycle()
     var pendingRewardDoctorId by remember { mutableStateOf<String?>(null) }
+    var activeDirectRewardSponsor by remember { mutableStateOf<Pair<com.example.data.local.SponsorEntity, String>?>(null) }
 
     val handleRewardOutcome: (android.app.Activity, String, RewardedAdOutcome) -> Unit = { act, doctorId, outcome ->
         act.runOnUiThread {
@@ -243,7 +266,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
         }
     }
 
-    LaunchedEffect(pendingRewardDoctorId, unityRewardedReady, startIoRewardedReady) {
+    LaunchedEffect(pendingRewardDoctorId, unityRewardedReady, startIoRewardedReady, wortiseRewardedReady) {
         val targetDoctorId = pendingRewardDoctorId ?: return@LaunchedEffect
         val act = appContext.findActivity()
         if (act == null || !isOnline || !adConfig.adsEnabled || !adConfig.rewardedEnabled) {
@@ -289,26 +312,44 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
         }
     }
 
-    // Show online Rewarded Ad when clicking a doctor; open Doctor Profile upon reward completion
+    // Show online Start.io / Unity Rewarded Ad (unchanged) OR active Direct Sponsor Reward Video on doctor click
     val openDoctorProfile: (String) -> Unit = { doctorId ->
-        if (pendingRewardDoctorId == null) {
+        if (pendingRewardDoctorId == null && activeDirectRewardSponsor == null) {
             val act = appContext.findActivity()
-            val shouldShowReward = isOnline &&
+            val directRewardSponsor = if (adConfig.adsEnabled) {
+                SponsorCampaignSelector.selectRewardVideoSponsor(
+                    sponsors = sponsors,
+                    rotationTick = doctorId.hashCode(),
+                    nowMs = authoritativeNowMs
+                )
+            } else null
+
+            val shouldShowOnlineNetworkReward = isOnline &&
                 adConfig.adsEnabled &&
                 adConfig.rewardedEnabled &&
-                HybridNetworkAdController.getOrderedNetworksForOnline(adConfig).isNotEmpty() &&
+                HybridNetworkAdController.getOrderedNetworksForOnline(adConfig, OnlineAdFormat.REWARDED).isNotEmpty() &&
                 act != null
-            if (!shouldShowReward) {
-                navController.navigate(Routes.doctorProfile(doctorId)) {
-                    launchSingleTop = true
+
+            if (!shouldShowOnlineNetworkReward) {
+                if (directRewardSponsor != null) {
+                    activeDirectRewardSponsor = directRewardSponsor to doctorId
+                } else {
+                    navController.navigate(Routes.doctorProfile(doctorId)) {
+                        launchSingleTop = true
+                    }
                 }
             } else {
                 val shownNow = HybridNetworkAdController.showOnlineRewardedIfReady(act!!, adConfig, isOnline = true) { outcome ->
                     handleRewardOutcome(act, doctorId, outcome)
                 }
                 if (!shownNow) {
-                    HybridNetworkAdController.preloadRewardedForOnline(appContext, adConfig, isOnline = true)
-                    pendingRewardDoctorId = doctorId
+                    if (directRewardSponsor != null) {
+                        HybridNetworkAdController.preloadRewardedForOnline(appContext, adConfig, isOnline = true)
+                        activeDirectRewardSponsor = directRewardSponsor to doctorId
+                    } else {
+                        HybridNetworkAdController.preloadRewardedForOnline(appContext, adConfig, isOnline = true)
+                        pendingRewardDoctorId = doctorId
+                    }
                 }
             }
         }
@@ -388,12 +429,14 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             onSponsorDisplayed = vm::recordSponsorDisplay,
                             onSponsorClicked = vm::recordSponsorClick
                         )
-                        // 2. Online-ONLY Start.io + Unity Ads Banner (auto-disabled in Offline Mode)
+                        // 2. Online-ONLY Multi-Network Banner (Unity Ads -> Start.io -> Wortise; auto-disabled offline)
                         if (isOnline) {
                             ManagedBannerAd(
                                 adConfig = adConfig,
                                 isOnline = isOnline,
-                                refreshKey = currentPageKey
+                                refreshKey = currentPageKey,
+                                screenKey = currentPageKey,
+                                screenPlacements = screenAdPlacements
                             )
                         }
                     }
@@ -606,9 +649,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             lang = lang,
                             session = advertiserSession,
                             cachedPackages = sponsorPackages,
-                            cachedRateCards = placementRateCards,
-                            cachedRateCardSettings = rateCardSettings,
-                            cachedSponsors = sponsors,
                             cachedPaymentSettings = paymentSettings,
                             isOnline = isOnline,
                             nowMs = authoritativeNowMs,
@@ -681,11 +721,35 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
             )
         }
 
-        // Approved Online-ONLY SDK Interstitial / App Open (only when online, cooldown met, and no sponsor popup is open)
+        // Direct Sponsor Reward Video – Doctor Click (Works Online + Offline Cached)
+        activeDirectRewardSponsor?.let { (rewardSponsor, targetDoctorId) ->
+            DirectSponsorRewardVideoDialog(
+                sponsor = rewardSponsor,
+                isOnline = isOnline,
+                lang = lang,
+                onDisplayed = vm::recordSponsorDisplay,
+                onClicked = vm::recordSponsorClick,
+                onCompleted = {
+                    activeDirectRewardSponsor = null
+                    navController.navigate(Routes.doctorProfile(targetDoctorId)) {
+                        launchSingleTop = true
+                    }
+                },
+                onDismiss = {
+                    activeDirectRewardSponsor = null
+                }
+            )
+        }
+
+        // Online-ONLY Multi-Network App Open / Interstitial (Unity Ads -> Start.io -> Wortise)
+        // Only shown when online, cooldown & session cap met, and no sponsor popup is open
         LaunchedEffect(showSplash, activePopupSponsor, activeFullScreenSponsor, appOpenPopupEvaluated, isOnline) {
-            if (!showSplash && appOpenPopupEvaluated && activePopupSponsor == null && activeFullScreenSponsor == null && isOnline && adConfig.adsEnabled && adConfig.appOpenEnabled) {
+            if (!showSplash && appOpenPopupEvaluated && activePopupSponsor == null && activeFullScreenSponsor == null && isOnline && adConfig.adsEnabled && (adConfig.appOpenEnabled || adConfig.interstitialEnabled)) {
                 appContext.findActivity()?.let { act ->
-                    HybridNetworkAdController.maybeShowOnlineInterstitial(act, adConfig, isOnline = true)
+                    val shownAppOpen = HybridNetworkAdController.maybeShowOnlineAppOpen(act, adConfig, isOnline = true)
+                    if (!shownAppOpen) {
+                        HybridNetworkAdController.maybeShowOnlineInterstitial(act, adConfig, isOnline = true)
+                    }
                 }
             }
         }

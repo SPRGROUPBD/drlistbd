@@ -45,6 +45,15 @@ enum class RewardedAdOutcome {
     FAILED_TO_SHOW
 }
 
+enum class OnlineAdFormat {
+    ANY,
+    BANNER,
+    NATIVE,
+    INTERSTITIAL,
+    REWARDED,
+    APP_OPEN
+}
+
 /**
  * Production Unity Ads SDK v4.14.1 Manager (ONLINE ONLY).
  * - Strictly disabled when offline (zero initialization, zero ad requests).
@@ -67,22 +76,48 @@ object UnityAdsManager {
     private val _isRewardedLoaded = MutableStateFlow(false)
     val isRewardedLoaded: StateFlow<Boolean> = _isRewardedLoaded.asStateFlow()
 
+    private const val FAILED_RETRY_COOLDOWN_MS = 60_000L
+
     private var isInterstitialLoading = false
     private var isRewardedLoading = false
     private var lastInterstitialShownAt = 0L
+    private var lastInterstitialFailedAt = 0L
+    private var lastRewardedFailedAt = 0L
+    private val bannerPlacementFailedAt = mutableMapOf<String, Long>()
 
     fun isRewardedRequestInFlight(): Boolean = isRewardedLoading || isInitializing
 
-    fun isUnityEnabled(config: AdConfigEntity): Boolean {
-        if (!config.adsEnabled) return false
-        if (config.unityGameId.isBlank()) return false
-        return when (config.activeNetwork.uppercase()) {
-            "UNITY", "BOTH_UNITY_PRIMARY", "BOTH_STARTIO_PRIMARY" -> true
-            else -> false
+    internal fun retryCooldownMs(config: AdConfigEntity? = null): Long =
+        (config?.adRetryCooldownSeconds ?: 60).coerceIn(10, 600) * 1000L
+
+    internal fun isBannerPlacementInCooldown(placementId: String, cooldownMs: Long = FAILED_RETRY_COOLDOWN_MS): Boolean {
+        val lastFail = synchronized(bannerPlacementFailedAt) { bannerPlacementFailedAt[placementId] ?: 0L }
+        return System.currentTimeMillis() - lastFail < cooldownMs
+    }
+
+    internal fun markBannerPlacementFailed(placementId: String) {
+        synchronized(bannerPlacementFailedAt) {
+            bannerPlacementFailedAt[placementId] = System.currentTimeMillis()
         }
     }
 
-    internal fun effectiveTestMode(config: AdConfigEntity): Boolean = config.testMode
+    internal fun clearBannerPlacementFailure(placementId: String) {
+        synchronized(bannerPlacementFailedAt) {
+            bannerPlacementFailedAt.remove(placementId)
+        }
+    }
+
+    fun isUnityEnabled(config: AdConfigEntity): Boolean {
+        if (!config.adsEnabled || !config.unityEnabled) return false
+        if (config.unityGameId.isBlank()) return false
+        return when (config.activeNetwork.uppercase()) {
+            "SPONSORS_ONLY", "STARTIO", "WORTISE" -> false
+            else -> true
+        }
+    }
+
+    internal fun effectiveTestMode(config: AdConfigEntity): Boolean =
+        config.testMode || HybridNetworkAdController.isDebugOrEmulator()
 
     fun ensureInitialized(context: Context, config: AdConfigEntity) {
         if (!ConnectivityMonitor.isOnline.value) return
@@ -131,7 +166,7 @@ object UnityAdsManager {
 
     fun preloadPlacements(config: AdConfigEntity) {
         if (!ConnectivityMonitor.isOnline.value || !_isReady.value || !isUnityEnabled(config)) return
-        if (config.appOpenEnabled) {
+        if (config.appOpenEnabled || config.interstitialEnabled) {
             preloadInterstitial(config.unityAppOpenPlacement)
         }
         if (config.rewardedEnabled) {
@@ -141,8 +176,10 @@ object UnityAdsManager {
 
     fun preloadInterstitial(placementId: String) {
         val pid = placementId.trim()
+        val now = System.currentTimeMillis()
         if (!ConnectivityMonitor.isOnline.value || !_isReady.value || pid.isEmpty()) return
         if (_isInterstitialLoaded.value || isInterstitialLoading) return
+        if (now - lastInterstitialFailedAt < FAILED_RETRY_COOLDOWN_MS) return
         isInterstitialLoading = true
         AdRevenueTracker.trackNetworkRequest("unity", "app_open")
         runCatching {
@@ -150,12 +187,14 @@ object UnityAdsManager {
                 override fun onUnityAdsAdLoaded(id: String?) {
                     isInterstitialLoading = false
                     _isInterstitialLoaded.value = true
+                    lastInterstitialFailedAt = 0L
                     AdRevenueTracker.trackNetworkLoad("unity", "app_open")
                 }
 
                 override fun onUnityAdsFailedToLoad(id: String?, error: UnityAds.UnityAdsLoadError?, message: String?) {
                     isInterstitialLoading = false
                     _isInterstitialLoaded.value = false
+                    lastInterstitialFailedAt = System.currentTimeMillis()
                     AdRevenueTracker.trackNetworkError("unity", "app_open")
                     Log.d(TAG, "Unity interstitial load failed ($pid): $error - $message")
                 }
@@ -163,13 +202,16 @@ object UnityAdsManager {
         }.onFailure {
             isInterstitialLoading = false
             _isInterstitialLoaded.value = false
+            lastInterstitialFailedAt = System.currentTimeMillis()
         }
     }
 
     fun preloadRewarded(placementId: String) {
         val pid = placementId.trim()
+        val now = System.currentTimeMillis()
         if (!ConnectivityMonitor.isOnline.value || !_isReady.value || pid.isEmpty()) return
         if (_isRewardedLoaded.value || isRewardedLoading) return
+        if (now - lastRewardedFailedAt < FAILED_RETRY_COOLDOWN_MS) return
         isRewardedLoading = true
         AdRevenueTracker.trackNetworkRequest("unity", "rewarded")
         runCatching {
@@ -177,12 +219,14 @@ object UnityAdsManager {
                 override fun onUnityAdsAdLoaded(id: String?) {
                     isRewardedLoading = false
                     _isRewardedLoaded.value = true
+                    lastRewardedFailedAt = 0L
                     AdRevenueTracker.trackNetworkLoad("unity", "rewarded")
                 }
 
                 override fun onUnityAdsFailedToLoad(id: String?, error: UnityAds.UnityAdsLoadError?, message: String?) {
                     isRewardedLoading = false
                     _isRewardedLoaded.value = false
+                    lastRewardedFailedAt = System.currentTimeMillis()
                     AdRevenueTracker.trackNetworkError("unity", "rewarded")
                     Log.d(TAG, "Unity rewarded load failed ($pid): $error - $message")
                 }
@@ -190,11 +234,12 @@ object UnityAdsManager {
         }.onFailure {
             isRewardedLoading = false
             _isRewardedLoaded.value = false
+            lastRewardedFailedAt = System.currentTimeMillis()
         }
     }
 
     fun showInterstitialIfReady(activity: Activity, config: AdConfigEntity): Boolean {
-        if (!ConnectivityMonitor.isOnline.value || !_isReady.value || !config.appOpenEnabled || !isUnityEnabled(config)) {
+        if (!ConnectivityMonitor.isOnline.value || !_isReady.value || (!config.appOpenEnabled && !config.interstitialEnabled) || !isUnityEnabled(config)) {
             return false
         }
         val now = System.currentTimeMillis()
@@ -310,6 +355,7 @@ internal fun UnityBannerViewSlot(
                 listener = object : BannerView.IListener {
                     override fun onBannerLoaded(bannerAdView: BannerView?) {
                         bannerLoaded = true
+                        UnityAdsManager.clearBannerPlacementFailure(placementId)
                         AdRevenueTracker.trackNetworkLoad("unity", formatKey)
                         latestOnLoaded()
                     }
@@ -324,6 +370,7 @@ internal fun UnityBannerViewSlot(
 
                     override fun onBannerFailedToLoad(bannerAdView: BannerView?, errorInfo: BannerErrorInfo?) {
                         bannerLoaded = false
+                        UnityAdsManager.markBannerPlacementFailed(placementId)
                         AdRevenueTracker.trackNetworkError("unity", formatKey)
                         if (!failedReported) {
                             failedReported = true
@@ -341,6 +388,9 @@ internal fun UnityBannerViewSlot(
         UnityAdsManager.ensureInitialized(activity, adConfig)
     }
 
+    val cooldownMs = UnityAdsManager.retryCooldownMs(adConfig)
+    val timeoutMs = adConfig.adRequestTimeoutSeconds.coerceIn(4, 30) * 1000L
+
     LaunchedEffect(bannerRef, isUnityReady) {
         if (bannerRef == null) {
             if (!failedReported) {
@@ -349,7 +399,7 @@ internal fun UnityBannerViewSlot(
             }
             return@LaunchedEffect
         }
-        if (!ConnectivityMonitor.isOnline.value) {
+        if (!ConnectivityMonitor.isOnline.value || UnityAdsManager.isBannerPlacementInCooldown(placementId, cooldownMs)) {
             if (!failedReported) {
                 failedReported = true
                 latestOnFailed()
@@ -360,18 +410,20 @@ internal fun UnityBannerViewSlot(
             loadRequested = true
             AdRevenueTracker.trackNetworkRequest("unity", formatKey)
             runCatching { bannerRef.load() }.onFailure {
+                UnityAdsManager.markBannerPlacementFailed(placementId)
                 if (!failedReported) {
                     failedReported = true
                     latestOnFailed()
                 }
             }
-            delay(10_000L)
+            delay(timeoutMs)
             if (!bannerLoaded && !failedReported) {
+                UnityAdsManager.markBannerPlacementFailed(placementId)
                 failedReported = true
                 latestOnFailed()
             }
         } else if (!isUnityReady) {
-            delay(6500L)
+            delay(minOf(timeoutMs, 6500L))
             if (!UnityAdsManager.isReady.value && !bannerLoaded && !failedReported) {
                 failedReported = true
                 latestOnFailed()
@@ -388,11 +440,11 @@ internal fun UnityBannerViewSlot(
         }
     }
 
-    if (bannerRef != null) {
+    if (bannerRef != null && !failedReported) {
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .height(52.dp)
+                .height(if (bannerLoaded) 52.dp else 1.dp)
                 .clipToBounds()
         ) {
             AndroidView(

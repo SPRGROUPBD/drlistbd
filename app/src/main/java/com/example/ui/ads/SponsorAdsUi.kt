@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,8 +35,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import android.widget.VideoView
+import kotlinx.coroutines.delay
 import coil.compose.AsyncImage
 import com.example.data.local.AdConfigEntity
 import com.example.data.local.PlacementRateCardEntity
@@ -632,9 +636,10 @@ fun SponsorCardRenderer(
         SponsorOfflineCacheManager.resolveImageModel(sponsor.localBannerPath, sponsor.bannerImageUrl, isOnline)
     }
 
-    // Dynamic responsive height respecting package dimensions (300x200 -> tall, 320x100 / 728x90 -> wide)
+    // Dynamic responsive height respecting package dimensions (300x50 -> strip, 300x200 -> tall, 320x100 / 728x90 -> wide)
     val imageHeightDp = remember(sponsor.widthPx, sponsor.heightPx, sponsor.placementType) {
         when {
+            sponsor.placementType.equals(SponsorCampaignSelector.PLACEMENT_BANNER_300x50, ignoreCase = true) -> 68.dp
             sponsor.placementType.equals(SponsorCampaignSelector.PLACEMENT_BANNER_728x90, ignoreCase = true) -> 88.dp
             sponsor.placementType.equals(SponsorCampaignSelector.PLACEMENT_BANNER_320x100, ignoreCase = true) -> 110.dp
             sponsor.placementType.equals(SponsorCampaignSelector.PLACEMENT_BANNER_300x200, ignoreCase = true) -> 196.dp
@@ -642,7 +647,7 @@ fun SponsorCardRenderer(
                 val ratio = if (sponsor.widthPx > 0 && sponsor.heightPx > 0) {
                     sponsor.heightPx.toFloat() / sponsor.widthPx.toFloat()
                 } else 0.55f
-                (300f * ratio).coerceIn(96f, 220f).dp
+                (300f * ratio).coerceIn(68f, 220f).dp
             }
         }
     }
@@ -908,8 +913,8 @@ fun AboutUsSponsorSection(
                         Text(
                             text = tr(
                                 lang,
-                                "হাসপাতাল, ডায়াগনস্টিক বা ফার্মেসি — সরাসরি প্যাকেজ কিনে বিজ্ঞাপন প্রকাশ করুন (বিকাশ/নগদ)।",
-                                "Hospitals, clinics & businesses can purchase direct sponsor packages via bKash or Nagad."
+                                "হাসপাতাল, ডায়াগনস্টিক বা ফার্মেসি — সরাসরি ফিক্সড প্যাকেজ কিনে বিজ্ঞাপন প্রকাশ করুন (বিকাশ/নগদ/রকেট)।",
+                                "Hospitals, clinics & businesses can book direct sponsor packages via bKash, Nagad, or Rocket."
                             ),
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
@@ -1294,6 +1299,270 @@ fun FullScreenSponsorDialog(
                     }
                     TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
                         Text(tr(lang, "অ্যাপে ফিরে যান", "Continue to App"), color = Color.White.copy(alpha = 0.8f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Direct Sponsor Reward Video Dialog for `Reward Video – Doctor Click` packages.
+ * Plays sponsor video when online with a valid HTTPS video URL, and falls back gracefully
+ * to cached sponsor visual preview offline so active Direct Sponsor campaigns work in both modes.
+ */
+@Composable
+fun DirectSponsorRewardVideoDialog(
+    sponsor: SponsorEntity,
+    isOnline: Boolean,
+    lang: AppLang,
+    onDisplayed: (sponsorId: String, isOnline: Boolean, slotKey: String) -> Unit,
+    onClicked: (sponsorId: String, isOnline: Boolean) -> Unit,
+    onCompleted: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val bannerModel = remember(sponsor.localBannerPath, sponsor.bannerImageUrl, isOnline) {
+        SponsorOfflineCacheManager.resolveImageModel(sponsor.localBannerPath, sponsor.bannerImageUrl, isOnline)
+    }
+    val canStreamVideo = remember(sponsor.videoUrl, isOnline) {
+        isOnline && sponsor.videoUrl.trim().startsWith("https://", ignoreCase = true)
+    }
+    var secondsLeft by remember(sponsor.id) { mutableIntStateOf(5) }
+    var videoError by remember(sponsor.id) { mutableStateOf(false) }
+
+    LaunchedEffect(sponsor.id) {
+        while (secondsLeft > 0) {
+            delay(1000L)
+            secondsLeft -= 1
+        }
+    }
+
+    Dialog(
+        onDismissRequest = { if (secondsLeft <= 0) onCompleted() else onDismiss() },
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        Surface(
+            shape = RoundedCornerShape(0.dp),
+            color = Color(0xFF0B1120),
+            modifier = Modifier
+                .fillMaxSize()
+                .onAdVisibleOnScreen("reward_video_${sponsor.id}") {
+                    onDisplayed(sponsor.id, isOnline, "reward_video_doctor_click")
+                }
+                .testTag("direct_sponsor_reward_video_dialog")
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .systemBarsPadding()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SponsoredBadgePill(lang = lang, isOnline = isOnline, darkBg = true)
+                        Surface(
+                            color = Color.White.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = if (secondsLeft > 0) {
+                                    tr(lang, "ডাক্তারের তথ্য ${secondsLeft} সেকেন্ডে...", "Doctor details in ${secondsLeft}s...")
+                                } else {
+                                    tr(lang, "প্রস্তুত", "Ready")
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = { if (secondsLeft <= 0) onCompleted() else onDismiss() },
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = Color.White.copy(alpha = 0.16f),
+                            contentColor = Color.White
+                        ),
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("reward_sponsor_close_btn")
+                    ) {
+                        Icon(Icons.Rounded.Close, contentDescription = tr(lang, "বন্ধ করুন", "Close"))
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Card(
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 210.dp, max = 320.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (canStreamVideo && !videoError) {
+                                AndroidView(
+                                    factory = { ctx ->
+                                        VideoView(ctx).apply {
+                                            setVideoURI(Uri.parse(sponsor.videoUrl.trim()))
+                                            setOnPreparedListener { mp ->
+                                                mp.isLooping = false
+                                                start()
+                                            }
+                                            setOnCompletionListener {
+                                                secondsLeft = 0
+                                            }
+                                            setOnErrorListener { _, _, _ ->
+                                                videoError = true
+                                                true
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else if (bannerModel != null) {
+                                AsyncImage(
+                                    model = bannerModel,
+                                    contentDescription = sponsor.promoTitle.ifBlank { sponsor.name },
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.padding(16.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.PlayCircle,
+                                        contentDescription = null,
+                                        tint = Color(0xFF38BDF8),
+                                        modifier = Modifier.size(56.dp)
+                                    )
+                                    Text(
+                                        text = sponsor.name,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        SponsorLogoAvatar(sponsor = sponsor, isOnline = isOnline, sizeDp = 48)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = sponsor.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (sponsor.promoTitle.isNotBlank()) {
+                                Text(
+                                    text = sponsor.promoTitle,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFF7DD3FC),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                    if (sponsor.description.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = sponsor.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.82f),
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (SponsorCampaignSelector.isValidWebsiteUrl(sponsor.websiteUrl)) {
+                            OutlinedButton(
+                                onClick = {
+                                    openSponsorWebsite(context, sponsor, isOnline, lang) { id ->
+                                        onClicked(id, isOnline)
+                                    }
+                                },
+                                border = BorderStroke(1.dp, Color(0xFF38BDF8)),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 48.dp)
+                            ) {
+                                Text(tr(lang, "ভিজিট স্পন্সর", "Visit Sponsor"), color = Color(0xFF7DD3FC))
+                            }
+                        }
+                        if (sponsor.contactNumber.isNotBlank()) {
+                            OutlinedButton(
+                                onClick = { dialSponsorPhone(context, sponsor) { id -> onClicked(id, isOnline) } },
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)),
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
+                                Icon(Icons.Rounded.Call, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(tr(lang, "কল", "Call"), color = Color.White)
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = onCompleted,
+                        enabled = secondsLeft <= 0,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MedicalTeal,
+                            disabledContainerColor = Color.White.copy(alpha = 0.16f)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 50.dp)
+                            .testTag("reward_sponsor_continue_btn")
+                    ) {
+                        Text(
+                            text = if (secondsLeft > 0) {
+                                tr(lang, "অপেক্ষা করুন (${secondsLeft} সে.)", "Please wait (${secondsLeft}s)")
+                            } else {
+                                tr(lang, "ডাক্তারের বিস্তারিত দেখুন", "View Doctor Profile")
+                            },
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }

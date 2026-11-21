@@ -218,6 +218,22 @@ object AdRevenueTracker {
         }
     }
 
+    /**
+     * Records real SDK-reported ad revenue (e.g., Wortise RevenueData callback) in micro-USD.
+     * Never called with synthetic or fabricated numbers — strictly genuine SDK callbacks when online.
+     */
+    fun trackNetworkPaidRevenue(network: String, format: String, revenueUsd: Double) {
+        if (!ConnectivityMonitor.isOnline.value) return
+        if (!revenueUsd.isFinite() || revenueUsd <= 0.0) return
+        val net = normalizeNetworkKey(network) ?: return
+        val fmt = normalizeFormatKey(format)
+        val micros = kotlin.math.round(revenueUsd * 1_000_000.0).toLong().coerceAtLeast(1L)
+        scope.launch {
+            val dateKey = SponsorCampaignSelector.todayDateKey()
+            patchIncrementLong("$RTDB_DIR_BASE/ad_metrics/$dateKey/$net/$fmt.json", "sdkRevenueMicros", micros)
+        }
+    }
+
     fun trackOnlineSession() {
         if (!ConnectivityMonitor.isOnline.value) return
         scope.launch {
@@ -239,18 +255,28 @@ object AdRevenueTracker {
         }
     }
 
-    private fun normalizeNetworkKey(raw: String): String? = when (raw.lowercase()) {
-        "startio", "start.io" -> "startio"
-        "unity", "unityads" -> "unity"
+    internal fun normalizeNetworkKey(raw: String): String? = when (raw.trim().lowercase()) {
+        "startio", "start.io", "start_io" -> "startio"
+        "unity", "unityads", "unity_ads" -> "unity"
+        "wortise", "wortiseads", "wortise_ads" -> "wortise"
         else -> null
     }
 
-    private fun normalizeFormatKey(raw: String): String = when (raw.lowercase()) {
+    internal fun normalizeFormatKey(raw: String): String = when (raw.trim().lowercase()) {
         "banner" -> "banner"
         "native", "mrec" -> "native"
-        "app_open", "interstitial" -> "app_open"
-        "rewarded" -> "rewarded"
+        "interstitial" -> "interstitial"
+        "app_open", "appopen" -> "app_open"
+        "rewarded", "rewarded_video" -> "rewarded"
         else -> "banner"
+    }
+
+    private fun patchIncrementLong(urlStr: String, field: String, delta: Long): Boolean {
+        val payload = JSONObject()
+            .put(field, JSONObject().put(".sv", JSONObject().put("increment", delta)))
+            .put("updatedAt", System.currentTimeMillis())
+            .toString()
+        return patchRaw(urlStr, payload)
     }
 
     internal fun clearMemoryCooldownsForTesting() {

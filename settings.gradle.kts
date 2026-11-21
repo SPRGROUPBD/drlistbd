@@ -19,6 +19,9 @@ dependencyResolutionManagement {
   repositories {
     google()
     mavenCentral()
+    maven { url = uri("https://maven.wortise.com/artifactory/public") }
+    maven { url = uri("https://artifact.bytedance.com/repository/pangle") }
+    maven { url = uri("https://artifactory.bidmachine.io/bidmachine") }
   }
 }
 

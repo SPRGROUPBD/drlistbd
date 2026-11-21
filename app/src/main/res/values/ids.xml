@@ -5,6 +5,9 @@
     <item name="startio_banner_container" type="id" />
     <item name="startio_banner_view" type="id" />
     <item name="startio_native_container" type="id" />
+    <item name="wortise_banner_container" type="id" />
+    <item name="wortise_banner_view" type="id" />
+    <item name="wortise_native_container" type="id" />
     <item name="ad_ancestor_slot_1" type="id" />
     <item name="ad_ancestor_slot_2" type="id" />
     <item name="ad_ancestor_slot_3" type="id" />

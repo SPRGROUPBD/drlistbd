@@ -284,23 +284,41 @@ object RtdbSyncService {
                 )
             }
 
-            // Hybrid Ad Configuration: ONLINE (Start.io + Unity Ads + Direct Sponsors) | OFFLINE (Direct Sponsors ONLY)
+            // Multi-Network Hybrid Ad Configuration: ONLINE (Unity Ads + Start.io + Wortise + Direct Sponsors) | OFFLINE (Direct Sponsors ONLY)
             val adCfgObj = root.optJSONObject("ad_config")
             val aboutCfgObj = root.optJSONObject("about_us_ad_settings")
             if (adCfgObj != null || aboutCfgObj != null) {
+                val activeNet = adCfgObj?.optString("activeNetwork", "BOTH_UNITY_PRIMARY")
+                    ?.ifBlank { "BOTH_UNITY_PRIMARY" } ?: "BOTH_UNITY_PRIMARY"
+                val defaultPriority = when (activeNet.uppercase()) {
+                    "BOTH_STARTIO_PRIMARY" -> "STARTIO,UNITY,WORTISE"
+                    "WORTISE_PRIMARY" -> "WORTISE,UNITY,STARTIO"
+                    else -> "UNITY,STARTIO,WORTISE"
+                }
+                val parsedPriority = cleanOptString(adCfgObj, "networkPriorityOrder", defaultPriority)
+                    .ifBlank { defaultPriority }
                 db.adConfigDao().save(
                     AdConfigEntity(
                         id = "global",
                         adsEnabled = adCfgObj?.optBoolean("adsEnabled", true) ?: true,
-                        activeNetwork = adCfgObj?.optString("activeNetwork", "BOTH_UNITY_PRIMARY")
-                            ?.ifBlank { "BOTH_UNITY_PRIMARY" } ?: "BOTH_UNITY_PRIMARY",
+                        activeNetwork = activeNet,
+                        networkPriorityOrder = parsedPriority,
+                        unityEnabled = adCfgObj?.optBoolean("unityEnabled", true) ?: true,
+                        startIoEnabled = adCfgObj?.optBoolean("startIoEnabled", true) ?: true,
+                        wortiseEnabled = adCfgObj?.optBoolean("wortiseEnabled", true) ?: true,
                         testMode = adCfgObj?.optBoolean("testMode", false) ?: false,
                         bannerEnabled = adCfgObj?.optBoolean("bannerEnabled", true) ?: true,
                         appOpenEnabled = adCfgObj?.optBoolean("appOpenEnabled", true) ?: true,
+                        interstitialEnabled = adCfgObj?.optBoolean("interstitialEnabled", adCfgObj.optBoolean("appOpenEnabled", true)) ?: true,
                         nativeBannerEnabled = adCfgObj?.optBoolean("nativeBannerEnabled", true) ?: true,
                         rewardedEnabled = adCfgObj?.optBoolean("rewardedEnabled", true) ?: true,
                         nativeAdInterval = (adCfgObj?.optInt("nativeAdInterval", 5) ?: 5).coerceIn(3, 12),
                         appOpenCooldownSeconds = (adCfgObj?.optInt("appOpenCooldownSeconds", 120) ?: 120).coerceIn(15, 3600),
+                        adRequestTimeoutSeconds = (adCfgObj?.optInt("adRequestTimeoutSeconds", 10) ?: 10).coerceIn(4, 30),
+                        adRetryCooldownSeconds = (adCfgObj?.optInt("adRetryCooldownSeconds", 60) ?: 60).coerceIn(10, 600),
+                        bannerRefreshSeconds = (adCfgObj?.optInt("bannerRefreshSeconds", 60) ?: 60).coerceIn(30, 300),
+                        maxInterstitialsPerSession = (adCfgObj?.optInt("maxInterstitialsPerSession", 4) ?: 4).coerceIn(1, 20),
+                        maxRewardedPerSession = (adCfgObj?.optInt("maxRewardedPerSession", 10) ?: 10).coerceIn(1, 50),
                         unityGameId = cleanOptString(adCfgObj, "unityGameId", ""),
                         unityBannerPlacement = cleanOptString(adCfgObj, "unityBannerPlacement", "Banner_Android")
                             .ifBlank { "Banner_Android" },
@@ -312,6 +330,12 @@ object RtdbSyncService {
                             .ifBlank { "Rewarded_Android" },
                         startIoAppId = cleanOptString(adCfgObj, "startIoAppId", "210630916")
                             .ifBlank { "210630916" },
+                        wortiseAppId = cleanOptString(adCfgObj, "wortiseAppId", ""),
+                        wortiseBannerAdUnitId = cleanOptString(adCfgObj, "wortiseBannerAdUnitId", ""),
+                        wortiseNativeAdUnitId = cleanOptString(adCfgObj, "wortiseNativeAdUnitId", ""),
+                        wortiseInterstitialAdUnitId = cleanOptString(adCfgObj, "wortiseInterstitialAdUnitId", ""),
+                        wortiseRewardedAdUnitId = cleanOptString(adCfgObj, "wortiseRewardedAdUnitId", ""),
+                        wortiseAppOpenAdUnitId = cleanOptString(adCfgObj, "wortiseAppOpenAdUnitId", ""),
                         sponsorBannerEnabled = adCfgObj?.optBoolean("sponsorBannerEnabled", true) ?: true,
                         appOpenPopupEnabled = adCfgObj?.optBoolean("appOpenPopupEnabled", true) ?: true,
                         appOpenPopupFrequency = adCfgObj?.optString("appOpenPopupFrequency", SponsorCampaignSelector.FREQ_EVERY_LAUNCH)
@@ -339,19 +363,62 @@ object RtdbSyncService {
                 )
             }
 
-            // Dynamic Advertising Packages (Never hardcoded!)
+            // Smart Screen-Wise Multi-Network Ad Placements (Admin configurable remotely)
+            if (root.has("screen_ad_placements")) {
+                val obj = root.optJSONObject("screen_ad_placements")
+                val list = if (obj != null) parseMap(obj) { key, o ->
+                    ScreenAdPlacementEntity(
+                        placementKey = o.optString("placementKey", key).ifBlank { key }.uppercase(),
+                        screenName = o.optString("screenName", key).ifBlank { key },
+                        enabled = o.optBoolean("enabled", true),
+                        preferredNetwork = o.optString("preferredNetwork", "AUTO").ifBlank { "AUTO" }.uppercase(),
+                        adFormat = o.optString("adFormat", "BANNER").ifBlank { "BANNER" }.uppercase(),
+                        priority = o.optInt("priority", 10).coerceIn(1, 100),
+                        frequencyCap = o.optInt("frequencyCap", 5).coerceIn(1, 30),
+                        refreshIntervalSeconds = o.optInt("refreshIntervalSeconds", 60).coerceIn(30, 300),
+                        updatedAt = o.optLong("updatedAt", serverHeaderDateMs)
+                    )
+                } else emptyList()
+                db.screenAdPlacementDao().deleteAll()
+                if (list.isNotEmpty()) db.screenAdPlacementDao().insertAll(list)
+            }
+
+            // Dynamic Advertising Packages (Strictly Admin-created; never hardcoded!)
             if (root.has("ad_packages")) {
                 val obj = root.optJSONObject("ad_packages")
                 val pkgList = if (obj != null) parseMap(obj) { id, o ->
+                    val pType = o.optString("placementType", SponsorCampaignSelector.PLACEMENT_BANNER_300x50)
+                        .ifBlank { SponsorCampaignSelector.PLACEMENT_BANNER_300x50 }
+                    val wPx = o.optInt("widthPx", 300).coerceAtLeast(0)
+                    val hPx = o.optInt("heightPx", 50).coerceAtLeast(0)
+                    val defaultAdType = when (pType.uppercase()) {
+                        SponsorCampaignSelector.PLACEMENT_BANNER_300x50,
+                        SponsorCampaignSelector.PLACEMENT_BANNER_320x100,
+                        SponsorCampaignSelector.PLACEMENT_BANNER_728x90 -> "BANNER"
+                        SponsorCampaignSelector.PLACEMENT_BANNER_300x200,
+                        SponsorCampaignSelector.PLACEMENT_NATIVE_CARD -> "NATIVE_BANNER"
+                        SponsorCampaignSelector.PLACEMENT_POPUP -> "POPUP"
+                        SponsorCampaignSelector.PLACEMENT_REWARD_VIDEO -> "REWARD_VIDEO"
+                        else -> "BANNER"
+                    }
+                    val defaultSize = when {
+                        pType.equals(SponsorCampaignSelector.PLACEMENT_REWARD_VIDEO, true) -> "Video"
+                        pType.equals(SponsorCampaignSelector.PLACEMENT_POPUP, true) -> "Responsive"
+                        wPx > 0 && hPx > 0 -> "${wPx}×${hPx} px"
+                        else -> "Responsive"
+                    }
                     SponsorPackageEntity(
                         id = id,
                         name = o.optString("name", "").trim(),
-                        widthPx = o.optInt("widthPx", 300).coerceAtLeast(100),
-                        heightPx = o.optInt("heightPx", 200).coerceAtLeast(50),
+                        widthPx = wPx,
+                        heightPx = hPx,
                         durationDays = o.optInt("durationDays", 30).coerceAtLeast(1),
                         priceBdt = o.optInt("priceBdt", 0).coerceAtLeast(0),
-                        placementType = o.optString("placementType", SponsorCampaignSelector.PLACEMENT_BANNER_300x200)
-                            .ifBlank { SponsorCampaignSelector.PLACEMENT_BANNER_300x200 },
+                        placementType = pType,
+                        adType = o.optString("adType", defaultAdType).ifBlank { defaultAdType },
+                        sizeLabel = o.optString("sizeLabel", defaultSize).ifBlank { defaultSize },
+                        adPlacement = o.optString("adPlacement", "ALL").ifBlank { "ALL" },
+                        packageImageUrl = o.optString("packageImageUrl", "").trim(),
                         description = o.optString("description", "").trim(),
                         status = o.optString("status", "ACTIVE").ifBlank { "ACTIVE" },
                         updatedAt = o.optLong("updatedAt", serverHeaderDateMs)
@@ -359,6 +426,9 @@ object RtdbSyncService {
                 } else emptyList()
                 db.sponsorPackageDao().deleteAll()
                 if (pkgList.isNotEmpty()) db.sponsorPackageDao().insertAll(pkgList)
+            } else {
+                // If Admin has removed all packages, ensure local table reflects zero packages
+                db.sponsorPackageDao().deleteAll()
             }
 
             // Placement Rate Cards & Global Bundle Discount Settings
@@ -406,7 +476,7 @@ object RtdbSyncService {
                 )
             }
 
-            // Manual Payment Settings (bKash & Nagad configured by Admin)
+            // Manual Payment Settings (bKash, Nagad & Rocket configured by Admin)
             root.optJSONObject("payment_settings")?.let { p ->
                 db.paymentSettingsDao().save(
                     PaymentSettingsEntity(
@@ -415,6 +485,8 @@ object RtdbSyncService {
                         bkashAccountType = p.optString("bkashAccountType", "Personal").ifBlank { "Personal" },
                         nagadNumber = p.optString("nagadNumber", "").trim(),
                         nagadAccountType = p.optString("nagadAccountType", "Personal").ifBlank { "Personal" },
+                        rocketNumber = p.optString("rocketNumber", "").trim(),
+                        rocketAccountType = p.optString("rocketAccountType", "Personal").ifBlank { "Personal" },
                         instructionsBn = p.optString("instructionsBn", "").trim(),
                         instructionsEn = p.optString("instructionsEn", "").trim(),
                         updatedAt = p.optLong("updatedAt", serverHeaderDateMs)
@@ -442,24 +514,31 @@ object RtdbSyncService {
                     }
                     val logoUrl = o.optString("logoUrl", "").trim()
                     val bannerUrl = o.optString("bannerImageUrl", "").trim()
+                    val videoUrl = o.optString("videoUrl", "").trim()
                     SponsorEntity(
                         id = id,
                         advertiserId = o.optString("advertiserId", "").trim(),
                         submittedBy = o.optString("submittedBy", "ADMIN").ifBlank { "ADMIN" },
                         packageId = o.optString("packageId", "").trim(),
                         packageName = o.optString("packageName", "").trim(),
-                        widthPx = o.optInt("widthPx", 320).coerceAtLeast(100),
-                        heightPx = o.optInt("heightPx", 50).coerceAtLeast(40),
+                        widthPx = o.optInt("widthPx", 300).coerceAtLeast(0),
+                        heightPx = o.optInt("heightPx", 50).coerceAtLeast(0),
                         durationDays = o.optInt("durationDays", 30).coerceAtLeast(1),
                         priceBdt = o.optInt("priceBdt", 0).coerceAtLeast(0),
                         placementType = o.optString("placementType", SponsorCampaignSelector.PLACEMENT_ALL)
                             .ifBlank { SponsorCampaignSelector.PLACEMENT_ALL },
                         status = effectiveStatus,
                         name = o.optString("name", o.optString("sponsorName", "")).trim(),
+                        contactPersonName = o.optString("contactPersonName", "").trim(),
                         logoUrl = logoUrl,
                         bannerImageUrl = bannerUrl,
                         localLogoPath = if (prev != null && prev.logoUrl == logoUrl) prev.localLogoPath else "",
                         localBannerPath = if (prev != null && prev.bannerImageUrl == bannerUrl) prev.localBannerPath else "",
+                        mediaType = o.optString("mediaType", if (videoUrl.isNotBlank()) "VIDEO" else "IMAGE").ifBlank { "IMAGE" },
+                        videoUrl = videoUrl,
+                        localVideoPath = if (prev != null && prev.videoUrl == videoUrl) prev.localVideoPath else "",
+                        adType = o.optString("adType", "").trim(),
+                        adPlacement = o.optString("adPlacement", o.optString("targetPages", "ALL")).ifBlank { "ALL" },
                         promoTitle = o.optString("promoTitle", o.optString("title", "")).trim(),
                         description = o.optString("description", "").trim(),
                         websiteUrl = o.optString("websiteUrl", "").trim(),
@@ -470,7 +549,8 @@ object RtdbSyncService {
                         expiryAt = expiryAt,
                         startTimestamp = startTs,
                         endTimestamp = endTs,
-                        targetPages = o.optString("targetPages", SponsorCampaignSelector.PAGE_ALL).ifBlank { SponsorCampaignSelector.PAGE_ALL },
+                        targetPages = o.optString("targetPages", o.optString("adPlacement", SponsorCampaignSelector.PAGE_ALL))
+                            .ifBlank { SponsorCampaignSelector.PAGE_ALL },
                         displayPriority = o.optInt("displayPriority", 10).coerceIn(1, 100),
                         displayFrequency = o.optInt("displayFrequency", 1).coerceIn(1, 10),
                         isActive = o.optBoolean("isActive", true) && effectiveStatus.equals("ACTIVE", true),
@@ -484,7 +564,7 @@ object RtdbSyncService {
                         adSizeKey = o.optString("adSizeKey", "").trim(),
                         placementBreakdownJson = o.optJSONObject("placementBreakdown")?.toString()
                             ?: o.optString("placementBreakdownJson", ""),
-                        subtotalBdt = o.optInt("subtotalBdt", 0),
+                        subtotalBdt = o.optInt("subtotalBdt", o.optInt("priceBdt", 0)),
                         bundleDiscountBdt = o.optInt("bundleDiscountBdt", 0)
                     )
                 }.filter { sp ->

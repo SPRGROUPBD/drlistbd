@@ -43,6 +43,7 @@ class DirectoryRepository(context: Context) {
     val paymentSettings: Flow<PaymentSettingsEntity> = db.paymentSettingsDao().observe().map {
         it ?: PaymentSettingsEntity()
     }
+    val screenAdPlacements: Flow<List<ScreenAdPlacementEntity>> = db.screenAdPlacementDao().observeAll()
     val pendingViewEventsCount: Flow<Int> = db.pendingAdViewEventDao().observePendingCount()
 
     val doctorsFull: Flow<List<DoctorFullProfile>> = combine(

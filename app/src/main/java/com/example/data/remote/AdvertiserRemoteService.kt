@@ -209,23 +209,47 @@ object AdvertiserRemoteService {
                 }
                 val root = getJsonObject("$BASE_URL.json") ?: JSONObject()
 
-                // 1. Dynamic Active Packages
+                // 1. Dynamic Active Packages (Strictly Admin-created)
                 val packages = mutableListOf<SponsorPackageEntity>()
                 root.optJSONObject("ad_packages")?.let { obj ->
                     val keys = obj.keys()
                     while (keys.hasNext()) {
                         val id = keys.next()
                         val o = obj.optJSONObject(id) ?: continue
+                        val pType = o.optString("placementType", SponsorCampaignSelector.PLACEMENT_BANNER_300x50)
+                            .ifBlank { SponsorCampaignSelector.PLACEMENT_BANNER_300x50 }
+                        val wPx = o.optInt("widthPx", 300).coerceAtLeast(0)
+                        val hPx = o.optInt("heightPx", 50).coerceAtLeast(0)
+                        val defaultAdType = when (pType.uppercase()) {
+                            SponsorCampaignSelector.PLACEMENT_BANNER_300x50,
+                            SponsorCampaignSelector.PLACEMENT_BANNER_320x100,
+                            SponsorCampaignSelector.PLACEMENT_BANNER_728x90 -> "BANNER"
+                            SponsorCampaignSelector.PLACEMENT_BANNER_300x200,
+                            SponsorCampaignSelector.PLACEMENT_NATIVE_CARD -> "NATIVE_BANNER"
+                            SponsorCampaignSelector.PLACEMENT_POPUP -> "POPUP"
+                            SponsorCampaignSelector.PLACEMENT_REWARD_VIDEO -> "REWARD_VIDEO"
+                            else -> "BANNER"
+                        }
+                        val defaultSize = when {
+                            pType.equals(SponsorCampaignSelector.PLACEMENT_REWARD_VIDEO, true) -> "Video"
+                            pType.equals(SponsorCampaignSelector.PLACEMENT_POPUP, true) -> "Responsive"
+                            wPx > 0 && hPx > 0 -> "${wPx}×${hPx} px"
+                            else -> "Responsive"
+                        }
                         packages.add(
                             SponsorPackageEntity(
                                 id = id,
-                                name = o.optString("name", ""),
-                                widthPx = o.optInt("widthPx", 300),
-                                heightPx = o.optInt("heightPx", 200),
-                                durationDays = o.optInt("durationDays", 30),
-                                priceBdt = o.optInt("priceBdt", 0),
-                                placementType = o.optString("placementType", SponsorCampaignSelector.PLACEMENT_BANNER_300x200),
-                                description = o.optString("description", ""),
+                                name = o.optString("name", "").trim(),
+                                widthPx = wPx,
+                                heightPx = hPx,
+                                durationDays = o.optInt("durationDays", 30).coerceAtLeast(1),
+                                priceBdt = o.optInt("priceBdt", 0).coerceAtLeast(0),
+                                placementType = pType,
+                                adType = o.optString("adType", defaultAdType).ifBlank { defaultAdType },
+                                sizeLabel = o.optString("sizeLabel", defaultSize).ifBlank { defaultSize },
+                                adPlacement = o.optString("adPlacement", "ALL").ifBlank { "ALL" },
+                                packageImageUrl = o.optString("packageImageUrl", "").trim(),
+                                description = o.optString("description", "").trim(),
                                 status = o.optString("status", "ACTIVE"),
                                 updatedAt = o.optLong("updatedAt", 0L)
                             )
@@ -233,7 +257,7 @@ object AdvertiserRemoteService {
                     }
                 }
 
-                // 2. bKash & Nagad Payment Settings
+                // 2. bKash, Nagad & Rocket Payment Settings
                 val payCfgObj = root.optJSONObject("payment_settings")
                 val paymentSettings = PaymentSettingsEntity(
                     id = "global",
@@ -241,6 +265,8 @@ object AdvertiserRemoteService {
                     bkashAccountType = payCfgObj?.optString("bkashAccountType", "Personal")?.ifBlank { "Personal" } ?: "Personal",
                     nagadNumber = payCfgObj?.optString("nagadNumber", "")?.trim().orEmpty(),
                     nagadAccountType = payCfgObj?.optString("nagadAccountType", "Personal")?.ifBlank { "Personal" } ?: "Personal",
+                    rocketNumber = payCfgObj?.optString("rocketNumber", "")?.trim().orEmpty(),
+                    rocketAccountType = payCfgObj?.optString("rocketAccountType", "Personal")?.ifBlank { "Personal" } ?: "Personal",
                     instructionsBn = payCfgObj?.optString("instructionsBn", "").orEmpty(),
                     instructionsEn = payCfgObj?.optString("instructionsEn", "").orEmpty(),
                     updatedAt = payCfgObj?.optLong("updatedAt", 0L) ?: 0L
@@ -275,10 +301,15 @@ object AdvertiserRemoteService {
                                 ?: o.optString("placementBreakdownJson", ""),
                             subtotalBdt = o.optInt("subtotalBdt", o.optInt("priceBdt", 0)),
                             bundleDiscountBdt = o.optInt("bundleDiscountBdt", 0),
-                            status = o.optString("status", SponsorCampaignSelector.STATUS_PENDING_APPROVAL),
+                            status = o.optString("status", SponsorCampaignSelector.STATUS_PAYMENT_PENDING),
                             name = o.optString("name", o.optString("sponsorName", "")),
+                            contactPersonName = o.optString("contactPersonName", ""),
                             logoUrl = o.optString("logoUrl", ""),
                             bannerImageUrl = o.optString("bannerImageUrl", ""),
+                            mediaType = o.optString("mediaType", "IMAGE"),
+                            videoUrl = o.optString("videoUrl", ""),
+                            adType = o.optString("adType", ""),
+                            adPlacement = o.optString("adPlacement", o.optString("targetPages", "ALL")),
                             promoTitle = o.optString("promoTitle", o.optString("title", "")),
                             description = o.optString("description", ""),
                             websiteUrl = o.optString("websiteUrl", ""),
@@ -414,47 +445,76 @@ object AdvertiserRemoteService {
         }
 
     /**
-     * Submits a new Direct Sponsor Advertisement OR Renewal Request with manual bKash/Nagad payment.
+     * Submits a Direct Sponsor Package Advertisement OR Renewal Request with manual bKash/Nagad/Rocket payment.
+     * - Fixed Package Pricing Rule: Total Package Price = Fixed Package Rate (NEVER multiplied by duration days).
      * - Strictly prevents duplicate Transaction IDs across all non-rejected payments.
-     * - Never activates the advertisement automatically (status = PENDING_APPROVAL, isActive = false, activatedAt = 0).
-     * - For renewals, links `renewalOfAdId` so previous ad history & statistics remain preserved.
+     * - Never activates automatically (status = PAYMENT_PENDING, isActive = false, activatedAt = 0).
      */
     suspend fun submitAdvertisementWithPayment(
         advertiser: AdvertiserSession,
         pkg: SponsorPackageEntity,
         title: String,
         businessName: String,
+        contactPersonName: String = advertiser.ownerName,
         description: String,
         imageSource: String,
-        logoSource: String,
+        logoSource: String = "",
+        mediaType: String = "IMAGE",
+        videoSource: String = "",
+        selectedPlacement: String = "",
         websiteUrl: String,
         contactNumber: String,
         paymentMethod: String,
         senderMobile: String,
         transactionId: String,
         amountPaidBdt: Int,
-        screenshotSource: String,
+        screenshotSource: String = "",
         renewalOfAdId: String = ""
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             if (!advertiser.isLoggedIn) return@withContext Result.failure(IllegalStateException("Please log in as an advertiser first."))
+            if (!pkg.status.equals("ACTIVE", ignoreCase = true)) {
+                return@withContext Result.failure(IllegalArgumentException("This package is currently inactive. Please select an active package."))
+            }
+            if (businessName.trim().length < 2) return@withContext Result.failure(IllegalArgumentException("Institution / Business name is required"))
+            if (contactPersonName.trim().length < 2) return@withContext Result.failure(IllegalArgumentException("Contact person name is required"))
+            if (!SponsorCampaignSelector.isValidBangladeshMobile(contactNumber)) {
+                return@withContext Result.failure(IllegalArgumentException("Enter a valid contact mobile number (01XXXXXXXXX)"))
+            }
             if (title.trim().length < 3) return@withContext Result.failure(IllegalArgumentException("Advertisement title is required"))
-            if (businessName.trim().length < 2) return@withContext Result.failure(IllegalArgumentException("Business name is required"))
-            if (!SponsorCampaignSelector.isValidImageSource(imageSource)) {
+
+            val isVideoPkg = pkg.adType.equals("REWARD_VIDEO", true) ||
+                pkg.placementType.equals(SponsorCampaignSelector.PLACEMENT_REWARD_VIDEO, true) ||
+                mediaType.equals("VIDEO", true)
+
+            val hasValidImage = imageSource.isNotBlank() && SponsorCampaignSelector.isValidImageSource(imageSource)
+            val hasValidVideo = videoSource.isNotBlank() && SponsorCampaignSelector.isValidVideoSource(videoSource)
+            if (isVideoPkg) {
+                if (!hasValidVideo && !hasValidImage) {
+                    return@withContext Result.failure(IllegalArgumentException("Upload a valid MP4/WebM video (or HTTPS video URL / preview image)"))
+                }
+            } else if (!hasValidImage) {
                 return@withContext Result.failure(IllegalArgumentException("Upload a valid PNG/JPEG/WebP image or HTTPS image URL"))
             }
+
             if (websiteUrl.isNotBlank() && !SponsorCampaignSelector.isValidWebsiteUrl(websiteUrl)) {
-                return@withContext Result.failure(IllegalArgumentException("Website / Social URL must start with https:// or http://"))
+                return@withContext Result.failure(IllegalArgumentException("Website / Landing Page URL must start with https:// or http://"))
+            }
+            val cleanMethod = paymentMethod.trim().uppercase()
+            if (cleanMethod !in setOf("BKASH", "NAGAD", "ROCKET")) {
+                return@withContext Result.failure(IllegalArgumentException("Select bKash, Nagad, or Rocket as payment method"))
             }
             if (!SponsorCampaignSelector.isValidBangladeshMobile(senderMobile)) {
-                return@withContext Result.failure(IllegalArgumentException("Enter valid bKash/Nagad sender mobile number"))
+                return@withContext Result.failure(IllegalArgumentException("Enter valid bKash / Nagad / Rocket sender number"))
             }
             val normTrx = SponsorCampaignSelector.normalizeTransactionId(transactionId)
             if (normTrx.length < 5) {
                 return@withContext Result.failure(IllegalArgumentException("Enter a valid Transaction ID (TrxID)"))
             }
-            if (amountPaidBdt < pkg.priceBdt) {
-                return@withContext Result.failure(IllegalArgumentException("Paid amount (৳$amountPaidBdt) must be at least package price (৳${pkg.priceBdt})"))
+            // Fixed Package Pricing: Total Package Price = Fixed Package Rate (never multiplied by days)
+            val fixedTotalBdt = SponsorCampaignSelector.calculateFixedPackageTotal(pkg.priceBdt, pkg.durationDays)
+            if (amountPaidBdt < fixedTotalBdt) {
+                return@withContext Result.failure(IllegalArgumentException("Paid amount (৳$amountPaidBdt) must equal or exceed the fixed package price (৳$fixedTotalBdt)"))
             }
             if (screenshotSource.isNotBlank() && !SponsorCampaignSelector.isValidImageSource(screenshotSource)) {
                 return@withContext Result.failure(IllegalArgumentException("Payment screenshot must be a valid image"))
@@ -481,31 +541,44 @@ object AdvertiserRemoteService {
             val adId = "sp_${UUID.randomUUID().toString().take(10)}"
             val payId = "pay_${UUID.randomUUID().toString().take(10)}"
             val isRenewal = renewalOfAdId.isNotBlank()
+            val resolvedPlacement = selectedPlacement.trim()
+                .ifBlank { pkg.adPlacement.trim() }
+                .ifBlank {
+                    if (pkg.placementType == SponsorCampaignSelector.PLACEMENT_ABOUT_US) "ABOUT_US" else "ALL"
+                }
 
-            // Advertisement created as PENDING_APPROVAL (NEVER active before Admin verifies payment!)
+            // Advertisement created as PAYMENT_PENDING (NEVER active before Admin verifies payment!)
             val adPayload = JSONObject().apply {
                 put("id", adId)
                 put("advertiserId", advertiser.id)
                 put("submittedBy", "ADVERTISER")
                 put("packageId", pkg.id)
                 put("packageName", pkg.name)
+                put("adType", pkg.adType)
+                put("adSizeKey", pkg.sizeLabel.ifBlank { "${pkg.widthPx}x${pkg.heightPx}" })
+                put("adPlacement", resolvedPlacement)
                 put("widthPx", pkg.widthPx)
                 put("heightPx", pkg.heightPx)
                 put("durationDays", pkg.durationDays)
-                put("priceBdt", pkg.priceBdt)
+                put("priceBdt", fixedTotalBdt)
+                put("subtotalBdt", fixedTotalBdt)
+                put("bundleDiscountBdt", 0)
                 put("placementType", pkg.placementType)
-                put("status", SponsorCampaignSelector.STATUS_PENDING_APPROVAL)
+                put("status", SponsorCampaignSelector.STATUS_PAYMENT_PENDING)
                 put("isActive", false) // Strictly inactive until Admin approves payment
                 put("name", businessName.trim())
                 put("sponsorName", businessName.trim())
+                put("contactPersonName", contactPersonName.trim())
                 put("promoTitle", title.trim())
                 put("title", title.trim())
                 put("description", description.trim())
                 put("logoUrl", logoSource.trim())
                 put("bannerImageUrl", imageSource.trim())
+                put("mediaType", if (hasValidVideo) "VIDEO" else "IMAGE")
+                put("videoUrl", videoSource.trim())
                 put("websiteUrl", websiteUrl.trim())
                 put("contactNumber", contactNumber.trim())
-                put("targetPages", if (pkg.placementType == SponsorCampaignSelector.PLACEMENT_ABOUT_US) "about_us" else "ALL")
+                put("targetPages", resolvedPlacement)
                 put("displayPriority", 15)
                 put("displayFrequency", 1)
                 put("activatedAt", 0L)
@@ -523,12 +596,16 @@ object AdvertiserRemoteService {
                 put("id", payId)
                 put("adId", adId)
                 put("advertiserId", advertiser.id)
-                put("advertiserBusiness", advertiser.businessName)
+                put("advertiserBusiness", businessName.trim())
+                put("contactPersonName", contactPersonName.trim())
                 put("packageId", pkg.id)
                 put("packageName", pkg.name)
+                put("adPlacement", resolvedPlacement)
+                put("durationDays", pkg.durationDays)
+                put("fixedRateBdt", fixedTotalBdt)
                 put("isRenewal", isRenewal)
                 put("renewalOfAdId", renewalOfAdId.trim())
-                put("paymentMethod", paymentMethod.uppercase())
+                put("paymentMethod", cleanMethod)
                 put("senderMobile", senderMobile.trim())
                 put("transactionId", transactionId.trim())
                 put("transactionIdNormalized", normTrx)

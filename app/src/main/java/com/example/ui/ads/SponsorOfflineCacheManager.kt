@@ -41,10 +41,15 @@ object SponsorOfflineCacheManager {
         val activeFileNames = mutableSetOf<String>()
 
         for (sp in allSponsors) {
-            if (SponsorCampaignSelector.isCampaignExpired(sp, now)) {
-                // Remove expired campaign local files so expired ads never occupy storage
+            if (SponsorCampaignSelector.isCampaignExpired(sp, now) ||
+                sp.status.equals(SponsorCampaignSelector.STATUS_CANCELLED, ignoreCase = true) ||
+                sp.status.equals(SponsorCampaignSelector.STATUS_REJECTED, ignoreCase = true)
+            ) {
+                // Remove expired/cancelled campaign local files & Room cache so expired ads never appear online or offline
                 deleteFileQuietly(sp.localLogoPath)
                 deleteFileQuietly(sp.localBannerPath)
+                deleteFileQuietly(sp.localVideoPath)
+                db.sponsorDao().deleteById(sp.id)
                 continue
             }
 

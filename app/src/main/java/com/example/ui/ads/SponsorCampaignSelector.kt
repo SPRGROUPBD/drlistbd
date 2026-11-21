@@ -25,27 +25,49 @@ object SponsorCampaignSelector {
 
     // Supported Direct Sponsor Placement Types
     const val PLACEMENT_ALL = "ALL"
+    const val PLACEMENT_BANNER_300x50 = "BANNER_300x50"
     const val PLACEMENT_BANNER_300x200 = "BANNER_300x200"
     const val PLACEMENT_BANNER_320x100 = "BANNER_320x100"
     const val PLACEMENT_BANNER_728x90 = "BANNER_728x90"
     const val PLACEMENT_BANNER_CUSTOM = "BANNER_CUSTOM"
     const val PLACEMENT_NATIVE_CARD = "SPONSORED_NATIVE_CARD"
     const val PLACEMENT_POPUP = "POPUP_AD"
+    const val PLACEMENT_REWARD_VIDEO = "REWARD_VIDEO_DOCTOR_CLICK"
     const val PLACEMENT_ABOUT_US = "ABOUT_US_SPONSOR"
 
-    // Ad lifecycle statuses
+    // Ad lifecycle statuses (all 7 canonical statuses + backward-compatible aliases)
+    const val STATUS_PENDING = "PENDING"
+    const val STATUS_PAYMENT_PENDING = "PAYMENT_PENDING"
     const val STATUS_PENDING_PAYMENT = "PENDING_PAYMENT"
     const val STATUS_PENDING_APPROVAL = "PENDING_APPROVAL"
     const val STATUS_ACTIVE = "ACTIVE"
     const val STATUS_PAUSED = "PAUSED"
     const val STATUS_EXPIRED = "EXPIRED"
     const val STATUS_REJECTED = "REJECTED"
+    const val STATUS_CANCELLED = "CANCELLED"
 
     const val FREQ_EVERY_LAUNCH = "EVERY_LAUNCH"
     const val FREQ_ONCE_DAILY = "ONCE_DAILY"
 
     const val MAX_IMAGE_BYTES = 3 * 1024 * 1024 // 3 MB strict safety cap
-    private const val DAY_MS = 24L * 60L * 60L * 1000L
+    const val MAX_VIDEO_BYTES = 15 * 1024 * 1024 // 15 MB video upload cap
+    const val DAY_MS = 24L * 60L * 60L * 1000L
+
+    /**
+     * Fixed Package Pricing Rule:
+     * Total Package Price = Fixed Package Rate.
+     * NEVER multiplies rate by duration days; duration only determines campaign expiry.
+     */
+    fun calculateFixedPackageTotal(fixedRateBdt: Int, @Suppress("UNUSED_PARAMETER") durationDays: Int): Int =
+        fixedRateBdt.coerceAtLeast(0)
+
+    /**
+     * Computes server/campaign expiry timestamp strictly from activation start + durationDays.
+     */
+    fun computeExpiryTimestamp(activatedAtMs: Long, durationDays: Int): Long {
+        val safeDays = durationDays.coerceAtLeast(1)
+        return activatedAtMs + safeDays.toLong() * DAY_MS
+    }
 
     private val dhakaTz: TimeZone get() = TimeZone.getTimeZone("Asia/Dhaka")
 
@@ -138,11 +160,26 @@ object SponsorCampaignSelector {
     }
 
     fun matchesPage(sponsor: SponsorEntity, pageKey: String): Boolean {
-        val raw = sponsor.targetPages.trim()
-        if (raw.isEmpty() || raw.equals(PAGE_ALL, ignoreCase = true)) return true
+        val raw = sponsor.targetPages.trim().ifBlank { sponsor.adPlacement.trim() }
+        if (raw.isEmpty() || raw.equals(PAGE_ALL, ignoreCase = true) || raw.equals("ALL_SCREENS", ignoreCase = true)) {
+            return true
+        }
         val normalizedPage = normalizeRouteToPageKey(pageKey)
-        val targets = raw.split(",").map { it.trim().lowercase(Locale.US) }.filter { it.isNotEmpty() }
+        val targets = raw.split(",").map { normalizePlacementToken(it) }.filter { it.isNotEmpty() }
         return "all" in targets || normalizedPage in targets
+    }
+
+    private fun normalizePlacementToken(token: String): String {
+        return when (token.trim().lowercase(Locale.US)) {
+            "all", "all_screens", "all screen", "everywhere", "*" -> "all"
+            "home", "home_screen", "home screen" -> PAGE_HOME
+            "find_doctors", "doctor_list", "doctor list", "doctors", "specialist", "medical_specialist", "medical specialist", "chamber_schedule", "chamber schedule" -> PAGE_FIND_DOCTORS
+            "doctor_profile", "doctor_details", "doctor details", "doctor_click", "doctor click" -> PAGE_DOCTOR_PROFILE
+            "facilities", "hospital_list", "hospital list", "diagnostic_list", "diagnostic_center_list", "diagnostic center list" -> PAGE_FACILITIES
+            "about_us", "about us" -> PAGE_ABOUT_US
+            "portal", "patient_portal" -> PAGE_PORTAL
+            else -> token.trim().lowercase(Locale.US)
+        }
     }
 
     fun normalizeRouteToPageKey(route: String): String {
@@ -179,6 +216,7 @@ object SponsorCampaignSelector {
     }
 
     private val BANNER_PLACEMENTS = setOf(
+        PLACEMENT_BANNER_300x50,
         PLACEMENT_BANNER_300x200,
         PLACEMENT_BANNER_320x100,
         PLACEMENT_BANNER_728x90,
@@ -198,6 +236,29 @@ object SponsorCampaignSelector {
         return weightedPool[idx]
     }
 
+    fun selectRewardVideoSponsor(
+        sponsors: List<SponsorEntity>,
+        rotationTick: Int = 0,
+        nowMs: Long = System.currentTimeMillis()
+    ): SponsorEntity? {
+        val eligible = sponsors
+            .filter { sp ->
+                isCampaignValid(sp, nowMs) && (
+                    sp.placementType.equals(PLACEMENT_REWARD_VIDEO, ignoreCase = true) ||
+                        sp.adType.equals("REWARD_VIDEO", ignoreCase = true)
+                    )
+            }
+            .sortedWith(
+                compareByDescending<SponsorEntity> { it.displayPriority }
+                    .thenByDescending { it.displayFrequency }
+                    .thenByDescending { it.updatedAt }
+            )
+        if (eligible.isEmpty()) return null
+        val weightedPool = buildWeightedPool(eligible)
+        val idx = ((rotationTick % weightedPool.size) + weightedPool.size) % weightedPool.size
+        return weightedPool[idx]
+    }
+
     fun selectAppOpenPopupSponsor(
         sponsors: List<SponsorEntity>,
         preferredSponsorId: String,
@@ -210,8 +271,9 @@ object SponsorCampaignSelector {
                     .thenByDescending { it.updatedAt }
             )
         val pool = validPopup.ifEmpty {
-            sponsors.filter { isCampaignValid(it, nowMs) }
-                .sortedWith(compareByDescending<SponsorEntity> { it.displayPriority }.thenByDescending { it.updatedAt })
+            sponsors.filter {
+                isCampaignValid(it, nowMs) && !it.placementType.equals(PLACEMENT_REWARD_VIDEO, ignoreCase = true)
+            }.sortedWith(compareByDescending<SponsorEntity> { it.displayPriority }.thenByDescending { it.updatedAt })
         }
         if (pool.isEmpty()) return null
         val cleanPref = preferredSponsorId.trim()
@@ -340,6 +402,30 @@ object SponsorCampaignSelector {
         val actualRatio = actualW.toDouble() / actualH.toDouble()
         val ratioDiff = kotlin.math.abs(actualRatio - targetRatio) / targetRatio
         return ratioDiff <= 0.45
+    }
+
+    fun isValidVideoSource(url: String): Boolean {
+        val clean = url.trim()
+        if (clean.isEmpty()) return false
+        if (clean.startsWith("https://", ignoreCase = true)) return clean.length <= 2048
+        if (clean.startsWith("data:video/", ignoreCase = true)) {
+            val lower = clean.lowercase(Locale.US)
+            val validMime = lower.startsWith("data:video/mp4;base64,") ||
+                lower.startsWith("data:video/webm;base64,")
+            return validMime && clean.length <= (MAX_VIDEO_BYTES * 4 / 3 + 128)
+        }
+        return false
+    }
+
+    fun isSupportedVideoBytes(bytes: ByteArray): Boolean {
+        if (bytes.size < 12 || bytes.size > MAX_VIDEO_BYTES) return false
+        // MP4 / ISO BMFF box header ('ftyp' at bytes 4..7)
+        val isMp4 = bytes[4] == 'f'.code.toByte() && bytes[5] == 't'.code.toByte() &&
+            bytes[6] == 'y'.code.toByte() && bytes[7] == 'p'.code.toByte()
+        // WebM / EBML header (0x1A 0x45 0xDF 0xA3)
+        val isWebm = bytes[0] == 0x1A.toByte() && bytes[1] == 0x45.toByte() &&
+            bytes[2] == 0xDF.toByte() && bytes[3] == 0xA3.toByte()
+        return isMp4 || isWebm
     }
 
     fun isSupportedImageBytes(bytes: ByteArray): Boolean {

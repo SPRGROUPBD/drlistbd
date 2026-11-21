@@ -360,7 +360,7 @@ interface SponsorDao {
     @Query("DELETE FROM sponsors WHERE id = :id")
     suspend fun deleteById(id: String)
 
-    @Query("DELETE FROM sponsors WHERE endTimestamp > 0 AND endTimestamp < :cutoffTimestamp")
+    @Query("DELETE FROM sponsors WHERE (expiryAt > 0 AND expiryAt < :cutoffTimestamp) OR (endTimestamp > 0 AND endTimestamp < :cutoffTimestamp)")
     suspend fun deleteExpiredBefore(cutoffTimestamp: Long)
 
     @Query("DELETE FROM sponsors")
@@ -469,5 +469,20 @@ interface PendingAppAnalyticsEventDao {
     suspend fun deleteById(eventId: String)
 
     @Query("DELETE FROM pending_app_analytics_events")
+    suspend fun deleteAll()
+}
+
+@Dao
+interface ScreenAdPlacementDao {
+    @Query("SELECT * FROM screen_ad_placements ORDER BY priority DESC, placementKey ASC")
+    fun observeAll(): Flow<List<ScreenAdPlacementEntity>>
+
+    @Query("SELECT * FROM screen_ad_placements ORDER BY priority DESC, placementKey ASC")
+    suspend fun getAllOnce(): List<ScreenAdPlacementEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(items: List<ScreenAdPlacementEntity>)
+
+    @Query("DELETE FROM screen_ad_placements")
     suspend fun deleteAll()
 }

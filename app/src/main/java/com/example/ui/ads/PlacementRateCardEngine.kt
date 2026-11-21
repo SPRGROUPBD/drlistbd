@@ -350,15 +350,30 @@ object PlacementRateCardEngine {
             .toSet()
 
     fun matchesCanonicalPlacement(sponsor: SponsorEntity, placementId: String): Boolean {
+        val pid = placementId.uppercase()
         val explicitIds = parsePlacementIds(sponsor)
         if (explicitIds.isNotEmpty()) {
-            return placementId.uppercase() in explicitIds || "*" in explicitIds || "ALL" in explicitIds
+            return pid in explicitIds || "*" in explicitIds || "ALL" in explicitIds
         }
-        // Strict legacy compatibility without cloning across all 37 slots:
         val pType = sponsor.placementType.trim().uppercase()
-        return when (placementId.uppercase()) {
-            OTH_POPUP -> pType == SponsorCampaignSelector.PLACEMENT_POPUP
-            OTH_ABOUT -> pType == SponsorCampaignSelector.PLACEMENT_ABOUT_US
+        if (pType == SponsorCampaignSelector.PLACEMENT_REWARD_VIDEO) return false
+        if (pid == OTH_POPUP) return pType == SponsorCampaignSelector.PLACEMENT_POPUP
+        if (pid == OTH_ABOUT) return pType == SponsorCampaignSelector.PLACEMENT_ABOUT_US
+
+        // Match package-level placement scopes (HOME, DOCTOR_LIST, DOCTOR_DETAILS, HOSPITAL_LIST, DIAGNOSTIC_LIST, SPECIALIST, CHAMBER_SCHEDULE)
+        val scopeRaw = sponsor.adPlacement.ifBlank { sponsor.targetPages }.trim().uppercase()
+        if (scopeRaw.isEmpty() || scopeRaw == "ALL" || scopeRaw == "ALL_SCREENS") {
+            return false // All-screen banners render in dedicated SponsorBannerView/Native slots without duplicating into every module slot
+        }
+        val tokens = scopeRaw.split(",").map { it.trim().uppercase() }.filter { it.isNotEmpty() }.toSet()
+        return when {
+            pid.startsWith("HOME-") -> "HOME" in tokens || "HOME_SCREEN" in tokens
+            pid == DOC_01 || pid == DOC_03 -> "DOCTOR_LIST" in tokens || "FIND_DOCTORS" in tokens
+            pid == DOC_02 || pid == DOC_04 || pid == DOC_05 -> "DOCTOR_DETAILS" in tokens || "DOCTOR_PROFILE" in tokens
+            pid.startsWith("HOS-") -> "HOSPITAL_LIST" in tokens || "HOSPITAL" in tokens || "FACILITIES" in tokens
+            pid.startsWith("DIA-") -> "DIAGNOSTIC_LIST" in tokens || "DIAGNOSTIC_CENTER_LIST" in tokens || "DIAGNOSTIC" in tokens || "FACILITIES" in tokens
+            pid.startsWith("SPE-") -> "SPECIALIST" in tokens || "MEDICAL_SPECIALIST" in tokens
+            pid.startsWith("CHA-") -> "CHAMBER_SCHEDULE" in tokens || "CHAMBER" in tokens
             else -> false
         }
     }
