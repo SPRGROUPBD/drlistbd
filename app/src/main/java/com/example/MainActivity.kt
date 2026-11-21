@@ -88,7 +88,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun getSystemService(name: String): Any? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        if (BuildConfig.DEBUG &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             HybridNetworkAdController.isDebugOrEmulator() &&
             (name.contains("adservices", ignoreCase = true) ||
                 name.contains("measurement", ignoreCase = true))

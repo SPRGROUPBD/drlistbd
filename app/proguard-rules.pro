@@ -1,8 +1,8 @@
 # ==========================================
 # Doctor List BD — Production R8/ProGuard Rules
-# Hybrid Ad Configuration:
-#   ONLINE:  Start.io Ads + Unity Ads + Direct Sponsor Ads (Zero AdMob)
-#   OFFLINE: Direct Sponsor Ads ONLY (Cached)
+# Multi-Network Ad Configuration:
+#   ONLINE:  Unity Ads + Start.io Ads + Wortise Ads + Custom Direct Sponsor Ads
+#   OFFLINE: Custom Direct Sponsor Ads ONLY (Cached)
 # ==========================================
 
 # 1. Room Entities & DAOs
@@ -21,14 +21,25 @@
     @android.webkit.JavascriptInterface <methods>;
 }
 
-# 4. Google Advertising ID & Coroutines (for Start.io & Unity release builds)
+# 4. Wortise Android SDK (Core + Google Mobile Ads Native Runtime + Retrofit/Serialization)
+-keep class com.wortise.** { *; }
+-dontwarn com.wortise.**
+-keep class com.google.android.gms.ads.** { *; }
+-dontwarn com.google.android.gms.ads.**
+-keep class kotlinx.serialization.** { *; }
+-keepattributes *Annotation*, InnerClasses
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-dontwarn retrofit2.**
+
+# 5. Google Advertising ID & Coroutines (for Production Release Builds)
 -keep class com.google.android.gms.ads.identifier.** { *; }
 -dontwarn com.google.android.gms.ads.identifier.**
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
 -keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
 -dontwarn java.lang.invoke.StringConcatFactory
 
-# 5. Serializable & Reflection Safety
+# 6. Serializable & Reflection Safety
 -keepclassmembers class * implements java.io.Serializable {
     static long serialVersionUID;
     private static final java.io.ObjectStreamField[] serialPersistentFields;

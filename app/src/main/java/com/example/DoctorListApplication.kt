@@ -17,15 +17,17 @@ import com.startapp.sdk.adsbase.StartAppSDK
 class DoctorListApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        val useTestAds = BuildConfig.DEBUG && HybridNetworkAdController.isDebugOrEmulator()
         runCatching {
-            StartAppSDK.setTestAdsEnabled(HybridNetworkAdController.isDebugOrEmulator())
+            StartAppSDK.setTestAdsEnabled(useTestAds)
             StartAppAd.disableSplash()
         }
         ConnectivityMonitor.start(this)
     }
 
     override fun getSystemService(name: String): Any? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        if (BuildConfig.DEBUG &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             HybridNetworkAdController.isDebugOrEmulator() &&
             (name.contains("adservices", ignoreCase = true) ||
                 name.contains("measurement", ignoreCase = true))

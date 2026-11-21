@@ -121,29 +121,30 @@ object WortiseAdsManager {
 
     fun isWortiseEnabled(config: AdConfigEntity): Boolean {
         if (!config.adsEnabled || !config.wortiseEnabled) return false
-        if (config.wortiseAppId.trim().isEmpty()) return false
+        if (!HybridNetworkAdController.isValidProductionCredential(config.wortiseAppId)) return false
         if (config.activeNetwork.equals("SPONSORS_ONLY", ignoreCase = true)) return false
         return true
     }
 
     fun hasFormatUnit(config: AdConfigEntity, format: OnlineAdFormat): Boolean {
         if (!isWortiseEnabled(config)) return false
+        fun valid(id: String) = HybridNetworkAdController.isValidProductionCredential(id)
         return when (format) {
-            OnlineAdFormat.BANNER -> config.wortiseBannerAdUnitId.isNotBlank()
-            OnlineAdFormat.NATIVE -> config.wortiseNativeAdUnitId.isNotBlank() || config.wortiseBannerAdUnitId.isNotBlank()
-            OnlineAdFormat.INTERSTITIAL -> config.wortiseInterstitialAdUnitId.isNotBlank()
-            OnlineAdFormat.REWARDED -> config.wortiseRewardedAdUnitId.isNotBlank()
-            OnlineAdFormat.APP_OPEN -> config.wortiseAppOpenAdUnitId.isNotBlank() || config.wortiseInterstitialAdUnitId.isNotBlank()
-            OnlineAdFormat.ANY -> config.wortiseBannerAdUnitId.isNotBlank() ||
-                config.wortiseNativeAdUnitId.isNotBlank() ||
-                config.wortiseInterstitialAdUnitId.isNotBlank() ||
-                config.wortiseRewardedAdUnitId.isNotBlank() ||
-                config.wortiseAppOpenAdUnitId.isNotBlank()
+            OnlineAdFormat.BANNER -> valid(config.wortiseBannerAdUnitId)
+            OnlineAdFormat.NATIVE -> valid(config.wortiseNativeAdUnitId) || valid(config.wortiseBannerAdUnitId)
+            OnlineAdFormat.INTERSTITIAL -> valid(config.wortiseInterstitialAdUnitId)
+            OnlineAdFormat.REWARDED -> valid(config.wortiseRewardedAdUnitId)
+            OnlineAdFormat.APP_OPEN -> valid(config.wortiseAppOpenAdUnitId) || valid(config.wortiseInterstitialAdUnitId)
+            OnlineAdFormat.ANY -> valid(config.wortiseBannerAdUnitId) ||
+                valid(config.wortiseNativeAdUnitId) ||
+                valid(config.wortiseInterstitialAdUnitId) ||
+                valid(config.wortiseRewardedAdUnitId) ||
+                valid(config.wortiseAppOpenAdUnitId)
         }
     }
 
     internal fun effectiveTestMode(config: AdConfigEntity): Boolean =
-        config.testMode || HybridNetworkAdController.isDebugOrEmulator()
+        HybridNetworkAdController.isTestModeActive(config)
 
     fun ensureInitialized(context: Context, config: AdConfigEntity) {
         if (!ConnectivityMonitor.isOnline.value) return

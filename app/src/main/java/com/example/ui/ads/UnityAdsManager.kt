@@ -109,7 +109,7 @@ object UnityAdsManager {
 
     fun isUnityEnabled(config: AdConfigEntity): Boolean {
         if (!config.adsEnabled || !config.unityEnabled) return false
-        if (config.unityGameId.isBlank()) return false
+        if (!HybridNetworkAdController.isValidProductionCredential(config.unityGameId)) return false
         return when (config.activeNetwork.uppercase()) {
             "SPONSORS_ONLY", "STARTIO", "WORTISE" -> false
             else -> true
@@ -117,7 +117,7 @@ object UnityAdsManager {
     }
 
     internal fun effectiveTestMode(config: AdConfigEntity): Boolean =
-        config.testMode || HybridNetworkAdController.isDebugOrEmulator()
+        HybridNetworkAdController.isTestModeActive(config)
 
     fun ensureInitialized(context: Context, config: AdConfigEntity) {
         if (!ConnectivityMonitor.isOnline.value) return

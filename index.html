@@ -2284,6 +2284,31 @@ function renderAdNetwork() {
         </div>
       </div>
 
+      <!-- Production Live Ads Readiness Check -->
+      <div class="mb-5 p-4 rounded-2xl border border-emerald-200 bg-emerald-50/70">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div class="text-xs font-extrabold text-emerald-900 uppercase tracking-wide">Production Release Live-Ad Guardrails</div>
+          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">Release Builds Force Live Mode (Test Ads Disabled)</span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+          <div class="px-3 py-2 rounded-xl bg-white border border-emerald-100">
+            <span class="font-bold text-slate-800">Unity Ads:</span>
+            ${(a.unityGameId || "").trim() ? `<span class="text-emerald-700 font-semibold">Game ID Configured</span>` : `<span class="text-amber-700 font-semibold">Enter Production Game ID below</span>`}
+          </div>
+          <div class="px-3 py-2 rounded-xl bg-white border border-emerald-100">
+            <span class="font-bold text-slate-800">Start.io:</span>
+            ${(a.startIoAppId || "").trim() ? `<span class="text-emerald-700 font-semibold">App ID Configured (${esc(a.startIoAppId)})</span>` : `<span class="text-amber-700 font-semibold">Enter Production App ID below</span>`}
+          </div>
+          <div class="px-3 py-2 rounded-xl bg-white border border-emerald-100">
+            <span class="font-bold text-slate-800">Wortise:</span>
+            ${(a.wortiseAppId || "").trim() ? `<span class="text-emerald-700 font-semibold">App ID Configured</span>` : `<span class="text-amber-700 font-semibold">Enter Production App &amp; Unit IDs below</span>`}
+          </div>
+        </div>
+        <p class="text-[11px] text-emerald-900 mt-2">
+          Published Release APK/AAB builds strictly disable Test Mode, reject sample/demo credentials, and exclude debug/test impressions from production revenue reporting. Actual earnings depend on eligible live traffic, fill rate, verified <code>app-ads.txt</code>, and official network approvals.
+        </p>
+      </div>
+
       <form onsubmit="submitAdNetworkConfig(event)" class="space-y-5">
         <!-- Global Mode & Priority -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">

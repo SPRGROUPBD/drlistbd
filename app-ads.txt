@@ -1,9 +1,9 @@
-# Doctor List BD — Hybrid Advertisement Policy (app-ads.txt)
-# Final Ad Configuration:
-#   ONLINE:  Start.io Ads + Unity Ads + Custom Direct Sponsor Ads
+# Doctor List BD — Production Authorized Sellers (app-ads.txt)
+# Multi-Network Ad Configuration:
+#   ONLINE:  Unity Ads + Start.io Ads + Wortise Ads + Custom Direct Sponsor Ads
 #   OFFLINE: Custom Direct Sponsor Ads ONLY (cached)
-# Google AdMob is STRICTLY REMOVED and not used in this application.
-# Add your verified Start.io and Unity Ads publisher lines below before publishing to Google Play.
+# Publish this file at the root of your verified developer website (https://yourdomain.com/app-ads.txt).
+# All records below are verified publisher/mediation entries provided by the app publisher.
 #Google 17-11-2026
 start.io, 165433365, DIRECT
 pubnative.net, 1007349, RESELLER, d641df8625486a7b
@@ -946,7 +946,7 @@ toponad.com,16745466edb659,RESELLER,1d49fe424a1a456d
 toponad.com,164478a84dfe31,RESELLER,1d49fe424a1a456d
 improvedigital.com, 2180, RESELLER
 lijit.com, 233291, RESELLER, fafdf38b16bf6b2b
-adsphere360.com, 1042770, RESELLER,
+adsphere360.com, 1042770, RESELLER
 prequel.tv, 552, RESELLER
 lijit.com, 542770, RESELLER, fafdf38b16bf6b2b
 rubiconproject.com, 26384, RESELLER, 0bfd66d529a55807

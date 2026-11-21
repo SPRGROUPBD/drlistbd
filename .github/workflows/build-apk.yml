@@ -94,14 +94,19 @@ jobs:
         run: |
           gradle :app:assembleRelease --no-daemon --stacktrace
 
+      - name: Build Signed Google Play Release AAB
+        run: |
+          gradle :app:bundleRelease --no-daemon --stacktrace
+
       - name: Build Debug APK
         run: |
           gradle :app:assembleDebug --no-daemon --stacktrace
 
-      - name: Prepare APK Outputs
+      - name: Prepare Release APK, AAB & Debug Outputs
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk dist/Doctor-List-BD-release.apk
+          cp app/build/outputs/bundle/release/app-release.aab dist/Doctor-List-BD-release.aab
           cp app/build/outputs/apk/debug/app-debug.apk dist/Doctor-List-BD-debug.apk
           ls -lh dist/
 
@@ -110,6 +115,13 @@ jobs:
         with:
           name: Doctor-List-BD-Release-APK
           path: dist/Doctor-List-BD-release.apk
+          retention-days: 30
+
+      - name: Upload Google Play Release AAB Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: Doctor-List-BD-Release-AAB
+          path: dist/Doctor-List-BD-release.aab
           retention-days: 30
 
       - name: Upload Debug APK Artifact
@@ -125,13 +137,14 @@ jobs:
         with:
           files: |
             dist/Doctor-List-BD-release.apk
+            dist/Doctor-List-BD-release.aab
             dist/Doctor-List-BD-debug.apk
           generate_release_notes: true
 
       - name: Build Summary
         run: |
-          echo "### Doctor List BD — APK Build Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Doctor List BD — Production Release Build Complete" >> "$GITHUB_STEP_SUMMARY"
           echo "- **App Name:** Doctor List BD" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Package Name:** \`com.doctorlist.bd\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Ad Networks:** Unity Ads SDK v4.14.1 + Start.io App ID \`210630916\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Artifacts:** \`Doctor-List-BD-release.apk\` & \`Doctor-List-BD-debug.apk\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Production Ad Networks (Live Mode Enforced in Release):** Unity Ads v4.14.1 + Start.io v5.1.0 + Wortise Core v1.8.0 + Custom Direct Sponsors" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Artifacts:** \`Doctor-List-BD-release.apk\`, \`Doctor-List-BD-release.aab\`, \`Doctor-List-BD-debug.apk\`" >> "$GITHUB_STEP_SUMMARY"

@@ -1,6 +1,7 @@
 package com.example.ui.ads
 
 import android.util.Log
+import com.example.BuildConfig
 import com.example.data.local.AppDatabase
 import com.example.data.local.PendingAdViewEventEntity
 import com.example.data.local.SessionPreferences
@@ -157,10 +158,23 @@ object AdRevenueTracker {
         }
     }
 
-    // --- Online Ad Network Telemetry (Start.io & Unity Ads ONLY; strictly disabled when offline) ---
+    // --- Online Ad Network Telemetry (Unity Ads + Start.io + Wortise ONLY; strictly disabled when offline or in Test Mode) ---
+
+    @Volatile
+    private var liveProductionTrackingEnabled: Boolean = !BuildConfig.DEBUG
+
+    /**
+     * Ensures test impressions, clicks, and test SDK callbacks are NEVER counted as production revenue.
+     * Release builds always enforce live production tracking; Debug/Test sessions stay excluded.
+     */
+    fun setProductionTrackingMode(isLiveProduction: Boolean) {
+        liveProductionTrackingEnabled = if (!BuildConfig.DEBUG) true else isLiveProduction
+    }
+
+    fun isLiveProductionTrackingEnabled(): Boolean = liveProductionTrackingEnabled
 
     fun trackNetworkRequest(network: String, format: String) {
-        if (!ConnectivityMonitor.isOnline.value) return
+        if (!ConnectivityMonitor.isOnline.value || !liveProductionTrackingEnabled) return
         val net = normalizeNetworkKey(network) ?: return
         val fmt = normalizeFormatKey(format)
         scope.launch {
@@ -170,7 +184,7 @@ object AdRevenueTracker {
     }
 
     fun trackNetworkLoad(network: String, format: String) {
-        if (!ConnectivityMonitor.isOnline.value) return
+        if (!ConnectivityMonitor.isOnline.value || !liveProductionTrackingEnabled) return
         val net = normalizeNetworkKey(network) ?: return
         val fmt = normalizeFormatKey(format)
         scope.launch {
@@ -180,7 +194,7 @@ object AdRevenueTracker {
     }
 
     fun trackNetworkError(network: String, format: String) {
-        if (!ConnectivityMonitor.isOnline.value) return
+        if (!ConnectivityMonitor.isOnline.value || !liveProductionTrackingEnabled) return
         val net = normalizeNetworkKey(network) ?: return
         val fmt = normalizeFormatKey(format)
         scope.launch {
@@ -190,7 +204,7 @@ object AdRevenueTracker {
     }
 
     fun trackNetworkImpression(network: String, format: String) {
-        if (!ConnectivityMonitor.isOnline.value) return
+        if (!ConnectivityMonitor.isOnline.value || !liveProductionTrackingEnabled) return
         val net = normalizeNetworkKey(network) ?: return
         val fmt = normalizeFormatKey(format)
         scope.launch {
@@ -200,7 +214,7 @@ object AdRevenueTracker {
     }
 
     fun trackNetworkClick(network: String, format: String) {
-        if (!ConnectivityMonitor.isOnline.value) return
+        if (!ConnectivityMonitor.isOnline.value || !liveProductionTrackingEnabled) return
         val net = normalizeNetworkKey(network) ?: return
         val fmt = normalizeFormatKey(format)
         scope.launch {
@@ -210,7 +224,7 @@ object AdRevenueTracker {
     }
 
     fun trackRewardedCompleted(network: String) {
-        if (!ConnectivityMonitor.isOnline.value) return
+        if (!ConnectivityMonitor.isOnline.value || !liveProductionTrackingEnabled) return
         val net = normalizeNetworkKey(network) ?: return
         scope.launch {
             val dateKey = SponsorCampaignSelector.todayDateKey()
@@ -220,10 +234,10 @@ object AdRevenueTracker {
 
     /**
      * Records real SDK-reported ad revenue (e.g., Wortise RevenueData callback) in micro-USD.
-     * Never called with synthetic or fabricated numbers — strictly genuine SDK callbacks when online.
+     * Never called with synthetic, fabricated, or test-mode numbers — strictly genuine live callbacks when online.
      */
     fun trackNetworkPaidRevenue(network: String, format: String, revenueUsd: Double) {
-        if (!ConnectivityMonitor.isOnline.value) return
+        if (!ConnectivityMonitor.isOnline.value || !liveProductionTrackingEnabled) return
         if (!revenueUsd.isFinite() || revenueUsd <= 0.0) return
         val net = normalizeNetworkKey(network) ?: return
         val fmt = normalizeFormatKey(format)

@@ -114,7 +114,7 @@ object StartIoAdManager {
 
     fun isStartIoEnabled(config: AdConfigEntity): Boolean {
         if (!config.adsEnabled || !config.startIoEnabled) return false
-        if (config.startIoAppId.isBlank()) return false
+        if (!HybridNetworkAdController.isValidProductionCredential(config.startIoAppId)) return false
         return when (config.activeNetwork.uppercase()) {
             "SPONSORS_ONLY", "UNITY", "WORTISE" -> false
             else -> true
@@ -122,7 +122,7 @@ object StartIoAdManager {
     }
 
     internal fun effectiveTestMode(config: AdConfigEntity): Boolean =
-        config.testMode || HybridNetworkAdController.isDebugOrEmulator()
+        HybridNetworkAdController.isTestModeActive(config)
 
     fun ensureInitialized(context: Context, config: AdConfigEntity) {
         if (!ConnectivityMonitor.isOnline.value) return
@@ -317,9 +317,54 @@ object HybridNetworkAdController {
     private var sessionRewardedShown: Int = 0
 
     /**
-     * Automatically enables official SDK test mode on debug builds and Android emulators so
-     * Unity Ads, Start.io, and Wortise serve test inventory cleanly instead of returning NO FILL errors.
-     * Release builds running on real physical devices always honor Admin's live `config.testMode`.
+     * Authoritative Production Mode Enforcement:
+     * - RELEASE BUILDS (`!isDebugBuild`): Test Mode is STRICTLY DISABLED (`false` ALWAYS) — even if remote
+     *   config accidentally has `testMode = true`, published builds ONLY serve official Live Production Ads.
+     * - DEBUG BUILDS (`isDebugBuild`): Uses test mode when `config.testMode` or running on an emulator to
+     *   protect publisher accounts from invalid developer traffic.
+     */
+    fun isTestModeActive(
+        config: AdConfigEntity,
+        isDebugBuild: Boolean = BuildConfig.DEBUG
+    ): Boolean {
+        if (!isDebugBuild) return false
+        return config.testMode || isDebugOrEmulator()
+    }
+
+    /**
+     * Blocks blank, sample, placeholder, or demo ad credentials from firing requests in Release builds.
+     */
+    fun isValidProductionCredential(
+        rawId: String,
+        isDebugBuild: Boolean = BuildConfig.DEBUG
+    ): Boolean {
+        val id = rawId.trim()
+        if (id.isEmpty()) return false
+        if (isDebugBuild) return true
+        val lower = id.lowercase()
+        val forbiddenExact = setOf(
+            "0", "000000", "0000000", "12345", "123456", "1234567", "14851",
+            "test", "demo", "sample", "example", "placeholder", "none", "null",
+            "00000000-0000-0000-0000-000000000000"
+        )
+        if (lower in forbiddenExact) return false
+        if (lower.startsWith("test_") ||
+            lower.startsWith("demo_") ||
+            lower.startsWith("sample_") ||
+            lower.startsWith("your_") ||
+            lower.startsWith("replace_") ||
+            lower.startsWith("ca-app-pub-3940256099942544") ||
+            lower.contains("placeholder") ||
+            lower.contains("example")
+        ) {
+            return false
+        }
+        return true
+    }
+
+    /**
+     * Detects debug builds and Android emulators for safe developer testing.
+     * Note: Release builds NEVER enter test mode (`isTestModeActive` returns false for `!BuildConfig.DEBUG`).
      */
     fun isDebugOrEmulator(): Boolean {
         if (BuildConfig.DEBUG) return true
@@ -462,6 +507,7 @@ object HybridNetworkAdController {
     }
 
     fun syncOnlineSdks(context: Context, config: AdConfigEntity, isOnline: Boolean) {
+        AdRevenueTracker.setProductionTrackingMode(!isTestModeActive(config))
         if (!isOnline || !ConnectivityMonitor.isOnline.value || !config.adsEnabled) return
         if (config.activeNetwork.equals("SPONSORS_ONLY", ignoreCase = true)) return
 

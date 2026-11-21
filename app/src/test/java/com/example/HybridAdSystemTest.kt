@@ -1053,4 +1053,48 @@ class HybridAdSystemTest {
         assertNotNull(controller.get())
         controller.pause().stop().destroy()
     }
+
+    // 24. Release Build Strict Live Mode: Test Mode Impossible in Release, Demo IDs Blocked, Test Impressions Excluded from Revenue
+    @Test
+    fun releaseBuildStrictlyDisablesTestModeBlocksDemoIdsAndExcludesTestRevenue() {
+        val remoteConfigWithAccidentalTestMode = AdConfigEntity(
+            adsEnabled = true,
+            testMode = true,
+            unityGameId = "5789123",
+            startIoAppId = "210630916",
+            wortiseAppId = "3f844795-ebd1-4a52-b934-587b7d56571d"
+        )
+
+        // In Release builds (isDebugBuild = false), test mode MUST ALWAYS be false regardless of remote config
+        assertFalse(
+            "Release builds must NEVER enable test mode even if remote config.testMode=true",
+            HybridNetworkAdController.isTestModeActive(remoteConfigWithAccidentalTestMode, isDebugBuild = false)
+        )
+        // In Debug builds (isDebugBuild = true), test mode stays enabled to protect accounts
+        assertTrue(
+            HybridNetworkAdController.isTestModeActive(remoteConfigWithAccidentalTestMode, isDebugBuild = true)
+        )
+
+        // Release builds strictly reject blank, sample, placeholder, and known SDK demo credentials
+        assertFalse(HybridNetworkAdController.isValidProductionCredential("", isDebugBuild = false))
+        assertFalse(HybridNetworkAdController.isValidProductionCredential("demo", isDebugBuild = false))
+        assertFalse(HybridNetworkAdController.isValidProductionCredential("test_banner_id", isDebugBuild = false))
+        assertFalse(HybridNetworkAdController.isValidProductionCredential("00000000-0000-0000-0000-000000000000", isDebugBuild = false))
+        assertFalse(HybridNetworkAdController.isValidProductionCredential("ca-app-pub-3940256099942544/6300978111", isDebugBuild = false))
+        assertFalse(HybridNetworkAdController.isValidProductionCredential("14851", isDebugBuild = false))
+        assertFalse(HybridNetworkAdController.isValidProductionCredential("123456", isDebugBuild = false))
+
+        // Real production IDs pass cleanly in Release builds
+        assertTrue(HybridNetworkAdController.isValidProductionCredential("210630916", isDebugBuild = false))
+        assertTrue(HybridNetworkAdController.isValidProductionCredential("5789123", isDebugBuild = false))
+        assertTrue(HybridNetworkAdController.isValidProductionCredential("3f844795-ebd1-4a52-b934-587b7d56571d", isDebugBuild = false))
+
+        // Test impressions are strictly excluded when live production tracking is off
+        AdRevenueTracker.setProductionTrackingMode(false)
+        assertFalse(AdRevenueTracker.isLiveProductionTrackingEnabled())
+        AdRevenueTracker.setProductionTrackingMode(true)
+        assertTrue(AdRevenueTracker.isLiveProductionTrackingEnabled())
+        // Restore debug-safe default
+        AdRevenueTracker.setProductionTrackingMode(false)
+    }
 }
