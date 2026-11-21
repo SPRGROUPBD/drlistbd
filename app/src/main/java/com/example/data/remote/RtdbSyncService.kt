@@ -54,7 +54,8 @@ object RtdbSyncService {
                         id = id,
                         nameBn = o.optString("nameBn", o.optString("nameEn")),
                         nameEn = o.optString("nameEn", o.optString("nameBn")),
-                        iconKey = o.optString("iconKey", "medical")
+                        iconKey = o.optString("iconKey", "medical"),
+                        iconUrl = o.optString("iconUrl", o.optString("icon_url", o.optString("imageUrl", ""))).trim()
                     )
                 }
                 if (list.isNotEmpty()) {
@@ -512,9 +513,52 @@ object RtdbSyncService {
                     } else {
                         rawStatus
                     }
-                    val logoUrl = o.optString("logoUrl", "").trim()
-                    val bannerUrl = o.optString("bannerImageUrl", "").trim()
-                    val videoUrl = o.optString("videoUrl", "").trim()
+                    val rawLogoUrl = o.optString("logoUrl", "").trim()
+                    val rawBannerUrl = o.optString("bannerImageUrl", "").trim()
+                    val rawVideoUrl = o.optString("videoUrl", "").trim()
+
+                    // CRITICAL: Never store multi-MB base64 data:video/... or huge data:image/... blobs in SQLite/Room
+                    // (Android CursorWindow hard limit is 2MB per row -> SQLiteBlobTooBigException crash!).
+                    val offloadedVideoPath = if (context != null && rawVideoUrl.startsWith("data:video/", ignoreCase = true)) {
+                        SponsorOfflineCacheManager.cacheDataUriVideoToFile(context, id, rawVideoUrl)
+                    } else ""
+                    val safeVideoUrl = if (rawVideoUrl.startsWith("data:video/", ignoreCase = true)) {
+                        if (offloadedVideoPath.isNotBlank()) "cached://local_video" else ""
+                    } else rawVideoUrl
+                    val resolvedLocalVideoPath = when {
+                        offloadedVideoPath.isNotBlank() -> offloadedVideoPath
+                        prev != null && prev.videoUrl == safeVideoUrl -> prev.localVideoPath
+                        else -> ""
+                    }
+
+                    val offloadedBannerPath = if (context != null && rawBannerUrl.startsWith("data:image/", ignoreCase = true) && rawBannerUrl.length > 180_000) {
+                        SponsorOfflineCacheManager.cacheDataUriImageToFile(context, id, "banner", rawBannerUrl)
+                    } else ""
+                    val safeBannerUrl = if (offloadedBannerPath.isNotBlank()) {
+                        "cached://local_banner"
+                    } else if (rawBannerUrl.startsWith("data:image/", ignoreCase = true) && rawBannerUrl.length > 500_000) {
+                        ""
+                    } else rawBannerUrl
+                    val resolvedLocalBannerPath = when {
+                        offloadedBannerPath.isNotBlank() -> offloadedBannerPath
+                        prev != null && prev.bannerImageUrl == safeBannerUrl -> prev.localBannerPath
+                        else -> ""
+                    }
+
+                    val offloadedLogoPath = if (context != null && rawLogoUrl.startsWith("data:image/", ignoreCase = true) && rawLogoUrl.length > 180_000) {
+                        SponsorOfflineCacheManager.cacheDataUriImageToFile(context, id, "logo", rawLogoUrl)
+                    } else ""
+                    val safeLogoUrl = if (offloadedLogoPath.isNotBlank()) {
+                        "cached://local_logo"
+                    } else if (rawLogoUrl.startsWith("data:image/", ignoreCase = true) && rawLogoUrl.length > 500_000) {
+                        ""
+                    } else rawLogoUrl
+                    val resolvedLocalLogoPath = when {
+                        offloadedLogoPath.isNotBlank() -> offloadedLogoPath
+                        prev != null && prev.logoUrl == safeLogoUrl -> prev.localLogoPath
+                        else -> ""
+                    }
+
                     SponsorEntity(
                         id = id,
                         advertiserId = o.optString("advertiserId", "").trim(),
@@ -530,13 +574,13 @@ object RtdbSyncService {
                         status = effectiveStatus,
                         name = o.optString("name", o.optString("sponsorName", "")).trim(),
                         contactPersonName = o.optString("contactPersonName", "").trim(),
-                        logoUrl = logoUrl,
-                        bannerImageUrl = bannerUrl,
-                        localLogoPath = if (prev != null && prev.logoUrl == logoUrl) prev.localLogoPath else "",
-                        localBannerPath = if (prev != null && prev.bannerImageUrl == bannerUrl) prev.localBannerPath else "",
-                        mediaType = o.optString("mediaType", if (videoUrl.isNotBlank()) "VIDEO" else "IMAGE").ifBlank { "IMAGE" },
-                        videoUrl = videoUrl,
-                        localVideoPath = if (prev != null && prev.videoUrl == videoUrl) prev.localVideoPath else "",
+                        logoUrl = safeLogoUrl,
+                        bannerImageUrl = safeBannerUrl,
+                        localLogoPath = resolvedLocalLogoPath,
+                        localBannerPath = resolvedLocalBannerPath,
+                        mediaType = o.optString("mediaType", if (rawVideoUrl.isNotBlank()) "VIDEO" else "IMAGE").ifBlank { "IMAGE" },
+                        videoUrl = safeVideoUrl,
+                        localVideoPath = resolvedLocalVideoPath,
                         adType = o.optString("adType", "").trim(),
                         adPlacement = o.optString("adPlacement", o.optString("targetPages", "ALL")).ifBlank { "ALL" },
                         promoTitle = o.optString("promoTitle", o.optString("title", "")).trim(),

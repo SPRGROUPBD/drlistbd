@@ -1220,7 +1220,7 @@ function renderAdvertisements(filterMode = "ALL") {
                 </div>
                 <div>
                   <label class="block text-xs font-semibold text-slate-700 mb-1">Placement Type *</label>
-                  <select id="ad_placement" class="input bg-white text-xs">
+                  <select id="ad_placement" onchange="toggleAdminRewardVideoFields()" class="input bg-white text-xs">
                     ${PLACEMENT_TYPES.map(p => `<option value="${p.key}" ${(sp?.placementType || "ALL") === p.key ? "selected" : ""}>${p.label}</option>`).join("")}
                   </select>
                 </div>
@@ -1245,11 +1245,29 @@ function renderAdvertisements(filterMode = "ALL") {
               </div>
             </div>
 
+            <!-- Reward Video Upload (MP4) or Video URL (Required for Reward Video) -->
+            ${(() => {
+              const isRewardSelected = String(sp?.placementType || "").toUpperCase() === "REWARD_VIDEO_DOCTOR_CLICK" ||
+                String(sp?.adType || "").toUpperCase() === "REWARD_VIDEO";
+              return `
+                <div id="ad_reward_video_box" class="p-3.5 rounded-xl border ${isRewardSelected ? "bg-amber-50/70 border-amber-300" : "bg-slate-50 border-slate-200"} space-y-2">
+                  <div class="flex items-center justify-between gap-2">
+                    <label class="block text-xs font-bold text-slate-800">
+                      Reward Video (MP4 Upload or Video URL) <span id="ad_video_req_badge" class="${isRewardSelected ? "" : "hidden"} text-rose-600">* Required for Reward Video</span>
+                    </label>
+                  </div>
+                  <input id="ad_video" value="${esc(sp?.videoUrl || "")}" placeholder="https://.../reward-video.mp4 (or upload MP4 below)" class="input bg-white text-xs" />
+                  <input type="file" accept="video/mp4,video/webm" onchange="handleValidatedAdVideoUpload(event, 'ad_video', 'ad_video_meta')" class="text-[11px] text-slate-600 w-full" />
+                  <div id="ad_video_meta" class="text-[11px] text-teal-700 font-semibold">${sp?.videoUrl ? "Video source attached ✓" : "Upload MP4 (≤ 15MB) or paste a direct https://...mp4 video URL."}</div>
+                </div>
+              `;
+            })()}
+
             <!-- Validated Image Uploads (PNG/JPEG/WebP <= 3MB) or HTTPS URL -->
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Ad Banner Image (Upload or HTTPS URL) *</label>
-                <input id="ad_banner" required value="${esc(sp?.bannerImageUrl || "")}" oninput="refreshAdminAdPreview()" placeholder="https://.../banner.jpg" class="input bg-white text-xs mb-1.5" />
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Ad Banner / Thumbnail Image (Upload or HTTPS URL)</label>
+                <input id="ad_banner" value="${esc(sp?.bannerImageUrl || "")}" oninput="refreshAdminAdPreview()" placeholder="https://.../banner.jpg" class="input bg-white text-xs mb-1.5" />
                 <input type="file" accept="image/png,image/jpeg,image/webp" onchange="handleValidatedAdImageUpload(event, 'ad_banner', 'ad_img_meta')" class="text-[11px] text-slate-600 w-full" />
                 <div id="ad_img_meta" class="text-[11px] text-teal-700 font-semibold mt-0.5"></div>
               </div>
@@ -1456,11 +1474,69 @@ function switchTabKeepEdit(tabKey) {
 
 function applyPackageToAdminAd(pkgId) {
   const pk = dbState.ad_packages?.[pkgId];
-  if (!pk) return;
+  if (!pk) {
+    toggleAdminRewardVideoFields();
+    return;
+  }
   document.getElementById("ad_placement").value = pk.placementType || "BANNER_300x200";
   document.getElementById("ad_w").value = pk.widthPx || 300;
   document.getElementById("ad_h").value = pk.heightPx || 200;
   document.getElementById("ad_days").value = pk.durationDays || 30;
+  toggleAdminRewardVideoFields();
+}
+
+function isValidSponsorVideoSrc(url) {
+  const clean = String(url || "").trim();
+  if (!clean) return false;
+  if (/^https?:\/\//i.test(clean)) return clean.length <= 2048;
+  return /^data:video\/(mp4|webm);base64,/i.test(clean);
+}
+
+function toggleAdminRewardVideoFields() {
+  const placement = String(document.getElementById("ad_placement")?.value || "").toUpperCase();
+  const pkgId = document.getElementById("ad_pkg_select")?.value || "";
+  const pkg = pkgId ? dbState.ad_packages?.[pkgId] : null;
+  const isReward = placement === "REWARD_VIDEO_DOCTOR_CLICK" ||
+    String(pkg?.adType || "").toUpperCase() === "REWARD_VIDEO" ||
+    String(pkg?.placementType || "").toUpperCase() === "REWARD_VIDEO_DOCTOR_CLICK";
+  const box = document.getElementById("ad_reward_video_box");
+  const badge = document.getElementById("ad_video_req_badge");
+  if (box) {
+    box.classList.toggle("bg-amber-50/70", isReward);
+    box.classList.toggle("border-amber-300", isReward);
+    box.classList.toggle("bg-slate-50", !isReward);
+    box.classList.toggle("border-slate-200", !isReward);
+  }
+  if (badge) {
+    badge.classList.toggle("hidden", !isReward);
+  }
+}
+
+function handleValidatedAdVideoUpload(event, targetInputId, metaLabelId) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (!["video/mp4", "video/webm"].includes(file.type)) {
+    toast("Invalid video format! Only MP4 or WebM allowed.");
+    event.target.value = "";
+    return;
+  }
+  if (file.size > 15 * 1024 * 1024) {
+    toast("Video exceeds 15 MB maximum size limit.");
+    event.target.value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const el = document.getElementById(targetInputId);
+    if (el) el.value = reader.result;
+    if (metaLabelId) {
+      const mEl = document.getElementById(metaLabelId);
+      if (mEl) mEl.textContent = `Validated MP4/WebM attached (${(file.size / (1024 * 1024)).toFixed(2)} MB) ✓`;
+    }
+    toast("MP4 Video validated & attached!");
+  };
+  reader.onerror = () => toast("Could not read selected video file.");
+  reader.readAsDataURL(file);
 }
 
 function handleValidatedAdImageUpload(event, targetInputId, metaLabelId) {
@@ -1597,14 +1673,29 @@ async function submitAdminDirectAd(e) {
   const id = existingId || uid("sp");
   const bannerImageUrl = document.getElementById("ad_banner").value.trim();
   const logoUrl = document.getElementById("ad_logo").value.trim();
+  const videoUrl = (document.getElementById("ad_video")?.value || "").trim();
   const websiteUrl = document.getElementById("ad_web").value.trim();
-
-  if (!isValidSponsorImageSrc(bannerImageUrl)) return toast("Provide a valid HTTPS image URL or upload PNG/JPEG/WebP.");
-  if (logoUrl && !isValidSponsorImageSrc(logoUrl)) return toast("Logo must be a valid HTTPS image URL or uploaded image.");
-  if (!isValidWebUrl(websiteUrl)) return toast("Website URL must start with https:// or http://");
 
   const pkgId = document.getElementById("ad_pkg_select").value;
   const pkg = pkgId ? dbState.ad_packages?.[pkgId] : null;
+  const placementType = document.getElementById("ad_placement").value || "ALL";
+  const isRewardVideo = placementType.toUpperCase() === "REWARD_VIDEO_DOCTOR_CLICK" ||
+    String(pkg?.adType || "").toUpperCase() === "REWARD_VIDEO" ||
+    String(pkg?.placementType || "").toUpperCase() === "REWARD_VIDEO_DOCTOR_CLICK";
+
+  if (isRewardVideo) {
+    if (!isValidSponsorVideoSrc(videoUrl)) {
+      return toast("Reward Video requires uploading an MP4 video or entering a valid Video URL (https://...mp4)!");
+    }
+    if (bannerImageUrl && !isValidSponsorImageSrc(bannerImageUrl)) {
+      return toast("Optional thumbnail image must be a valid HTTPS image URL or PNG/JPEG/WebP upload.");
+    }
+  } else {
+    if (!isValidSponsorImageSrc(bannerImageUrl)) return toast("Provide a valid HTTPS image URL or upload PNG/JPEG/WebP.");
+  }
+  if (logoUrl && !isValidSponsorImageSrc(logoUrl)) return toast("Logo must be a valid HTTPS image URL or uploaded image.");
+  if (!isValidWebUrl(websiteUrl)) return toast("Website URL must start with https:// or http://");
+
   const durationDays = Math.max(1, parseInt(document.getElementById("ad_days").value, 10) || 30);
   const status = document.getElementById("ad_status").value || "ACTIVE";
   const now = Date.now();
@@ -1637,6 +1728,10 @@ async function submitAdminDirectAd(e) {
     submittedBy: prev.submittedBy || "ADMIN",
     packageId: pkgId || prev.packageId || "admin_direct",
     packageName: pkg ? pkg.name : (prev.packageName || (pickedPlacementIds.length ? `Direct Placements (${pickedPlacementIds.join("+")})` : "Admin Direct Campaign")),
+    adType: isRewardVideo ? "REWARD_VIDEO" : (pkg?.adType || prev.adType || "BANNER"),
+    adPlacement: isRewardVideo ? "DOCTOR_CLICK" : (pkg?.adPlacement || prev.adPlacement || targetPages),
+    mediaType: isRewardVideo || videoUrl ? "VIDEO" : "IMAGE",
+    videoUrl: isValidSponsorVideoSrc(videoUrl) ? videoUrl : "",
     placementIds: placementIdsCsv,
     moduleNames: moduleNamesCsv,
     adSizeKey,
@@ -1644,7 +1739,7 @@ async function submitAdminDirectAd(e) {
     heightPx: Math.max(40, parseInt(document.getElementById("ad_h").value, 10) || 200),
     durationDays,
     priceBdt: pkg ? Number(pkg.priceBdt || 0) : Number(prev.priceBdt || 0),
-    placementType: document.getElementById("ad_placement").value || "ALL",
+    placementType,
     status,
     isActive: status === "ACTIVE",
     name: document.getElementById("ad_name").value.trim(),

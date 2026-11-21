@@ -36,8 +36,8 @@ fun StaticInfoScreen(
         )
         "contact" -> AppStrings.contactUs(lang) to tr(
             lang,
-            "সহায়তা বা তথ্য সংশোধনের জন্য যোগাযোগ করুন:\n\nইমেইল: ${settings.contactEmail}\nফোন: ${settings.contactPhone}\n\nযেকোনো ভুল চেম্বার তথ্য সরাসরি ডাক্তারের প্রোফাইলের 'ভুল তথ্য রিপোর্ট' বাটনের মাধ্যমে জানাতে পারেন।",
-            "Contact Support:\n\nEmail: ${settings.contactEmail}\nPhone: ${settings.contactPhone}\n\nYou can also flag outdated chamber info directly using the Report button on any doctor profile."
+            "সহায়তা বা তথ্য সংশোধনের জন্য যোগাযোগ করুন:\n\nঅ্যাপ ডেভেলপার: SPR IT ZONE\nনাম: Md Sajjad Ahmed\nঠিকানা: Munsigonj, Alamdanga, Chuadanga-7201\nমোবাইল: 01756144900\n\nইমেইল: ${settings.contactEmail}\nহেল্পলাইন: ${settings.contactPhone}\n\nযেকোনো ভুল চেম্বার তথ্য সরাসরি ডাক্তারের প্রোফাইলের 'ভুল তথ্য রিপোর্ট' বাটনের মাধ্যমে জানাতে পারেন।",
+            "Contact Support:\n\nApp Developer: SPR IT ZONE\nName: Md Sajjad Ahmed\nAddress: Munsigonj, Alamdanga, Chuadanga-7201\nMobile: 01756144900\n\nEmail: ${settings.contactEmail}\nHelpline: ${settings.contactPhone}\n\nYou can also flag outdated chamber info directly using the Report button on any doctor profile."
         )
         "privacy" -> AppStrings.privacyPolicy(lang) to tr(
             lang,

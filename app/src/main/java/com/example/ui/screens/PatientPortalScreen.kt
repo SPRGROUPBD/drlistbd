@@ -42,190 +42,126 @@ fun PatientPortalScreen(
     onSponsorClicked: (String, Boolean) -> Unit = { _, _ -> },
     isSyncing: Boolean,
     favoriteDoctors: List<DoctorFullProfile>,
-    notifications: List<NotificationEntity>,
     onRefreshDirectory: () -> Unit,
     onToggleFavorite: (String) -> Unit,
     onDoctorClick: (String) -> Unit,
-    onMarkNotificationRead: (String) -> Unit,
-    onOpenAdvertiserPortal: () -> Unit = {},
-    onNavigateInfo: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var activeTab by remember { mutableIntStateOf(0) }
-
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(BackgroundIce),
+            .background(BackgroundIce)
+            .testTag("favorite_doctors_screen"),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Directory Sync & Offline Storage Card (Zero Login Required)
+        // Favorite Doctors Header
         item {
             Surface(
-                shape = RoundedCornerShape(22.dp),
+                shape = RoundedCornerShape(20.dp),
                 color = SurfaceWhite,
                 border = BorderStroke(1.dp, OutlineSoft),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        tr(lang, "আমার সেভড তালিকা", "My Saved Directory"),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = TextPrimary
-                    )
-                    Text(
-                        tr(
-                            lang,
-                            "কোনো লগইন ছাড়াই আপনার প্রিয় ডাক্তার ও নোটিশ সংরক্ষিত থাকে।",
-                            "Favorite doctors & alerts are saved locally on your device — no login required."
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Button(
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MedicalBlueLight,
+                            modifier = Modifier.size(42.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Favorite,
+                                    contentDescription = null,
+                                    tint = MedicalBlueDark,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                        Column {
+                            Text(
+                                text = tr(lang, "প্রিয় ডাক্তার তালিকা", "Favorite Doctors"),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = tr(
+                                    lang,
+                                    "${favoriteDoctors.size} জন ডাক্তার সেভ করা আছে",
+                                    "${favoriteDoctors.size} saved doctor(s)"
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                    }
+                    FilledTonalIconButton(
                         onClick = onRefreshDirectory,
                         enabled = !isSyncing,
-                        colors = ButtonDefaults.buttonColors(containerColor = MedicalTeal),
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .size(44.dp)
                             .testTag("sync_directory_btn")
                     ) {
                         if (isSyncing) {
-                            CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                         } else {
-                            Icon(Icons.Rounded.Sync, null, Modifier.size(18.dp))
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Text(tr(lang, "সর্বশেষ ডিরেক্টরি আপডেট করুন", "Sync Latest Directory"))
-                    }
-                }
-            }
-        }
-
-        // Sub-Tabs: Favorites | Notifications
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = activeTab == 0,
-                    onClick = { activeTab = 0 },
-                    label = { Text("${AppStrings.saved(lang)} (${favoriteDoctors.size})") }
-                )
-                FilterChip(
-                    selected = activeTab == 1,
-                    onClick = { activeTab = 1 },
-                    label = { Text(tr(lang, "নোটিশ (${notifications.size})", "Alerts (${notifications.size})")) }
-                )
-            }
-        }
-
-        when (activeTab) {
-            0 -> {
-                if (favoriteDoctors.isEmpty()) {
-                    item {
-                        EmptyStateCard(
-                            icon = Icons.Outlined.FavoriteBorder,
-                            title = tr(lang, "কোনো ডাক্তার সেভ করা নেই", "No Saved Doctors"),
-                            subtitle = tr(lang, "ডাক্তারের কার্ডে হার্ট আইকনে ট্যাপ করে সেভ করুন।", "Tap the heart icon on any doctor card to save.")
-                        )
-                    }
-                } else {
-                    itemsIndexed(favoriteDoctors, key = { _, it -> it.doctor.id }) { idx, doc ->
-                        DoctorCard(
-                            item = doc,
-                            lang = lang,
-                            isFavorite = true,
-                            onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
-                            onClick = { onDoctorClick(doc.doctor.id) }
-                        )
-                        if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(idx, adConfig.nativeSponsorInterval)) {
-                            Spacer(Modifier.height(10.dp))
-                            NativeSponsorAdCard(
-                                sponsors = sponsors,
-                                adConfig = adConfig,
-                                pageKey = SponsorCampaignSelector.PAGE_PORTAL,
-                                slotIndex = idx / adConfig.nativeSponsorInterval.coerceIn(4, 6),
-                                isOnline = isOnline,
-                                nowMs = nowMs,
-                                lang = lang,
-                                onSponsorDisplayed = onSponsorDisplayed,
-                                onSponsorClicked = onSponsorClicked
+                            Icon(
+                                imageVector = Icons.Rounded.Sync,
+                                contentDescription = tr(lang, "আপডেট করুন", "Refresh")
                             )
                         }
                     }
                 }
             }
+        }
 
-            else -> {
-                if (notifications.isEmpty()) {
-                    item {
-                        EmptyStateCard(
-                            icon = Icons.Outlined.NotificationsNone,
-                            title = tr(lang, "কোনো নোটিশ নেই", "No Notifications"),
-                            subtitle = tr(lang, "নতুন কোনো আপডেট বা ঘোষণা এলে এখানে দেখা যাবে।", "Directory notices and updates will appear here.")
-                        )
-                    }
-                } else {
-                    items(notifications, key = { it.id }) { n ->
-                        Surface(
-                            onClick = { onMarkNotificationRead(n.id) },
-                            shape = RoundedCornerShape(16.dp),
-                            color = if (n.isRead) SurfaceWhite else MedicalBlueLight.copy(alpha = 0.45f),
-                            border = BorderStroke(1.dp, OutlineSoft),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Text(tr(lang, n.titleBn, n.titleEn), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                Spacer(Modifier.height(4.dp))
-                                Text(tr(lang, n.messageBn, n.messageEn), style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                            }
-                        }
-                    }
-                }
+        // Favorite Doctors List ONLY
+        if (favoriteDoctors.isEmpty()) {
+            item {
+                EmptyStateCard(
+                    icon = Icons.Outlined.FavoriteBorder,
+                    title = tr(lang, "কোনো প্রিয় ডাক্তার সেভ করা নেই", "No Favorite Doctors Yet"),
+                    subtitle = tr(
+                        lang,
+                        "যেকোনো ডাক্তারের কার্ডে হার্ট (♥) আইকনে ট্যাপ করে আপনার প্রিয় তালিকায় সেভ করুন।",
+                        "Tap the heart icon on any doctor card to save them to your favorites."
+                    )
+                )
             }
-        }
-
-        // Direct Sponsor Native Card (Online + Offline Cached)
-        item {
-            NativeSponsorAdCard(
-                sponsors = sponsors,
-                adConfig = adConfig,
-                pageKey = SponsorCampaignSelector.PAGE_PORTAL,
-                slotIndex = 0,
-                isOnline = isOnline,
-                nowMs = nowMs,
-                lang = lang,
-                onSponsorDisplayed = onSponsorDisplayed,
-                onSponsorClicked = onSponsorClicked
-            )
-        }
-
-        // Advertiser Portal Quick Entry + Information Links
-        item {
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = SurfaceWhite,
-                border = BorderStroke(1.dp, OutlineSoft),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = onOpenAdvertiserPortal,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    ) {
-                        Icon(Icons.Rounded.Campaign, contentDescription = null, tint = MedicalBlue)
-                        Spacer(Modifier.width(8.dp))
-                        Text(tr(lang, "বিজ্ঞাপন দিন (অ্যাডভার্টাইজার পোর্টাল)", "Advertise With Us (Advertiser Portal)"))
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        TextButton(onClick = { onNavigateInfo("about") }) { Text(AppStrings.aboutUs(lang)) }
-                        TextButton(onClick = { onNavigateInfo("contact") }) { Text(AppStrings.contactUs(lang)) }
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        TextButton(onClick = { onNavigateInfo("privacy") }) { Text(AppStrings.privacyPolicy(lang)) }
-                        TextButton(onClick = { onNavigateInfo("terms") }) { Text(AppStrings.termsConditions(lang)) }
-                    }
+        } else {
+            itemsIndexed(favoriteDoctors, key = { _, it -> it.doctor.id }) { idx, doc ->
+                DoctorCard(
+                    item = doc,
+                    lang = lang,
+                    isFavorite = true,
+                    onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
+                    onClick = { onDoctorClick(doc.doctor.id) }
+                )
+                if (SponsorCampaignSelector.shouldInsertNativeSponsorAfter(idx, adConfig.nativeSponsorInterval)) {
+                    Spacer(Modifier.height(10.dp))
+                    NativeSponsorAdCard(
+                        sponsors = sponsors,
+                        adConfig = adConfig,
+                        pageKey = SponsorCampaignSelector.PAGE_PORTAL,
+                        slotIndex = idx / adConfig.nativeSponsorInterval.coerceIn(4, 6),
+                        isOnline = isOnline,
+                        nowMs = nowMs,
+                        lang = lang,
+                        onSponsorDisplayed = onSponsorDisplayed,
+                        onSponsorClicked = onSponsorClicked
+                    )
                 }
             }
         }

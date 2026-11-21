@@ -1080,12 +1080,12 @@ private fun SponsorBookingFormTab(
                     modifier = Modifier.fillMaxWidth().testTag("adv_website_input")
                 )
 
-                // Upload Advertisement Image or Video (Android Photo Picker)
+                // Upload Advertisement Video (VideoOnly for Reward Video) or Image (Android Photo Picker)
                 OutlinedButton(
                     onClick = {
                         mediaPicker.launch(
                             PickVisualMediaRequest(
-                                if (isVideoPackage) ActivityResultContracts.PickVisualMedia.ImageAndVideo
+                                if (isVideoPackage) ActivityResultContracts.PickVisualMedia.VideoOnly
                                 else ActivityResultContracts.PickVisualMedia.ImageOnly
                             )
                         )
@@ -1101,7 +1101,7 @@ private fun SponsorBookingFormTab(
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = if (isVideoPackage) {
-                            tr(lang, "বিজ্ঞাপনের ভিডিও বা ছবি আপলোড করুন", "Upload Advertisement Video or Image")
+                            tr(lang, "MP4 ভিডিও আপলোড করুন (বাধ্যতামূলক *)", "Upload MP4 Video (Required *)")
                         } else {
                             tr(lang, "বিজ্ঞাপনের ছবি আপলোড করুন (PNG/JPG/WebP)", "Upload Advertisement Image (PNG/JPG/WebP)")
                         },
@@ -1114,7 +1114,16 @@ private fun SponsorBookingFormTab(
                     OutlinedTextField(
                         value = if (videoSource.startsWith("data:")) "" else videoSource,
                         onValueChange = { videoSource = it },
-                        label = { Text(tr(lang, "অথবা ভিডিও URL (https://...mp4)", "Or Video HTTPS URL (https://...mp4)")) },
+                        label = { Text(tr(lang, "অথবা MP4 ভিডিও URL দিন (https://...mp4) *", "Or Enter Video URL (https://...mp4) *")) },
+                        supportingText = {
+                            Text(
+                                tr(
+                                    lang,
+                                    "রিওয়ার্ড ভিডিওর জন্য অবশ্যই MP4 ভিডিও আপলোড অথবা বৈধ ভিডিও URL দিতে হবে।",
+                                    "Reward Video requires either an uploaded MP4 file or a valid video URL."
+                                )
+                            )
+                        },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("adv_video_url_input")
                     )
@@ -1127,13 +1136,23 @@ private fun SponsorBookingFormTab(
                             ) {
                                 Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = EmeraldAvailable)
                                 Text(
-                                    text = tr(lang, "ভিডিও মিডিয়া যুক্ত হয়েছে", "Video creative attached"),
+                                    text = tr(lang, "MP4 ভিডিও যুক্ত হয়েছে ✓", "MP4 Video attached ✓"),
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = EmeraldAvailable
                                 )
                             }
                         }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)
+                    ) {
+                        Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(tr(lang, "থাম্বনেইল / প্রিভিউ ছবি যুক্ত করুন (ঐচ্ছিক)", "Attach Thumbnail / Preview Image (Optional)"))
                     }
                 }
 
@@ -1343,6 +1362,16 @@ private fun SponsorBookingFormTab(
                     onClick = {
                         if (!isOnline) {
                             onError(tr(lang, "আবেদন জমা দিতে ইন্টারনেট সংযোগ প্রয়োজন।", "Internet connection is required to submit."))
+                            return@Button
+                        }
+                        if (isVideoPackage && !SponsorCampaignSelector.isValidVideoSource(videoSource)) {
+                            onError(
+                                tr(
+                                    lang,
+                                    "রিওয়ার্ড ভিডিওর জন্য অবশ্যই একটি MP4 ভিডিও আপলোড করুন অথবা বৈধ ভিডিও URL দিন।",
+                                    "For Reward Video, you must upload an MP4 video or enter a valid Video URL."
+                                )
+                            )
                             return@Button
                         }
                         val amountInt = paidAmount.toIntOrNull() ?: 0

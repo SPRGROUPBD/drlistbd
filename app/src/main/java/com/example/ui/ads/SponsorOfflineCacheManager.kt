@@ -69,15 +69,23 @@ object SponsorOfflineCacheManager {
                 existingPath = sp.localBannerPath,
                 trackDownload = true
             )
+            val videoPath = ensureCachedVideoAsset(
+                cacheDir = cacheDir,
+                sponsorId = sp.id,
+                sourceUrl = sp.videoUrl,
+                existingPath = sp.localVideoPath
+            )
 
             if (logoPath.isNotBlank()) activeFileNames.add(File(logoPath).name)
             if (bannerPath.isNotBlank()) activeFileNames.add(File(bannerPath).name)
+            if (videoPath.isNotBlank()) activeFileNames.add(File(videoPath).name)
 
-            if (logoPath != sp.localLogoPath || bannerPath != sp.localBannerPath || sp.cachedAt == 0L) {
+            if (logoPath != sp.localLogoPath || bannerPath != sp.localBannerPath || videoPath != sp.localVideoPath || sp.cachedAt == 0L) {
                 db.sponsorDao().updateLocalCachePaths(
                     id = sp.id,
                     logoPath = logoPath,
                     bannerPath = bannerPath,
+                    videoPath = videoPath,
                     cachedAt = now
                 )
             }
@@ -89,6 +97,53 @@ object SponsorOfflineCacheManager {
                 runCatching { file.delete() }
             }
         }
+    }
+
+    /**
+     * Offloads a base64 `data:video/...` URI directly to persistent local storage so large MP4 payloads
+     * are NEVER inserted raw into SQLite/Room (which would trigger SQLiteBlobTooBigException > 2MB).
+     */
+    fun cacheDataUriVideoToFile(context: Context, sponsorId: String, dataUri: String): String {
+        val clean = dataUri.trim()
+        if (!clean.startsWith("data:video/", ignoreCase = true)) return ""
+        return runCatching {
+            val bytes = decodeDataUriBytes(clean) ?: return ""
+            if (!SponsorCampaignSelector.isSupportedVideoBytes(bytes)) return ""
+            val cacheDir = getCacheDir(context)
+            val ext = if (clean.lowercase().contains("webm")) "webm" else "mp4"
+            val hash = sha256Short("${sponsorId}_video_${bytes.size}_${bytes.take(32).joinToString(",")}")
+            val outFile = File(cacheDir, "${sanitizeId(sponsorId)}_video_${hash}.$ext")
+            if (!outFile.exists() || outFile.length() != bytes.size.toLong()) {
+                outFile.writeBytes(bytes)
+            }
+            outFile.absolutePath
+        }.getOrElse { e ->
+            Log.w(TAG, "Failed to decode base64 video for $sponsorId: ${e.message}")
+            ""
+        }
+    }
+
+    /**
+     * Offloads an oversized `data:image/...` URI directly to disk before Room insertion.
+     */
+    fun cacheDataUriImageToFile(context: Context, sponsorId: String, kind: String, dataUri: String): String {
+        val clean = dataUri.trim()
+        if (!clean.startsWith("data:image/", ignoreCase = true)) return ""
+        return runCatching {
+            val bytes = decodeDataUriBytes(clean) ?: return ""
+            val saved = saveValidatedImageToCache(getCacheDir(context), sponsorId, kind, clean.take(128), bytes)
+            saved?.absolutePath.orEmpty()
+        }.getOrElse { "" }
+    }
+
+    /**
+     * Resolves a safe local file path or streaming URI for Direct Sponsor Reward Video playback.
+     * Prefers already-cached local MP4 file (works 100% offline & zero streaming crash risk).
+     */
+    fun resolvePlayableVideoFile(localVideoPath: String): File? {
+        if (localVideoPath.isBlank()) return null
+        val f = File(localVideoPath)
+        return if (f.exists() && f.isFile && f.length() > 100L) f else null
     }
 
     /**
@@ -133,6 +188,95 @@ object SponsorOfflineCacheManager {
         return outFile
     }
 
+    private fun ensureCachedVideoAsset(
+        cacheDir: File,
+        sponsorId: String,
+        sourceUrl: String,
+        existingPath: String
+    ): String {
+        val cleanUrl = sourceUrl.trim()
+        val existingFile = existingPath.takeIf { it.isNotBlank() }?.let { File(it) }
+        val existingValid = existingFile != null && existingFile.exists() && existingFile.length() > 100L
+
+        if (cleanUrl.isEmpty() || cleanUrl.startsWith("cached://", ignoreCase = true)) {
+            return if (existingValid) existingFile!!.absolutePath else ""
+        }
+        if (cleanUrl.startsWith("data:video/", ignoreCase = true)) {
+            if (existingValid) return existingFile!!.absolutePath
+            val bytes = decodeDataUriBytes(cleanUrl) ?: return ""
+            if (!SponsorCampaignSelector.isSupportedVideoBytes(bytes)) return ""
+            val ext = if (cleanUrl.lowercase().contains("webm")) "webm" else "mp4"
+            val hash = sha256Short("${sponsorId}_video_${bytes.size}")
+            val outFile = File(cacheDir, "${sanitizeId(sponsorId)}_video_${hash}.$ext")
+            outFile.writeBytes(bytes)
+            return outFile.absolutePath
+        }
+        if (!cleanUrl.startsWith("https://", ignoreCase = true) && !cleanUrl.startsWith("http://", ignoreCase = true)) {
+            return if (existingValid) existingFile!!.absolutePath else ""
+        }
+
+        val expectedHash = sha256Short("${sponsorId}_video_${cleanUrl}")
+        if (existingValid && existingFile!!.name.contains(expectedHash)) {
+            return existingFile.absolutePath
+        }
+
+        val downloaded = downloadValidatedVideoBytes(cleanUrl)
+            ?: return if (existingValid) existingFile!!.absolutePath else ""
+        if (!SponsorCampaignSelector.isSupportedVideoBytes(downloaded)) {
+            return if (existingValid) existingFile!!.absolutePath else ""
+        }
+        val ext = if (cleanUrl.lowercase().contains(".webm")) "webm" else "mp4"
+        val outFile = File(cacheDir, "${sanitizeId(sponsorId)}_video_${expectedHash}.$ext")
+        return runCatching {
+            outFile.writeBytes(downloaded)
+            Log.d(TAG, "Cached sponsor video for $sponsorId -> ${outFile.name} (${downloaded.size} bytes)")
+            outFile.absolutePath
+        }.getOrElse {
+            if (existingValid) existingFile!!.absolutePath else ""
+        }
+    }
+
+    private fun downloadValidatedVideoBytes(urlStr: String): ByteArray? {
+        return try {
+            val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 10000
+                readTimeout = 15000
+                instanceFollowRedirects = true
+            }
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                conn.disconnect()
+                return null
+            }
+            val contentLength = conn.contentLengthLong
+            if (contentLength > SponsorCampaignSelector.MAX_VIDEO_BYTES) {
+                conn.disconnect()
+                return null
+            }
+            val out = ByteArrayOutputStream()
+            conn.inputStream.use { input ->
+                val buf = ByteArray(16384)
+                var total = 0
+                while (true) {
+                    val read = input.read(buf)
+                    if (read == -1) break
+                    total += read
+                    if (total > SponsorCampaignSelector.MAX_VIDEO_BYTES) {
+                        conn.disconnect()
+                        return null
+                    }
+                    out.write(buf, 0, read)
+                }
+            }
+            conn.disconnect()
+            out.toByteArray()
+        } catch (e: Exception) {
+            Log.w(TAG, "Sponsor video download skipped ($urlStr): ${e.message}")
+            null
+        }
+    }
+
     private fun ensureCachedAsset(
         cacheDir: File,
         sponsorId: String,
@@ -142,7 +286,7 @@ object SponsorOfflineCacheManager {
         trackDownload: Boolean
     ): String {
         val cleanUrl = sourceUrl.trim()
-        if (cleanUrl.isEmpty() || !SponsorCampaignSelector.isValidImageSource(cleanUrl)) {
+        if (cleanUrl.isEmpty() || cleanUrl.startsWith("cached://", ignoreCase = true) || !SponsorCampaignSelector.isValidImageSource(cleanUrl)) {
             return existingPath.takeIf { it.isNotBlank() && File(it).exists() }.orEmpty()
         }
 

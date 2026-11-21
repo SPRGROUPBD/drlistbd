@@ -354,8 +354,14 @@ interface SponsorDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(sponsors: List<SponsorEntity>)
 
-    @Query("UPDATE sponsors SET localLogoPath = :logoPath, localBannerPath = :bannerPath, cachedAt = :cachedAt WHERE id = :id")
-    suspend fun updateLocalCachePaths(id: String, logoPath: String, bannerPath: String, cachedAt: Long)
+    @Query("UPDATE sponsors SET localLogoPath = :logoPath, localBannerPath = :bannerPath, localVideoPath = :videoPath, cachedAt = :cachedAt WHERE id = :id")
+    suspend fun updateLocalCachePaths(
+        id: String,
+        logoPath: String,
+        bannerPath: String,
+        videoPath: String = "",
+        cachedAt: Long
+    )
 
     @Query("DELETE FROM sponsors WHERE id = :id")
     suspend fun deleteById(id: String)

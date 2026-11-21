@@ -123,12 +123,29 @@ fun FindDoctorsScreen(
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
                     val isDefault = !searchState.availableTodayOnly &&
-                        searchState.specialtyId == null && searchState.district == null
+                        searchState.specialtyId == null && searchState.district == null &&
+                        searchState.facilityQuery.isBlank() && searchState.facilityAltQuery.isBlank()
                     FilterChip(
                         selected = isDefault,
                         onClick = onResetFilters,
                         label = { Text(AppStrings.allLabel(lang)) }
                     )
+                }
+                if (searchState.facilityQuery.isNotBlank() || searchState.facilityAltQuery.isNotBlank()) {
+                    item {
+                        val facLabel = if (lang == AppLang.BN && searchState.facilityAltQuery.isNotBlank()) {
+                            searchState.facilityAltQuery
+                        } else {
+                            searchState.facilityQuery.ifBlank { searchState.facilityAltQuery }
+                        }
+                        FilterChip(
+                            selected = true,
+                            onClick = { onUpdateSearch { it.copy(facilityQuery = "", facilityAltQuery = "") } },
+                            label = { Text(facLabel, maxLines = 1) },
+                            leadingIcon = { Icon(Icons.Rounded.LocalHospital, null, Modifier.size(16.dp)) },
+                            trailingIcon = { Icon(Icons.Rounded.Close, null, Modifier.size(16.dp)) }
+                        )
+                    }
                 }
                 item {
                     FilterChip(

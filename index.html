@@ -2041,29 +2041,99 @@ async function submitFacility(e, col) {
 }
 
 // --- SPECIALTIES ---
+function handleSpecialtyIconUpload(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (!["image/png", "image/jpeg", "image/webp", "image/svg+xml"].includes(file.type)) {
+    toast("PNG, JPG, WebP বা SVG আইকন ছবি নির্বাচন করুন।");
+    event.target.value = "";
+    return;
+  }
+  if (file.size > 512 * 1024) {
+    toast("আইকন ছবির সাইজ 512 KB এর কম হতে হবে।");
+    event.target.value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const el = document.getElementById("sp_icon_url");
+    if (el) el.value = reader.result;
+    updateSpecialtyIconPreview(reader.result);
+    toast("Specialty icon attached!");
+  };
+  reader.readAsDataURL(file);
+}
+
+function updateSpecialtyIconPreview(url) {
+  const img = document.getElementById("sp_icon_preview");
+  if (!img) return;
+  const clean = (url || "").trim();
+  if (clean.startsWith("https://") || clean.startsWith("http://") || clean.startsWith("data:image/")) {
+    img.src = clean;
+    img.classList.remove("hidden");
+  } else {
+    img.classList.add("hidden");
+  }
+}
+
 function renderSpecialties() {
   const s = editing.spec || {};
+  const hasIconUrl = s.iconUrl && (s.iconUrl.startsWith("https://") || s.iconUrl.startsWith("http://") || s.iconUrl.startsWith("data:image/"));
   return `
     <div class="bg-white p-5 rounded-2xl border border-slate-200 mb-6">
-      <h3 class="font-bold text-sky-800 mb-3">${s.id ? "Edit Specialty" : "Add Medical Specialty"}</h3>
-      <form onsubmit="submitSpecialty(event)" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-sky-800">${s.id ? "Edit Specialty" : "Add Medical Specialty"}</h3>
+        ${s.id ? `<button type="button" onclick="editing={};renderTab()" class="text-xs font-semibold text-slate-500">Cancel Edit</button>` : ""}
+      </div>
+      <form onsubmit="submitSpecialty(event)" class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <input type="hidden" id="sp_id" value="${esc(s.id || "")}" />
-        <input id="sp_bn" value="${esc(s.nameBn || "")}" required placeholder="Bangla Name *" class="input" />
-        <input id="sp_en" value="${esc(s.nameEn || "")}" required placeholder="English Name *" class="input" />
-        <input id="sp_icon" value="${esc(s.iconKey || "medical")}" placeholder="Icon (heart, brain, eye, child...)" class="input" />
-        <button type="submit" class="md:col-span-3 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Save Specialty</button>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Bangla Name *</label>
+          <input id="sp_bn" value="${esc(s.nameBn || "")}" required placeholder="e.g. হৃদরোগ বিশেষজ্ঞ" class="input" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">English Name *</label>
+          <input id="sp_en" value="${esc(s.nameEn || "")}" required placeholder="e.g. Cardiology" class="input" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Specialty Icon URL (Shown in Android App)</label>
+          <div class="flex items-center gap-2">
+            <img id="sp_icon_preview" src="${hasIconUrl ? esc(s.iconUrl) : ""}" alt="" class="w-10 h-10 rounded-xl object-cover border border-slate-200 flex-shrink-0 ${hasIconUrl ? "" : "hidden"}" />
+            <input id="sp_icon_url" value="${esc(s.iconUrl || "")}" oninput="updateSpecialtyIconPreview(this.value)" placeholder="https://.../specialty-icon.png" class="input text-xs flex-1" />
+          </div>
+          <input type="file" accept="image/png,image/jpeg,image/webp" onchange="handleSpecialtyIconUpload(event)" class="text-[11px] text-slate-500 mt-1.5 w-full" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Fallback Icon Key (Optional)</label>
+          <input id="sp_icon" value="${esc(s.iconKey || "medical")}" placeholder="heart, brain, eye, child, tooth..." class="input" />
+          <p class="text-[11px] text-slate-400 mt-1">Used automatically if Icon URL is empty or offline.</p>
+        </div>
+        <button type="submit" class="md:col-span-2 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-semibold text-sm">Save Specialty</button>
       </form>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-      ${Object.entries(dbState.specialties).map(([id, item]) => `
-        <div class="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center">
-          <div><div class="font-bold">${esc(item.nameBn)}</div><div class="text-xs text-slate-500">${esc(item.nameEn)} (${esc(item.iconKey)})</div></div>
-          <div class="flex gap-2">
-            <button onclick='editing={spec:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs">Edit</button>
-            <button onclick="deleteNode('specialties','${id}')" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs">Delete</button>
+      ${Object.entries(dbState.specialties).map(([id, item]) => {
+        const validImg = item.iconUrl && (item.iconUrl.startsWith("https://") || item.iconUrl.startsWith("http://") || item.iconUrl.startsWith("data:image/"));
+        return `
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center gap-3">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="w-11 h-11 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+              ${validImg
+                ? `<img src="${esc(item.iconUrl)}" class="w-full h-full object-cover" alt="${esc(item.nameEn)}" />`
+                : `<span class="text-xs font-bold text-sky-700">${esc((item.iconKey || "med").slice(0, 4))}</span>`}
+            </div>
+            <div class="min-w-0">
+              <div class="font-bold truncate">${esc(item.nameBn)}</div>
+              <div class="text-xs text-slate-500 truncate">${esc(item.nameEn)} ${validImg ? "• Custom Icon URL" : `(${esc(item.iconKey || "medical")})`}</div>
+            </div>
+          </div>
+          <div class="flex gap-2 flex-shrink-0">
+            <button onclick='editing={spec:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold">Edit</button>
+            <button onclick="deleteNode('specialties','${id}')" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs font-semibold">Delete</button>
           </div>
         </div>
-      `).join("")}
+      `;
+      }).join("")}
     </div>
   `;
 }
@@ -2071,11 +2141,16 @@ function renderSpecialties() {
 async function submitSpecialty(e) {
   e.preventDefault();
   const id = document.getElementById("sp_id").value || uid("sp");
+  const iconUrl = (document.getElementById("sp_icon_url")?.value || "").trim();
+  if (iconUrl && !iconUrl.startsWith("https://") && !iconUrl.startsWith("http://") && !iconUrl.startsWith("data:image/")) {
+    return toast("Specialty Icon URL must start with https:// or http:// (or upload an icon image).");
+  }
   editing = {};
   await saveNode("specialties", id, {
     nameBn: document.getElementById("sp_bn").value.trim(),
     nameEn: document.getElementById("sp_en").value.trim(),
-    iconKey: document.getElementById("sp_icon").value.trim() || "medical"
+    iconKey: document.getElementById("sp_icon").value.trim() || "medical",
+    iconUrl
   });
 }
 

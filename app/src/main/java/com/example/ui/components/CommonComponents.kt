@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,12 +25,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import android.util.Base64
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.R
 import com.example.data.local.SpecialtyEntity
 import com.example.data.model.DoctorFullProfile
 import com.example.i18n.AppLang
@@ -108,19 +112,23 @@ fun MedicalTopBar(
                     )
                 }
             } else {
-                Box(
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = SurfaceWhite,
+                    border = BorderStroke(1.dp, MedicalBlueLight),
+                    shadowElevation = 1.dp,
                     modifier = Modifier
                         .padding(start = 12.dp)
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Brush.linearGradient(listOf(MedicalBlue, MedicalTeal))),
-                    contentAlignment = Alignment.Center
+                        .size(38.dp)
+                        .testTag("top_bar_app_logo")
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.LocalHospital,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
+                    Image(
+                        painter = painterResource(id = R.drawable.doc_dir_icon_1794967683712),
+                        contentDescription = "Doctor List BD Logo",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(10.dp))
                     )
                 }
             }
@@ -396,6 +404,60 @@ fun specialtyIcon(iconKey: String): ImageVector = when (iconKey.lowercase()) {
 }
 
 @Composable
+fun SpecialtyIconBadge(
+    specialty: SpecialtyEntity,
+    contentDescription: String,
+    selected: Boolean = false,
+    size: Dp = 40.dp,
+    iconSize: Dp = 22.dp,
+    cornerRadius: Dp = 12.dp
+) {
+    val cleanUrl = specialty.iconUrl.trim()
+    val imageData: Any? = remember(cleanUrl) {
+        when {
+            cleanUrl.startsWith("https://", ignoreCase = true) || cleanUrl.startsWith("http://", ignoreCase = true) -> cleanUrl
+            cleanUrl.startsWith("data:image/", ignoreCase = true) -> {
+                val comma = cleanUrl.indexOf(',')
+                if (comma > 0) runCatching { Base64.decode(cleanUrl.substring(comma + 1), Base64.DEFAULT) }.getOrNull()
+                else null
+            }
+            else -> null
+        }
+    }
+    var loadError by remember(cleanUrl) { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(cornerRadius))
+            .background(if (selected) Color.White.copy(alpha = 0.22f) else MedicalBlueLight),
+        contentAlignment = Alignment.Center
+    ) {
+        if (imageData != null && !loadError) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(imageData)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = contentDescription,
+                contentScale = ContentScale.Crop,
+                onError = { loadError = true },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(cornerRadius))
+            )
+        } else {
+            Icon(
+                imageVector = specialtyIcon(specialty.iconKey),
+                contentDescription = contentDescription,
+                tint = if (selected) Color.White else MedicalBlueDark,
+                modifier = Modifier.size(iconSize)
+            )
+        }
+    }
+}
+
+@Composable
 fun SpecialtyStrip(
     specialties: List<SpecialtyEntity>,
     selectedId: String?,
@@ -421,20 +483,13 @@ fun SpecialtyStrip(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (selected) Color.White.copy(alpha = 0.2f) else MedicalBlueLight),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = specialtyIcon(spec.iconKey),
-                            contentDescription = tr(lang, spec.nameBn, spec.nameEn),
-                            tint = if (selected) Color.White else MedicalBlueDark,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
+                    SpecialtyIconBadge(
+                        specialty = spec,
+                        contentDescription = tr(lang, spec.nameBn, spec.nameEn),
+                        selected = selected,
+                        size = 40.dp,
+                        iconSize = 22.dp
+                    )
                     Spacer(Modifier.height(6.dp))
                     Text(
                         text = tr(lang, spec.nameBn, spec.nameEn),

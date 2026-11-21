@@ -140,9 +140,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val matchesDiv = divDistricts == null || item.chambers.any { it.chamber.district.lowercase() in divDistricts }
             val matchesDistrict = filter.district == null || item.chambers.any { it.chamber.district.equals(filter.district, true) }
             val matchesUpazila = filter.upazila == null || item.chambers.any { it.chamber.upazila.equals(filter.upazila, true) }
-            val matchesFacility = facQ.isEmpty() || item.chambers.any {
-                it.chamber.facilityName.lowercase().contains(facQ) || it.chamber.chamberName.lowercase().contains(facQ)
-            }
+            val matchesFacility = (filter.facilityQuery.isBlank() && filter.facilityAltQuery.isBlank()) ||
+                FacilityDoctorMatcher.matchesFacility(item, filter.facilityQuery, filter.facilityAltQuery)
             val matchesDay = filter.weekday == null || item.isAvailableOn(filter.weekday)
             val matchesToday = !filter.availableTodayOnly || item.isAvailableToday()
             val matchesWork = workQ.isEmpty() || d.currentHospital.lowercase().contains(workQ) || d.currentMedicalCollege.lowercase().contains(workQ)
@@ -290,6 +289,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateSearch(transform: (SearchFilterState) -> SearchFilterState) {
         _searchState.update(transform)
+        _visiblePageCount.value = 10
+    }
+
+    fun selectFacility(nameEn: String, nameBn: String = "") {
+        val cleanEn = nameEn.removePrefix("[DEMO] ").trim()
+        val cleanBn = nameBn.removePrefix("[DEMO] ").trim()
+        _searchState.value = SearchFilterState(
+            facilityQuery = cleanEn.ifBlank { cleanBn },
+            facilityAltQuery = if (cleanEn.isNotBlank() && !cleanBn.equals(cleanEn, ignoreCase = true)) cleanBn else ""
+        )
         _visiblePageCount.value = 10
     }
 

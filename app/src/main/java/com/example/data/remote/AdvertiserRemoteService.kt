@@ -490,8 +490,8 @@ object AdvertiserRemoteService {
             val hasValidImage = imageSource.isNotBlank() && SponsorCampaignSelector.isValidImageSource(imageSource)
             val hasValidVideo = videoSource.isNotBlank() && SponsorCampaignSelector.isValidVideoSource(videoSource)
             if (isVideoPkg) {
-                if (!hasValidVideo && !hasValidImage) {
-                    return@withContext Result.failure(IllegalArgumentException("Upload a valid MP4/WebM video (or HTTPS video URL / preview image)"))
+                if (!hasValidVideo) {
+                    return@withContext Result.failure(IllegalArgumentException("Reward Video requires uploading an MP4 video or entering a valid Video URL (https://...mp4)"))
                 }
             } else if (!hasValidImage) {
                 return@withContext Result.failure(IllegalArgumentException("Upload a valid PNG/JPEG/WebP image or HTTPS image URL"))

@@ -415,23 +415,132 @@ fun AboutUsScreen(
 
                     Spacer(Modifier.height(10.dp))
                     HorizontalDivider(color = SurfaceMuted)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = tr(lang, "গুরুত্বপূর্ণ লিংকসমূহ", "Important Information"),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MedicalBlueDark
+                    )
                     Spacer(Modifier.height(6.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { onNavigateInfo("contact") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .testTag("about_contact_btn")
+                        ) {
+                            Icon(Icons.Rounded.SupportAgent, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(AppStrings.contactUs(lang), fontWeight = FontWeight.SemiBold)
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { onNavigateInfo("privacy") },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 48.dp)
+                                    .testTag("about_privacy_btn")
+                            ) {
+                                Text(AppStrings.privacyPolicy(lang), maxLines = 1)
+                            }
+                            OutlinedButton(
+                                onClick = { onNavigateInfo("terms") },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 48.dp)
+                                    .testTag("about_terms_btn")
+                            ) {
+                                Text(AppStrings.termsConditions(lang), maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // App Developer Information Card (SPR IT ZONE)
+        item {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = SurfaceWhite,
+                border = BorderStroke(1.2.dp, MedicalTeal.copy(alpha = 0.45f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("about_developer_card")
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        TextButton(
-                            onClick = { onNavigateInfo("privacy") },
-                            modifier = Modifier.testTag("about_privacy_btn")
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MedicalTealLight,
+                            modifier = Modifier.size(42.dp)
                         ) {
-                            Text(AppStrings.privacyPolicy(lang))
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Rounded.DeveloperMode,
+                                    contentDescription = null,
+                                    tint = MedicalTealDark,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
                         }
-                        TextButton(
-                            onClick = { onNavigateInfo("terms") },
-                            modifier = Modifier.testTag("about_terms_btn")
-                        ) {
-                            Text(AppStrings.termsConditions(lang))
+                        Column {
+                            Text(
+                                text = tr(lang, "অ্যাপ ডেভেলপার", "App Developer"),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MedicalTealDark,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "SPR IT ZONE",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = TextPrimary
+                            )
                         }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    ContactDetailRow(
+                        icon = Icons.Rounded.Person,
+                        label = tr(lang, "নাম", "Name"),
+                        value = "Md Sajjad Ahmed"
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    ContactDetailRow(
+                        icon = Icons.Rounded.LocationOn,
+                        label = tr(lang, "ঠিকানা", "Address"),
+                        value = "Munsigonj, Alamdanga, Chuadanga-7201"
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    ContactDetailRow(
+                        icon = Icons.Rounded.Phone,
+                        label = tr(lang, "মোবাইল", "Mobile"),
+                        value = "01756144900"
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:01756144900")))
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MedicalTealDark),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("about_dev_call_btn")
+                    ) {
+                        Icon(Icons.Rounded.Call, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(tr(lang, "ডেভেলপারকে কল করুন (01756144900)", "Call Developer (01756144900)"), fontWeight = FontWeight.Bold)
                     }
                 }
             }

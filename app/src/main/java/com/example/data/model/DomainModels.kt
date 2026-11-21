@@ -106,11 +106,100 @@ data class SearchFilterState(
     val district: String? = null,
     val upazila: String? = null,
     val facilityQuery: String = "",
+    val facilityAltQuery: String = "",
     val weekday: DayOfWeekBd? = null,
     val availableTodayOnly: Boolean = false,
     val workplaceQuery: String = "",
     val sortOption: SortOption = SortOption.RECENTLY_UPDATED
 )
+
+/**
+ * Matches doctors to a Hospital or Diagnostic Center reliably across:
+ * - English & Bengali facility names
+ * - Chambers (`facilityName`, `chamberName`, `fullAddress`)
+ * - Current hospital / medical college & employment history
+ * - Bidirectional substring & core-name matching (e.g. "Ibn Sina Diagnostic" vs "Ibn Sina Diagnostic & Consultation Center")
+ */
+object FacilityDoctorMatcher {
+    private val genericWords = setOf(
+        "hospital", "diagnostic", "center", "centre", "clinic", "medical", "college",
+        "limited", "ltd", "pvt", "private", "general", "specialized", "specialised",
+        "consultation", "complex", "care", "health", "healthcare", "bangladesh", "bd",
+        "and", "the", "of", "at", "&", "-",
+        "হাসপাতাল", "ডায়াগনস্টিক", "ডায়াগনস্টিক", "সেন্টার", "ক্লিনিক", "মেডিকেল", "কলেজ", "লিমিটেড", "এন্ড", "ও"
+    )
+
+    fun normalize(raw: String): String =
+        raw.removePrefix("[DEMO] ")
+            .removePrefix("[demo] ")
+            .trim()
+            .lowercase()
+            .replace(Regex("[.,&/()\\-–—]+"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+    private fun significantTokens(normalized: String): List<String> =
+        normalized.split(" ")
+            .map { it.trim() }
+            .filter { it.length >= 2 && it !in genericWords }
+
+    private fun stringsMatchFacility(candidateRaw: String, targetRaw: String): Boolean {
+        val candidate = normalize(candidateRaw)
+        val target = normalize(targetRaw)
+        if (candidate.isEmpty() || target.isEmpty()) return false
+        if (candidate == target) return true
+        if (candidate.contains(target)) return true
+        if (candidate.length >= 4 && target.contains(candidate)) return true
+
+        val targetTokens = significantTokens(target)
+        val candTokens = significantTokens(candidate)
+        if (targetTokens.isEmpty() || candTokens.isEmpty()) return false
+
+        // All significant tokens of the shorter name appear inside the longer name
+        val targetSet = targetTokens.toSet()
+        val candSet = candTokens.toSet()
+        val intersection = targetSet.intersect(candSet)
+        if (intersection.isEmpty()) return false
+
+        if (targetSet.all { t -> candSet.any { c -> c == t || (t.length >= 4 && c.contains(t)) || (c.length >= 4 && t.contains(c)) } }) {
+            return true
+        }
+        if (candSet.size >= 2 && candSet.all { c -> targetSet.any { t -> t == c || (c.length >= 4 && t.contains(c)) } }) {
+            return true
+        }
+        return intersection.size >= 2
+    }
+
+    fun matchesFacility(
+        profile: DoctorFullProfile,
+        primaryName: String,
+        altName: String = ""
+    ): Boolean {
+        val targets = listOf(primaryName, altName)
+            .map { normalize(it) }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        if (targets.isEmpty()) return true
+
+        val candidates = buildList {
+            add(profile.doctor.currentHospital)
+            add(profile.doctor.currentMedicalCollege)
+            profile.chambers.forEach { c ->
+                add(c.chamber.facilityName)
+                add(c.chamber.chamberName)
+                add(c.chamber.fullAddress)
+            }
+            profile.employmentHistory.forEach { emp ->
+                add(emp.hospitalName)
+                add(emp.medicalCollege)
+            }
+        }.filter { it.isNotBlank() }
+
+        return targets.any { target ->
+            candidates.any { candidate -> stringsMatchFacility(candidate, target) }
+        }
+    }
+}
 
 data class AdminDashboardStats(
     val totalDoctors: Int = 0,

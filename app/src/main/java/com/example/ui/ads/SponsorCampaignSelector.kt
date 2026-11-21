@@ -407,12 +407,14 @@ object SponsorCampaignSelector {
     fun isValidVideoSource(url: String): Boolean {
         val clean = url.trim()
         if (clean.isEmpty()) return false
-        if (clean.startsWith("https://", ignoreCase = true)) return clean.length <= 2048
+        if (clean.startsWith("https://", ignoreCase = true)) {
+            return clean.length <= 2048
+        }
         if (clean.startsWith("data:video/", ignoreCase = true)) {
             val lower = clean.lowercase(Locale.US)
             val validMime = lower.startsWith("data:video/mp4;base64,") ||
                 lower.startsWith("data:video/webm;base64,")
-            return validMime && clean.length <= (MAX_VIDEO_BYTES * 4 / 3 + 128)
+            return validMime && clean.length <= (MAX_VIDEO_BYTES * 4 / 3 + 256)
         }
         return false
     }

@@ -5,12 +5,15 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.AdConfigEntity
 import com.example.data.local.AppDatabase
+import com.example.data.local.ChamberEntity
+import com.example.data.local.DoctorEntity
 import com.example.data.local.PaymentSettingsEntity
 import com.example.data.local.PendingAdViewEventEntity
 import com.example.data.local.PlacementRateCardEntity
 import com.example.data.local.RateCardSettingsEntity
 import com.example.data.local.ScreenAdPlacementEntity
 import com.example.data.local.SessionPreferences
+import com.example.data.local.SpecialtyEntity
 import com.example.data.local.SponsorEntity
 import com.example.data.local.SponsorPackageEntity
 import com.example.data.remote.AdvertiserRemoteService
@@ -24,6 +27,7 @@ import com.example.ui.ads.SponsorOfflineCacheManager
 import com.example.ui.ads.StartIoAdManager
 import com.example.ui.ads.UnityAdsManager
 import com.example.ui.ads.WortiseAdsManager
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -1096,5 +1100,119 @@ class HybridAdSystemTest {
         assertTrue(AdRevenueTracker.isLiveProductionTrackingEnabled())
         // Restore debug-safe default
         AdRevenueTracker.setProductionTrackingMode(false)
+    }
+
+    // 25. FacilityDoctorMatcher matches Hospitals & Diagnostic Centers by English/Bengali names, chambers & currentHospital
+    @Test
+    fun facilityDoctorMatcherMatchesHospitalsAndDiagnosticsAcrossLanguagesAndPartialNames() {
+        val cardioDoc = com.example.data.model.DoctorFullProfile(
+            doctor = DoctorEntity(
+                id = "doc_1",
+                fullNameBn = "ডা. আহমেদ করিম",
+                fullNameEn = "Dr. Ahmed Karim",
+                currentHospital = "Chuadanga Sadar Hospital"
+            ),
+            specialty = SpecialtyEntity("sp_1", "হৃদরোগ", "Cardiology", "heart", "https://cdn.example.com/heart.png"),
+            educations = emptyList(),
+            employmentHistory = emptyList(),
+            chambers = listOf(
+                com.example.data.model.ChamberWithSchedules(
+                    chamber = ChamberEntity(
+                        id = "ch_1",
+                        doctorId = "doc_1",
+                        facilityName = "Ibn Sina Diagnostic",
+                        chamberName = "Room 302",
+                        district = "Dhaka",
+                        fullAddress = "Dhanmondi 9/A, Dhaka"
+                    ),
+                    schedules = emptyList()
+                )
+            )
+        )
+        val bnOnlyDoc = com.example.data.model.DoctorFullProfile(
+            doctor = DoctorEntity(
+                id = "doc_2",
+                fullNameBn = "ডা. নাসরিন সুলতানা",
+                fullNameEn = "Dr. Nasrin Sultana",
+                currentHospital = "পপুলার ডায়াগনস্টিক সেন্টার"
+            ),
+            specialty = null,
+            educations = emptyList(),
+            employmentHistory = emptyList(),
+            chambers = emptyList()
+        )
+
+        // Matches longer diagnostic center name against shorter chamber facilityName
+        assertTrue(
+            com.example.data.model.FacilityDoctorMatcher.matchesFacility(
+                cardioDoc,
+                primaryName = "Ibn Sina Diagnostic & Consultation Center, Dhanmondi",
+                altName = "ইবনে সিনা ডায়াগনস্টিক সেন্টার"
+            )
+        )
+        // Matches doctor's currentHospital even without matching chamber
+        assertTrue(
+            com.example.data.model.FacilityDoctorMatcher.matchesFacility(
+                cardioDoc,
+                primaryName = "Chuadanga Sadar Hospital",
+                altName = "চুয়াডাঙ্গা সদর হাসপাতাল"
+            )
+        )
+        // Matches Bengali hospital/diagnostic name
+        assertTrue(
+            com.example.data.model.FacilityDoctorMatcher.matchesFacility(
+                bnOnlyDoc,
+                primaryName = "Popular Diagnostic Center",
+                altName = "পপুলার ডায়াগনস্টিক সেন্টার"
+            )
+        )
+        // Does NOT falsely match an unrelated hospital
+        assertFalse(
+            com.example.data.model.FacilityDoctorMatcher.matchesFacility(
+                cardioDoc,
+                primaryName = "Square Hospital",
+                altName = "স্কয়ার হাসপাতাল"
+            )
+        )
+    }
+
+    // 26. Reward Video Base64 MP4 offloads safely to disk (never crashing SQLite CursorWindow) & resolves playable file
+    @Test
+    fun rewardVideoBase64OffloadsToLocalMp4CacheFileSafely() {
+        val validMp4Bytes = ByteArray(256).apply {
+            this[0] = 0x00; this[1] = 0x00; this[2] = 0x00; this[3] = 0x18
+            this[4] = 'f'.code.toByte(); this[5] = 't'.code.toByte()
+            this[6] = 'y'.code.toByte(); this[7] = 'p'.code.toByte()
+            this[8] = 'i'.code.toByte(); this[9] = 's'.code.toByte()
+            this[10] = 'o'.code.toByte(); this[11] = 'm'.code.toByte()
+        }
+        val b64 = android.util.Base64.encodeToString(validMp4Bytes, android.util.Base64.NO_WRAP)
+        val dataUri = "data:video/mp4;base64,$b64"
+
+        val savedPath = SponsorOfflineCacheManager.cacheDataUriVideoToFile(context, "sp_rv_test", dataUri)
+        assertTrue("Expected MP4 file to be offloaded to cache dir", savedPath.endsWith(".mp4"))
+        val playable = SponsorOfflineCacheManager.resolvePlayableVideoFile(savedPath)
+        assertNotNull(playable)
+        assertEquals(256L, playable!!.length())
+
+        // Invalid bytes must be rejected without crashing
+        val badUri = "data:video/mp4;base64," + android.util.Base64.encodeToString("not-a-video".toByteArray(), android.util.Base64.NO_WRAP)
+        assertEquals("", SponsorOfflineCacheManager.cacheDataUriVideoToFile(context, "sp_bad", badUri))
+    }
+
+    // 27. Room v12 persists SpecialtyEntity.iconUrl cleanly
+    @Test
+    fun roomV12PersistsSpecialtyIconUrl() = runBlocking {
+        val spec = SpecialtyEntity(
+            id = "sp_cardio_v12",
+            nameBn = "হৃদরোগ বিশেষজ্ঞ",
+            nameEn = "Cardiology",
+            iconKey = "heart",
+            iconUrl = "https://cdn.example.com/icons/cardiology.png"
+        )
+        db.specialtyDao().insertAll(listOf(spec))
+        val loaded = db.specialtyDao().observeAll().first().firstOrNull { it.id == "sp_cardio_v12" }
+        assertNotNull(loaded)
+        assertEquals("https://cdn.example.com/icons/cardiology.png", loaded!!.iconUrl)
     }
 }

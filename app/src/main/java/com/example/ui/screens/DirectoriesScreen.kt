@@ -12,7 +12,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.rounded.*
@@ -33,6 +35,7 @@ import com.example.data.local.SponsorEntity
 import com.example.data.model.ChamberSessionType
 import com.example.data.model.DayOfWeekBd
 import com.example.data.model.DoctorFullProfile
+import com.example.data.model.FacilityDoctorMatcher
 import com.example.data.model.sessionType
 import com.example.data.model.startMinutesOfDay
 import com.example.i18n.AppLang
@@ -45,8 +48,8 @@ import com.example.ui.ads.PlacementSponsorSlot
 import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.ExternalImageAvatar
+import com.example.ui.components.SpecialtyIconBadge
 import com.example.ui.components.StatusPill
-import com.example.ui.components.specialtyIcon
 import com.example.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,7 +70,7 @@ fun DirectoriesScreen(
     specialties: List<SpecialtyEntity>,
     doctors: List<DoctorFullProfile>,
     onSelectSpecialty: (String) -> Unit,
-    onSelectFacility: (String) -> Unit,
+    onSelectFacility: (nameEn: String, nameBn: String) -> Unit,
     onDoctorClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -130,6 +133,9 @@ fun DirectoriesScreen(
                 } else {
                     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         itemsIndexed(list, key = { _, it -> it.id }) { idx, h ->
+                            val matchedCount = remember(doctors, h.id, h.nameEn, h.nameBn) {
+                                doctors.count { FacilityDoctorMatcher.matchesFacility(it, h.nameEn, h.nameBn) }
+                            }
                             FacilityCard(
                                 name = tr(lang, h.nameBn, h.nameEn),
                                 subtitle = "${h.upazila}, ${h.district}",
@@ -137,10 +143,11 @@ fun DirectoriesScreen(
                                 phone = h.contactNumber,
                                 imageUrl = h.imageUrl,
                                 isDemo = h.isDemoData,
+                                doctorCount = matchedCount,
                                 icon = Icons.Rounded.LocalHospital,
                                 lang = lang,
                                 onCall = { safeDialPhone(context, h.contactNumber, lang) },
-                                onViewDoctors = { onSelectFacility(h.nameEn.removePrefix("[DEMO] ")) },
+                                onViewDoctors = { onSelectFacility(h.nameEn, h.nameBn) },
                                 onCardClick = { detailHospital = h }
                             )
                             if ((idx + 1) % hospFreq == 0) {
@@ -195,6 +202,9 @@ fun DirectoriesScreen(
                 } else {
                     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         itemsIndexed(list, key = { _, it -> it.id }) { idx, dc ->
+                            val matchedCount = remember(doctors, dc.id, dc.nameEn, dc.nameBn) {
+                                doctors.count { FacilityDoctorMatcher.matchesFacility(it, dc.nameEn, dc.nameBn) }
+                            }
                             FacilityCard(
                                 name = tr(lang, dc.nameBn, dc.nameEn),
                                 subtitle = "${dc.upazila}, ${dc.district}",
@@ -202,10 +212,11 @@ fun DirectoriesScreen(
                                 phone = dc.contactNumber,
                                 imageUrl = dc.imageUrl,
                                 isDemo = dc.isDemoData,
+                                doctorCount = matchedCount,
                                 icon = Icons.Rounded.Biotech,
                                 lang = lang,
                                 onCall = { safeDialPhone(context, dc.contactNumber, lang) },
-                                onViewDoctors = { onSelectFacility(dc.nameEn.removePrefix("[DEMO] ")) },
+                                onViewDoctors = { onSelectFacility(dc.nameEn, dc.nameBn) },
                                 onCardClick = { detailDiagnostic = dc }
                             )
                             if ((idx + 1) % diaFreq == 0) {
@@ -269,14 +280,13 @@ fun DirectoriesScreen(
                                 modifier = Modifier.padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(46.dp)
-                                        .background(MedicalBlueLight, RoundedCornerShape(12.dp)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(specialtyIcon(sp.iconKey), null, tint = MedicalBlueDark)
-                                }
+                                SpecialtyIconBadge(
+                                    specialty = sp,
+                                    contentDescription = tr(lang, sp.nameBn, sp.nameEn),
+                                    size = 46.dp,
+                                    iconSize = 24.dp,
+                                    cornerRadius = 12.dp
+                                )
                                 Spacer(Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(sp.nameBn, style = MaterialTheme.typography.titleMedium, color = TextPrimary)
@@ -493,9 +503,15 @@ fun DirectoriesScreen(
 
     // Detail Bottom Sheets hosting HOS-02/HOS-04, DIA-02/DIA-04, SPE-02, CHA-02/CHA-03
     detailHospital?.let { h ->
+        val facilityDoctors = remember(doctors, h.id, h.nameEn, h.nameBn) {
+            doctors.filter { FacilityDoctorMatcher.matchesFacility(it, h.nameEn, h.nameBn) }
+        }
         ModalBottomSheet(onDismissRequest = { detailHospital = null }, containerColor = SurfaceWhite) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(tr(lang, h.nameBn, h.nameEn), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -520,14 +536,22 @@ fun DirectoriesScreen(
                     Button(
                         onClick = {
                             detailHospital = null
-                            onSelectFacility(h.nameEn.removePrefix("[DEMO] "))
+                            onSelectFacility(h.nameEn, h.nameBn)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text(tr(lang, "সব ডাক্তার দেখুন", "View Doctors"))
+                        Text(tr(lang, "সব ডাক্তার দেখুন (${facilityDoctors.size})", "View Doctors (${facilityDoctors.size})"))
                     }
                 }
+                FacilityDoctorsPreviewList(
+                    facilityDoctors = facilityDoctors,
+                    lang = lang,
+                    onDoctorClick = { docId ->
+                        detailHospital = null
+                        onDoctorClick(docId)
+                    }
+                )
                 PlacementSponsorSlot(
                     placementId = PlacementRateCardEngine.HOS_04,
                     sponsors = sponsors,
@@ -545,9 +569,15 @@ fun DirectoriesScreen(
     }
 
     detailDiagnostic?.let { dc ->
+        val facilityDoctors = remember(doctors, dc.id, dc.nameEn, dc.nameBn) {
+            doctors.filter { FacilityDoctorMatcher.matchesFacility(it, dc.nameEn, dc.nameBn) }
+        }
         ModalBottomSheet(onDismissRequest = { detailDiagnostic = null }, containerColor = SurfaceWhite) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(tr(lang, dc.nameBn, dc.nameEn), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -572,14 +602,22 @@ fun DirectoriesScreen(
                     Button(
                         onClick = {
                             detailDiagnostic = null
-                            onSelectFacility(dc.nameEn.removePrefix("[DEMO] "))
+                            onSelectFacility(dc.nameEn, dc.nameBn)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text(tr(lang, "সব ডাক্তার দেখুন", "View Doctors"))
+                        Text(tr(lang, "সব ডাক্তার দেখুন (${facilityDoctors.size})", "View Doctors (${facilityDoctors.size})"))
                     }
                 }
+                FacilityDoctorsPreviewList(
+                    facilityDoctors = facilityDoctors,
+                    lang = lang,
+                    onDoctorClick = { docId ->
+                        detailDiagnostic = null
+                        onDoctorClick(docId)
+                    }
+                )
                 PlacementSponsorSlot(
                     placementId = PlacementRateCardEngine.DIA_04,
                     sponsors = sponsors,
@@ -602,9 +640,20 @@ fun DirectoriesScreen(
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(tr(lang, sp.nameBn, sp.nameEn), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                val docCount = doctors.count { it.doctor.mainSpecialtyId == sp.id }
-                Text(tr(lang, "$docCount জন তালিকাভুক্ত বিশেষজ্ঞ", "$docCount listed specialist doctor(s)"), style = MaterialTheme.typography.bodyMedium, color = MedicalBlueDark)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SpecialtyIconBadge(
+                        specialty = sp,
+                        contentDescription = tr(lang, sp.nameBn, sp.nameEn),
+                        size = 48.dp,
+                        iconSize = 26.dp,
+                        cornerRadius = 14.dp
+                    )
+                    Column {
+                        Text(tr(lang, sp.nameBn, sp.nameEn), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        val docCount = doctors.count { it.doctor.mainSpecialtyId == sp.id }
+                        Text(tr(lang, "$docCount জন তালিকাভুক্ত বিশেষজ্ঞ", "$docCount listed specialist doctor(s)"), style = MaterialTheme.typography.bodyMedium, color = MedicalBlueDark)
+                    }
+                }
                 PlacementSponsorSlot(
                     placementId = PlacementRateCardEngine.SPE_02,
                     sponsors = sponsors,
@@ -686,6 +735,89 @@ fun DirectoriesScreen(
 }
 
 @Composable
+private fun FacilityDoctorsPreviewList(
+    facilityDoctors: List<DoctorFullProfile>,
+    lang: AppLang,
+    onDoctorClick: (String) -> Unit
+) {
+    if (facilityDoctors.isEmpty()) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = BackgroundIce,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = tr(
+                    lang,
+                    "এই প্রতিষ্ঠানে বর্তমানে কোনো তালিকাভুক্ত ডাক্তার পাওয়া যায়নি।",
+                    "No doctors are currently listed under this facility."
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+                modifier = Modifier.padding(12.dp)
+            )
+        }
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = tr(lang, "এই প্রতিষ্ঠানের ডাক্তারবৃন্দ (${facilityDoctors.size})", "Doctors at this Facility (${facilityDoctors.size})"),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MedicalBlueDark
+        )
+        facilityDoctors.take(8).forEach { doc ->
+            Surface(
+                onClick = { onDoctorClick(doc.doctor.id) },
+                shape = RoundedCornerShape(14.dp),
+                color = BackgroundIce,
+                border = BorderStroke(1.dp, OutlineSoft),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    ExternalImageAvatar(
+                        imageUrl = doc.doctor.photoUrl,
+                        contentDescription = tr(lang, doc.doctor.fullNameBn, doc.doctor.fullNameEn),
+                        fallbackIcon = Icons.Rounded.Person,
+                        size = 44.dp,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = tr(lang, doc.doctor.fullNameBn, doc.doctor.fullNameEn),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        if (doc.doctor.qualification.isNotBlank()) {
+                            Text(
+                                text = doc.doctor.qualification,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MedicalBlueDark,
+                                maxLines = 1
+                            )
+                        }
+                        doc.specialty?.let { sp ->
+                            Text(
+                                text = tr(lang, sp.nameBn, sp.nameEn),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondary,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                    Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = MedicalBlue)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun FacilityCard(
     name: String,
     subtitle: String,
@@ -693,6 +825,7 @@ private fun FacilityCard(
     phone: String,
     imageUrl: String,
     isDemo: Boolean,
+    doctorCount: Int = 0,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     lang: AppLang,
     onCall: () -> Unit,
@@ -720,7 +853,15 @@ private fun FacilityCard(
                         Spacer(Modifier.width(2.dp))
                         Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MedicalTealDark)
                     }
-                    Text(address, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    if (address.isNotBlank()) {
+                        Text(address, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    StatusPill(
+                        text = tr(lang, "$doctorCount জন ডাক্তার", "$doctorCount doctor(s)"),
+                        bgColor = if (doctorCount > 0) MedicalTealLight else BackgroundIce,
+                        textColor = if (doctorCount > 0) MedicalTealDark else TextSecondary
+                    )
                 }
             }
             Spacer(Modifier.height(10.dp))

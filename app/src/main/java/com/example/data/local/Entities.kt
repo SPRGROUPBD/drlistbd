@@ -81,7 +81,8 @@ data class SpecialtyEntity(
     @PrimaryKey val id: String,
     val nameBn: String,
     val nameEn: String,
-    val iconKey: String = "medical"
+    val iconKey: String = "medical",
+    val iconUrl: String = ""
 )
 
 @Entity(tableName = "locations")

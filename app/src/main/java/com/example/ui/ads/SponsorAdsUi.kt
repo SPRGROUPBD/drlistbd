@@ -39,7 +39,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import android.widget.VideoView
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 import coil.compose.AsyncImage
 import com.example.data.local.AdConfigEntity
 import com.example.data.local.PlacementRateCardEntity
@@ -1325,11 +1328,57 @@ fun DirectSponsorRewardVideoDialog(
     val bannerModel = remember(sponsor.localBannerPath, sponsor.bannerImageUrl, isOnline) {
         SponsorOfflineCacheManager.resolveImageModel(sponsor.localBannerPath, sponsor.bannerImageUrl, isOnline)
     }
-    val canStreamVideo = remember(sponsor.videoUrl, isOnline) {
-        isOnline && sponsor.videoUrl.trim().startsWith("https://", ignoreCase = true)
+
+    // Resolve playable video source safely off the main thread:
+    // 1. Local cached MP4/WebM file (works 100% offline & online with zero network crash risk)
+    // 2. Base64 data:video/... decoded on Dispatchers.IO to persistent cache file
+    // 3. Online HTTPS/HTTP video URL
+    var resolvedLocalVideoPath by remember(sponsor.id, sponsor.localVideoPath, sponsor.videoUrl) {
+        mutableStateOf(
+            SponsorOfflineCacheManager.resolvePlayableVideoFile(sponsor.localVideoPath)?.absolutePath.orEmpty()
+        )
     }
+    var resolvingVideo by remember(sponsor.id) { mutableStateOf(false) }
+
+    LaunchedEffect(sponsor.id, sponsor.localVideoPath, sponsor.videoUrl) {
+        if (resolvedLocalVideoPath.isBlank() && sponsor.videoUrl.trim().startsWith("data:video/", ignoreCase = true)) {
+            resolvingVideo = true
+            val cached = withContext(Dispatchers.IO) {
+                SponsorOfflineCacheManager.cacheDataUriVideoToFile(context, sponsor.id, sponsor.videoUrl)
+            }
+            if (cached.isNotBlank()) {
+                resolvedLocalVideoPath = cached
+            }
+            resolvingVideo = false
+        }
+    }
+
+    val streamableUrl = remember(sponsor.videoUrl, isOnline) {
+        val raw = sponsor.videoUrl.trim()
+        if (isOnline && (raw.startsWith("https://", ignoreCase = true) || raw.startsWith("http://", ignoreCase = true))) {
+            raw
+        } else ""
+    }
+    val hasPlayableVideo = resolvedLocalVideoPath.isNotBlank() || streamableUrl.isNotBlank()
     var secondsLeft by remember(sponsor.id) { mutableIntStateOf(5) }
+    var videoPrepared by remember(sponsor.id) { mutableStateOf(false) }
     var videoError by remember(sponsor.id) { mutableStateOf(false) }
+    val disposedFlag = remember(sponsor.id) { AtomicBoolean(false) }
+    var activeVideoView by remember(sponsor.id) { mutableStateOf<VideoView?>(null) }
+
+    DisposableEffect(sponsor.id) {
+        disposedFlag.set(false)
+        onDispose {
+            disposedFlag.set(true)
+            runCatching {
+                activeVideoView?.setOnPreparedListener(null)
+                activeVideoView?.setOnCompletionListener(null)
+                activeVideoView?.setOnErrorListener(null)
+                activeVideoView?.stopPlayback()
+            }
+            activeVideoView = null
+        }
+    }
 
     LaunchedEffect(sponsor.id) {
         while (secondsLeft > 0) {
@@ -1420,25 +1469,81 @@ fun DirectSponsorRewardVideoDialog(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (canStreamVideo && !videoError) {
+                            if (hasPlayableVideo && !videoError && !resolvingVideo) {
+                                val localFilePath = resolvedLocalVideoPath
+                                val remoteUrl = streamableUrl
                                 AndroidView(
                                     factory = { ctx ->
                                         VideoView(ctx).apply {
-                                            setVideoURI(Uri.parse(sponsor.videoUrl.trim()))
+                                            activeVideoView = this
+                                            runCatching { setZOrderMediaOverlay(true) }
                                             setOnPreparedListener { mp ->
-                                                mp.isLooping = false
-                                                start()
+                                                if (disposedFlag.get()) {
+                                                    runCatching { mp.stop() }
+                                                    return@setOnPreparedListener
+                                                }
+                                                runCatching {
+                                                    mp.isLooping = false
+                                                    videoPrepared = true
+                                                    start()
+                                                }.onFailure {
+                                                    videoError = true
+                                                }
                                             }
                                             setOnCompletionListener {
-                                                secondsLeft = 0
+                                                if (!disposedFlag.get()) {
+                                                    secondsLeft = 0
+                                                }
                                             }
                                             setOnErrorListener { _, _, _ ->
+                                                if (!disposedFlag.get()) {
+                                                    videoError = true
+                                                }
+                                                true // Consume error so Android never shows a crash/error dialog
+                                            }
+                                            runCatching {
+                                                if (localFilePath.isNotBlank()) {
+                                                    setVideoPath(localFilePath)
+                                                } else if (remoteUrl.isNotBlank()) {
+                                                    setVideoURI(Uri.parse(remoteUrl))
+                                                } else {
+                                                    videoError = true
+                                                }
+                                            }.onFailure {
                                                 videoError = true
-                                                true
                                             }
                                         }
                                     },
+                                    onRelease = { vv ->
+                                        disposedFlag.set(true)
+                                        runCatching {
+                                            vv.setOnPreparedListener(null)
+                                            vv.setOnCompletionListener(null)
+                                            vv.setOnErrorListener(null)
+                                            vv.stopPlayback()
+                                        }
+                                    },
                                     modifier = Modifier.fillMaxSize()
+                                )
+                                if (!videoPrepared) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color(0xFF0F172A).copy(alpha = 0.65f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            color = Color(0xFF38BDF8),
+                                            strokeWidth = 3.dp,
+                                            modifier = Modifier.size(34.dp)
+                                        )
+                                    }
+                                }
+                            } else if (resolvingVideo) {
+                                CircularProgressIndicator(
+                                    color = Color(0xFF38BDF8),
+                                    strokeWidth = 3.dp,
+                                    modifier = Modifier.size(34.dp)
                                 )
                             } else if (bannerModel != null) {
                                 AsyncImage(

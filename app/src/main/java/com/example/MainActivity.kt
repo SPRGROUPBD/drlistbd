@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.Lifecycle
@@ -230,6 +231,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     val snackbarMsg by vm.snackbar.collectAsStateWithLifecycle()
 
     var facilitiesTab by remember { mutableIntStateOf(0) }
+    var showNotificationsDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(snackbarMsg) {
@@ -411,7 +413,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                     lang = lang,
                     unreadNotifications = unreadCount,
                     onToggleLang = { vm.toggleLanguage() },
-                    onNotificationsClick = { navigateToTab(Routes.PORTAL) },
+                    onNotificationsClick = { showNotificationsDialog = true },
                     onBackClick = if (showMainChrome) null else ({ navController.popBackStack() })
                 )
             },
@@ -589,8 +591,8 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                                 vm.updateSearch { it.copy(specialtyId = specId) }
                                 navigateToTab(Routes.FIND_DOCTORS)
                             },
-                            onSelectFacility = { facName ->
-                                vm.updateSearch { it.copy(facilityQuery = facName) }
+                            onSelectFacility = { nameEn, nameBn ->
+                                vm.selectFacility(nameEn, nameBn)
                                 navigateToTab(Routes.FIND_DOCTORS)
                             },
                             onDoctorClick = openDoctorProfile
@@ -609,19 +611,9 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             onSponsorClicked = vm::recordSponsorClick,
                             isSyncing = isSyncing,
                             favoriteDoctors = favDocs,
-                            notifications = notifications,
                             onRefreshDirectory = vm::refreshDirectory,
                             onToggleFavorite = vm::toggleFavorite,
-                            onDoctorClick = openDoctorProfile,
-                            onMarkNotificationRead = vm::markNotificationRead,
-                            onOpenAdvertiserPortal = { navController.navigate(Routes.ADVERTISER_PORTAL) },
-                            onNavigateInfo = { key ->
-                                if (key == "about") {
-                                    navigateToTab(Routes.ABOUT_US)
-                                } else {
-                                    navController.navigate(Routes.info(key))
-                                }
-                            }
+                            onDoctorClick = openDoctorProfile
                         )
                     }
 
@@ -753,6 +745,60 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                     }
                 }
             }
+        }
+
+        if (showNotificationsDialog) {
+            AlertDialog(
+                onDismissRequest = { showNotificationsDialog = false },
+                containerColor = SurfaceWhite,
+                title = {
+                    Text(
+                        text = tr(lang, "নোটিশ ও আপডেট", "Notifications & Updates"),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    if (notifications.isEmpty()) {
+                        Text(
+                            text = tr(lang, "বর্তমানে কোনো নতুন নোটিশ নেই।", "No notifications at the moment."),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            notifications.take(10).forEach { n ->
+                                Surface(
+                                    onClick = { vm.markNotificationRead(n.id) },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (n.isRead) BackgroundIce else MedicalBlueLight.copy(alpha = 0.45f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text(
+                                            text = tr(lang, n.titleBn, n.titleEn),
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextPrimary
+                                        )
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(
+                                            text = tr(lang, n.messageBn, n.messageEn),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextSecondary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showNotificationsDialog = false }) {
+                        Text(tr(lang, "বন্ধ করুন", "Close"))
+                    }
+                }
+            )
         }
 
         if (pendingRewardDoctorId != null) {
