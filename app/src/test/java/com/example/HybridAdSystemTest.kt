@@ -35,6 +35,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
@@ -1003,7 +1004,8 @@ class HybridAdSystemTest {
             ScreenAdPlacementEntity("CHAMBER_SCHEDULE", "Chamber Schedule", true, "AUTO", "BANNER", 4, 5, 60),
             ScreenAdPlacementEntity("OTHER_SCREENS", "Other Content Screens", false, "AUTO", "BANNER", 3, 3, 90)
         )
-        db.screenAdPlacementDao().replaceAll(eightScreens)
+        db.screenAdPlacementDao().deleteAll()
+        db.screenAdPlacementDao().insertAll(eightScreens)
 
         val storedScreens = db.screenAdPlacementDao().getAllOnce()
         assertEquals(8, storedScreens.size)
@@ -1028,5 +1030,27 @@ class HybridAdSystemTest {
         assertEquals("interstitial", AdRevenueTracker.normalizeFormatKey("INTERSTITIAL"))
         assertEquals("app_open", AdRevenueTracker.normalizeFormatKey("APP_OPEN"))
         assertEquals("rewarded", AdRevenueTracker.normalizeFormatKey("REWARDED_VIDEO"))
+    }
+
+    // 23. Startup Regression Guard: MobileAdsInitProvider (INTEGRATION_MANAGER=wortise), Wortise InitializationProvider & MainActivity launch cleanly
+    @Test
+    fun startupContentProvidersAndMainActivityLaunchWithoutCrash() {
+        val providerInfo = android.content.pm.ProviderInfo().apply {
+            authority = "${context.packageName}.mobileadsinitprovider"
+            packageName = context.packageName
+        }
+        val mobileAdsProvider = com.google.android.gms.ads.MobileAdsInitProvider()
+        mobileAdsProvider.attachInfo(context, providerInfo)
+
+        val wortiseProviderInfo = android.content.pm.ProviderInfo().apply {
+            authority = "${context.packageName}.wortise-startup"
+            packageName = context.packageName
+        }
+        val wortiseProvider = com.wortise.ads.InitializationProvider()
+        wortiseProvider.attachInfo(context, wortiseProviderInfo)
+
+        val controller = Robolectric.buildActivity(MainActivity::class.java).create().start().resume()
+        assertNotNull(controller.get())
+        controller.pause().stop().destroy()
     }
 }

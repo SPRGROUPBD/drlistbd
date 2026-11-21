@@ -34,12 +34,12 @@ Official Wortise Maven repository and mediation adapter repositories are configu
 ```kotlin
 implementation("com.startapp:inapp-sdk:5.1.0")
 implementation("com.unity3d.ads:unity-ads:4.14.1")
-implementation("com.wortise:android-sdk:1.8.0")
+implementation("com.wortise:android-core:1.8.0")
 ```
 
 ### Android Manifest (`app/src/main/AndroidManifest.xml`)
 - Preserves Start.io manifest metadata and existing `ACCESS_ADSERVICES_*` permission hygiene (`tools:node="remove"`).
-- Declares `com.google.android.gms.ads.AD_MANAGER_APP = true` required by Wortise's internal mediation runtime so app startup never crashes.
+- Declares `com.google.android.gms.ads.INTEGRATION_MANAGER = "wortise"` required by Wortise SDK's internal Google Mobile Ads runtime (`play-services-ads-api:25.4.0`) so `MobileAdsInitProvider` initializes cleanly on app launch without requiring an AdMob Application ID.
 - **No private Ad Unit IDs or App IDs are hardcoded in the manifest or Kotlin code.**
 
 ---

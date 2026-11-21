@@ -62,10 +62,10 @@
         <meta-data
             android:name="com.startapp.sdk.RETURN_ADS_ENABLED"
             android:value="false" />
-        <!-- Required by official Wortise Android SDK runtime (no direct AdMob ad units used) -->
+        <!-- Required by official Wortise Android SDK runtime (play-services-ads-api 25.4.0) so MobileAdsInitProvider initializes cleanly without AdMob App ID -->
         <meta-data
-            android:name="com.google.android.gms.ads.AD_MANAGER_APP"
-            android:value="true" />
+            android:name="com.google.android.gms.ads.INTEGRATION_MANAGER"
+            android:value="wortise" />
 
         <activity
             android:name=".MainActivity"
