@@ -91,13 +91,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ ! -s debug.keystore ]]; then
-            keytool -genkeypair -v \\
-              -keystore debug.keystore \\
-              -storepass android \\
-              -alias androiddebugkey \\
-              -keypass android \\
-              -dname \"CN=Android Debug,O=Android,C=US\" \\
-              -keyalg RSA -keysize 2048 -validity 10000
+            keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
           fi
           keytool -list -keystore debug.keystore -storepass android -alias androiddebugkey >/dev/null
 
