@@ -47,7 +47,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.local.DiagnosticCenterEntity
-import com.example.data.local.FirestoreSliderConfig
 import com.example.data.local.HospitalEntity
 import com.example.data.local.NotificationEntity
 import com.example.data.model.AutoSyncStatus
@@ -1022,31 +1021,19 @@ private fun formatNotificationTime(timestampMs: Long, lang: AppLang): String {
 }
 
 /**
- * Firebase Configuration & Notifications Modal Bottom Sheet
+ * Notifications Modal Bottom Sheet
  * Opened by tapping the Notification Bell button in the Top App Bar.
- * Tab 0: Firebase Firestore Slider Configuration (`sliders` where active == true ordered by order) + Sync status.
- * Tab 1: Notifications Center with unread badges & mark-as-read actions.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FirebaseConfigAndNotificationSheet(
     lang: AppLang,
-    sliderConfig: FirestoreSliderConfig,
-    sliderSyncStatus: String?,
-    syncState: SyncUiState,
     notifications: List<NotificationEntity>,
-    isSyncing: Boolean,
-    onSaveConfig: (projectId: String, apiKey: String, collectionName: String) -> Unit,
-    onResetDemo: () -> Unit,
     onSyncNow: () -> Unit,
     onMarkRead: (String) -> Unit,
     onMarkAllRead: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
-    var projectId by remember(sliderConfig) { mutableStateOf(sliderConfig.projectId) }
-    var apiKey by remember(sliderConfig) { mutableStateOf(sliderConfig.apiKey) }
-    var collectionName by remember(sliderConfig) { mutableStateOf(sliderConfig.collectionName.ifBlank { "sliders" }) }
     val unreadCount = notifications.count { !it.isRead }
 
     ModalBottomSheet(
@@ -1058,7 +1045,7 @@ fun FirebaseConfigAndNotificationSheet(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 26.dp)
-                .testTag("firebase_config_modal_sheet"),
+                .testTag("notifications_modal_sheet"),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(
@@ -1078,7 +1065,7 @@ fun FirebaseConfigAndNotificationSheet(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (selectedTab == 0) Icons.Rounded.CloudSync else Icons.Rounded.Notifications,
+                            imageVector = Icons.Rounded.Notifications,
                             contentDescription = null,
                             tint = MedicalBlue,
                             modifier = Modifier.size(20.dp)
@@ -1086,21 +1073,13 @@ fun FirebaseConfigAndNotificationSheet(
                     }
                     Column {
                         Text(
-                            text = if (selectedTab == 0) {
-                                tr(lang, "Firebase কনফিগারেশন", "Firebase Configuration")
-                            } else {
-                                tr(lang, "নোটিফিকেশন ও বিজ্ঞপ্তি", "Notifications & Notices")
-                            },
+                            text = tr(lang, "নোটিফিকেশন ও বিজ্ঞপ্তি", "Notifications & Notices"),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary
                         )
                         Text(
-                            text = tr(
-                                lang,
-                                "Firestore 'sliders' কালেকশন ও লাইভ সিঙ্ক",
-                                "Firestore 'sliders' collection & live sync"
-                            ),
+                            text = tr(lang, "সাম্প্রতিক আপডেট ও বিজ্ঞপ্তি", "Recent updates and announcements"),
                             style = MaterialTheme.typography.labelSmall,
                             color = TextMuted
                         )
@@ -1111,290 +1090,85 @@ fun FirebaseConfigAndNotificationSheet(
                 }
             }
 
-            // Segmented Tab Switcher: Firebase Config | Notifications
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(BackgroundIce)
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    onClick = { selectedTab = 0 },
-                    shape = RoundedCornerShape(10.dp),
-                    color = if (selectedTab == 0) MedicalBlue else Color.Transparent,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(38.dp)
-                        .testTag("modal_tab_firebase_config")
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = tr(lang, "Firebase কনফিগ", "Firebase Config"),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (selectedTab == 0) Color.White else TextSecondary
-                        )
-                    }
-                }
-                Surface(
-                    onClick = { selectedTab = 1 },
-                    shape = RoundedCornerShape(10.dp),
-                    color = if (selectedTab == 1) MedicalBlue else Color.Transparent,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(38.dp)
-                        .testTag("modal_tab_notifications")
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = tr(lang, "বিজ্ঞপ্তি", "Notices"),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (selectedTab == 1) Color.White else TextSecondary
-                        )
-                        if (unreadCount > 0) {
-                            Spacer(Modifier.width(6.dp))
-                            Surface(
-                                shape = CircleShape,
-                                color = if (selectedTab == 1) Color.White else RoseAlert
-                            ) {
-                                Text(
-                                    text = unreadCount.toString(),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (selectedTab == 1) MedicalBlue else Color.White,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-                                )
-                            }
-                        }
+                Text(
+                    text = tr(lang, "সাম্প্রতিক বিজ্ঞপ্তি", "Recent Notifications"),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = TextSecondary
+                )
+                if (unreadCount > 0) {
+                    TextButton(onClick = onMarkAllRead) {
+                        Text(tr(lang, "সব পঠিত", "Mark all read"), color = MedicalBlue)
                     }
                 }
             }
 
-            if (selectedTab == 0) {
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MintCardStart,
-                    border = BorderStroke(1.dp, MintBorder),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = tr(lang, "স্লাইডার ডাটা সোর্স", "Slider Data Source"),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary
-                            )
-                            StatusPill(
-                                text = if (sliderConfig.isConfigured) {
-                                    tr(lang, "Firestore সংযুক্ত", "Firestore Active")
-                                } else {
-                                    tr(lang, "ডেমো + RTDB চালু", "Demo + RTDB Active")
-                                },
-                                bgColor = EmeraldSoft,
-                                textColor = Color(0xFF065F46)
-                            )
-                        }
-                        Text(
-                            text = sliderSyncStatus ?: tr(
-                                lang,
-                                "Firestore 'sliders' (active == true, order ASC) যুক্ত করুন অথবা বিল্ট-ইন বাংলাদেশ ডেমো ডেটাসেট ব্যবহার করুন।",
-                                "Connect Firestore 'sliders' (active == true, ordered by order) or use the built-in Bangladesh demo dataset."
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
-                        Text(
-                            text = "${tr(lang, "সর্বশেষ সিঙ্ক", "Last sync")}: ${formatSyncTime(syncState.lastSuccessAtMs, lang)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MedicalTealDark
-                        )
-                    }
-                }
-
-                OutlinedTextField(
-                    value = projectId,
-                    onValueChange = { projectId = it },
-                    label = { Text(tr(lang, "Firebase Project ID", "Firebase Project ID")) },
-                    placeholder = { Text("e.g. doctor-list-bd") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("firebase_project_id_input")
+            if (notifications.isEmpty()) {
+                EmptyStateCard(
+                    icon = Icons.Outlined.Notifications,
+                    title = tr(lang, "কোনো নোটিফিকেশন নেই", "No Notifications Yet"),
+                    subtitle = tr(
+                        lang,
+                        "অ্যাডমিন থেকে নতুন কোনো আপডেট বা বিজ্ঞপ্তি পাঠানো হলে এখানে দেখা যাবে।",
+                        "Firebase announcements and directory updates will appear here."
+                    ),
+                    actionText = tr(lang, "রিফ্রেশ করুন", "Refresh"),
+                    onAction = onSyncNow
                 )
-
-                OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
-                    label = { Text(tr(lang, "Web API Key (ঐচ্ছিক)", "Web API Key (Optional)")) },
-                    placeholder = { Text("AIza...") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("firebase_api_key_input")
-                )
-
-                OutlinedTextField(
-                    value = collectionName,
-                    onValueChange = { collectionName = it },
-                    label = { Text(tr(lang, "Firestore কালেকশন", "Firestore Collection")) },
-                    placeholder = { Text("sliders") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("firebase_collection_input")
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            projectId = ""
-                            apiKey = ""
-                            collectionName = "sliders"
-                            onResetDemo()
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, MintBorder),
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 48.dp)
-                    ) {
-                        Text(tr(lang, "ডেমো ডেটা", "Use Demo"), color = TextPrimary)
-                    }
-                    Button(
-                        onClick = {
-                            if (projectId.isNotBlank()) {
-                                onSaveConfig(projectId, apiKey, collectionName)
-                            } else {
-                                onSyncNow()
-                            }
-                        },
-                        enabled = !isSyncing,
-                        colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .weight(1.4f)
-                            .heightIn(min = 48.dp)
-                            .testTag("firebase_save_sync_btn")
-                    ) {
-                        if (isSyncing) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Text(
-                            text = if (projectId.isNotBlank()) {
-                                tr(lang, "সংরক্ষণ ও সিঙ্ক", "Save & Sync")
-                            } else {
-                                tr(lang, "এখনই সিঙ্ক করুন", "Sync Now")
-                            },
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
             } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = tr(lang, "সাম্প্রতিক বিজ্ঞপ্তি", "Recent Notifications"),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = TextSecondary
-                    )
-                    if (unreadCount > 0) {
-                        TextButton(onClick = onMarkAllRead) {
-                            Text(tr(lang, "সব পঠিত", "Mark all read"), color = MedicalBlue)
-                        }
-                    }
-                }
-
-                if (notifications.isEmpty()) {
-                    EmptyStateCard(
-                        icon = Icons.Outlined.Notifications,
-                        title = tr(lang, "কোনো নোটিফিকেশন নেই", "No Notifications Yet"),
-                        subtitle = tr(
+                    items(notifications, key = { it.id }) { item ->
+                        val title = tr(
                             lang,
-                            "অ্যাডমিন থেকে নতুন কোনো আপডেট বা বিজ্ঞপ্তি পাঠানো হলে এখানে দেখা যাবে।",
-                            "Firebase announcements and directory updates will appear here."
-                        ),
-                        actionText = tr(lang, "রিফ্রেশ করুন", "Refresh"),
-                        onAction = onSyncNow
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 360.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(notifications, key = { it.id }) { item ->
-                            val title = tr(
-                                lang,
-                                item.titleBn.ifBlank { item.titleEn },
-                                item.titleEn.ifBlank { item.titleBn }
-                            ).ifBlank { tr(lang, "বিজ্ঞপ্তি", "Notice") }
-                            val body = tr(
-                                lang,
-                                item.messageBn.ifBlank { item.messageEn },
-                                item.messageEn.ifBlank { item.messageBn }
-                            )
-                            Surface(
-                                onClick = { if (!item.isRead) onMarkRead(item.id) },
-                                shape = RoundedCornerShape(14.dp),
-                                color = if (item.isRead) BackgroundIce else MintCardSurface,
-                                border = BorderStroke(1.dp, MintBorder),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(
-                                            text = title,
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = if (item.isRead) FontWeight.Medium else FontWeight.Bold,
-                                            color = TextPrimary,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Text(
-                                            text = formatNotificationTime(item.createdAt, lang),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = TextMuted
-                                        )
-                                    }
-                                    if (body.isNotBlank()) {
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(
-                                            text = body,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = TextSecondary
-                                        )
-                                    }
+                            item.titleBn.ifBlank { item.titleEn },
+                            item.titleEn.ifBlank { item.titleBn }
+                        ).ifBlank { tr(lang, "বিজ্ঞপ্তি", "Notice") }
+                        val body = tr(
+                            lang,
+                            item.messageBn.ifBlank { item.messageEn },
+                            item.messageEn.ifBlank { item.messageBn }
+                        )
+                        Surface(
+                            onClick = { if (!item.isRead) onMarkRead(item.id) },
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (item.isRead) BackgroundIce else MintCardSurface,
+                            border = BorderStroke(1.dp, MintBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = title,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = if (item.isRead) FontWeight.Medium else FontWeight.Bold,
+                                        color = TextPrimary,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        text = formatNotificationTime(item.createdAt, lang),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TextMuted
+                                    )
+                                }
+                                if (body.isNotBlank()) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        text = body,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondary
+                                    )
                                 }
                             }
                         }
@@ -1404,4 +1178,3 @@ fun FirebaseConfigAndNotificationSheet(
         }
     }
 }
-
