@@ -1,0 +1,280 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "directory": {
+      ".read": true,
+      ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (root.child('subAdmins').child(auth.uid).exists() && root.child('subAdmins').child(auth.uid).child('status').val() == 'ACTIVE') || auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true)",
+      "ad_metrics": {
+        ".read": true,
+        ".write": true
+      },
+      "ad_analytics": {
+        ".read": true,
+        ".write": true
+      },
+      "ad_view_events": {
+        ".read": true,
+        ".write": true
+      },
+      "app_installs": {
+        ".read": true,
+        ".write": true
+      },
+      "reports": {
+        ".read": true,
+        ".write": true
+      },
+      "appointments": {
+        ".read": true,
+        ".write": true
+      },
+      "advertisers": {
+        "$advId": {
+          ".read": "auth != null && (auth.uid == $advId || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+          ".write": "auth != null && (auth.uid == $advId || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))"
+        }
+      },
+      "subAdmins": {
+        ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))"
+      }
+    },
+
+    "admins": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": false
+      }
+    },
+
+    "adPackages": {
+      ".read": true,
+      ".indexOn": ["placementType", "status"],
+      "$packageId": {
+        ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        ".validate": "!newData.exists() || (newData.hasChildren(['packageName', 'placementType', 'width', 'height', 'durationDays', 'price', 'status', 'createdAt', 'updatedAt']) && newData.child('packageName').isString() && newData.child('packageName').val().length >= 2 && newData.child('packageName').val().length <= 120 && newData.child('placementType').val().matches(/^(banner_300x50|native_300x200|popup_300x200)$/) && newData.child('width').isNumber() && newData.child('width').val() >= 50 && newData.child('width').val() <= 2000 && newData.child('height').isNumber() && newData.child('height').val() >= 30 && newData.child('height').val() <= 2000 && newData.child('durationDays').isNumber() && newData.child('durationDays').val() >= 1 && newData.child('durationDays').val() <= 3650 && newData.child('price').isNumber() && newData.child('price').val() > 0 && newData.child('status').val().matches(/^(active|inactive)$/))"
+      }
+    },
+
+    "adScreenTargeting": {
+      ".read": true,
+      "$advertiserId": {
+        ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))"
+      }
+    },
+
+    "adRotationCounters": {
+      ".read": true,
+      "$placementGroup": {
+        "$screenId": {
+          ".write": "$placementGroup.matches(/^(banner|native|popup)$/) && $screenId.length <= 64",
+          ".validate": "newData.hasChildren(['index', 'updatedAt']) && newData.child('index').isNumber() && newData.child('index').val() >= 0 && (!data.exists() || newData.child('index').val() >= data.child('index').val())"
+        }
+      }
+    },
+
+    "adPurchaseHistory": {
+      ".indexOn": ["advertiserId", "packageId", "startDate"],
+      ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+      "$purchaseId": {
+        ".read": "auth != null && (data.child('advertiserId').val() == auth.uid || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        ".write": "!data.exists() && auth != null && (newData.child('advertiserId').val() == auth.uid || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        ".validate": "newData.hasChildren(['purchaseId', 'packageId', 'packageName', 'placementType', 'width', 'height', 'price', 'durationDays', 'startDate', 'endDate']) && newData.child('placementType').val().matches(/^(banner_300x50|native_300x200|popup_300x200)$/) && newData.child('price').isNumber() && newData.child('price').val() > 0 && newData.child('durationDays').isNumber() && newData.child('durationDays').val() >= 1"
+      }
+    },
+
+    "adDisplayLogs": {
+      ".indexOn": ["advertiserId", "placementType", "screenId", "timestamp"],
+      ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+      "$logId": {
+        ".write": "!data.exists() && newData.exists()",
+        ".validate": "newData.hasChildren(['logId', 'advertiserId', 'advertisementId', 'placementType', 'screenId', 'eventType', 'timestamp']) && newData.child('placementType').val().matches(/^(banner_300x50|native_300x200|popup_300x200)$/) && newData.child('eventType').val().matches(/^(IMPRESSION|CLICK)$/) && newData.child('timestamp').isNumber()"
+      }
+    },
+
+    "users": {
+      ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+      "$uid": {
+        ".read": "auth != null && (auth.uid == $uid || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        ".write": "auth != null && (auth.uid == $uid || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        ".validate": "newData.hasChildren(['uid', 'name', 'email', 'role', 'createdAt', 'status']) && newData.child('uid').val() == $uid && newData.child('name').isString() && newData.child('name').val().length <= 120 && newData.child('email').isString() && newData.child('email').val().length <= 160 && ((!data.exists() && (newData.child('role').val() == 'visitor' || newData.child('role').val() == 'advertiser')) || (data.exists() && newData.child('role').val() == data.child('role').val()) || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))"
+      }
+    },
+
+    "subAdmins": {
+      ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+      ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+      "$uid": {
+        ".read": "auth != null && (auth.uid == $uid || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        ".validate": "newData.hasChildren(['id', 'name', 'email', 'permissions', 'status', 'createdAt']) && newData.child('status').val().matches(/^(ACTIVE|INACTIVE)$/)"
+      }
+    },
+
+    "visitors": {
+      ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+      "$uid": {
+        ".read": "auth != null && (auth.uid == $uid || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        ".write": "auth != null && (auth.uid == $uid || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        ".validate": "newData.hasChildren(['uid', 'name', 'email', 'createdAt']) && newData.child('uid').val() == $uid && newData.child('name').isString() && newData.child('name').val().length <= 120 && newData.child('email').isString() && newData.child('email').val().length <= 160"
+      }
+    },
+
+    "favorites": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid",
+        "doctors": {
+          "$doctorId": {
+            ".validate": "$doctorId.length <= 128 && (!newData.exists() || newData.isBoolean() || newData.hasChildren(['id', 'savedAt']))"
+          }
+        },
+        "hospitals": {
+          "$hospitalId": {
+            ".validate": "$hospitalId.length <= 128 && (!newData.exists() || newData.isBoolean() || newData.hasChildren(['id', 'savedAt']))"
+          }
+        },
+        "diagnostics": {
+          "$diagnosticId": {
+            ".validate": "$diagnosticId.length <= 128 && (!newData.exists() || newData.isBoolean() || newData.hasChildren(['id', 'savedAt']))"
+          }
+        },
+        "chambers": {
+          "$chamberId": {
+            ".validate": "$chamberId.length <= 128 && (!newData.exists() || newData.isBoolean() || newData.hasChildren(['id', 'savedAt']))"
+          }
+        }
+      }
+    },
+
+    "advertisers": {
+      ".read": true,
+      "$uid": {
+        ".read": true,
+        ".write": "auth != null && (auth.uid == $uid || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        ".validate": "!newData.exists() || (newData.hasChildren(['companyName', 'status', 'createdAt']) && newData.child('companyName').isString() && newData.child('companyName').val().length <= 160)"
+      }
+    },
+
+    "advertisements": {
+      ".indexOn": ["advertiserUid", "advertiserId", "status", "placementType"],
+      ".read": true,
+      "$adId": {
+        ".write": "auth != null && ((newData.exists() && newData.child('advertiserUid').val() == auth.uid && (!data.exists() || data.child('advertiserUid').val() == auth.uid) && (newData.child('status').val() == 'Pending' || (data.exists() && newData.child('status').val() == data.child('status').val()))) || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        ".validate": "!newData.exists() || (newData.hasChildren(['adId', 'title', 'imageUrl', 'status', 'createdAt']) && newData.child('adId').val() == $adId && newData.child('title').isString() && newData.child('title').val().length <= 160 && newData.child('status').val().matches(/^(Pending|Approved|Rejected|Active|Inactive|Expired)$/))"
+      }
+    },
+
+    "advertising": {
+      "packages": {
+        ".read": true,
+        ".indexOn": ["status", "adType", "placement"],
+        "$packageId": {
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+          ".validate": "!newData.exists() || (newData.hasChildren(['id', 'name', 'price', 'durationDays', 'adType', 'placement', 'status', 'createdAt']) && newData.child('id').val() == $packageId && newData.child('name').isString() && newData.child('name').val().length >= 2 && newData.child('name').val().length <= 140 && newData.child('price').isNumber() && newData.child('price').val() > 0 && newData.child('durationDays').isNumber() && newData.child('durationDays').val() >= 1 && newData.child('durationDays').val() <= 3650 && newData.child('adType').val().matches(/^(HOME_SLIDER|NATIVE_300x100|BOTTOM_BANNER_300x50|APP_OPEN_POPUP_300x200)$/) && newData.child('status').val().matches(/^(ACTIVE|INACTIVE|PAUSED)$/))"
+        }
+      },
+
+      "advertisers": {
+        ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        "$advertiserId": {
+          ".read": "auth != null && (auth.uid == $advertiserId || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+          ".write": "auth != null && (auth.uid == $advertiserId || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+          ".validate": "!newData.exists() || (newData.hasChildren(['id', 'advertiserName', 'businessName', 'mobile', 'status', 'createdAt']) && newData.child('id').val() == $advertiserId && newData.child('businessName').isString() && newData.child('businessName').val().length >= 2 && newData.child('businessName').val().length <= 160 && newData.child('status').val().matches(/^(ACTIVE|SUSPENDED|INACTIVE)$/))"
+        }
+      },
+
+      "campaigns": {
+        ".indexOn": ["advertiserId", "adType", "placement", "campaignStatus", "approvalStatus", "paymentStatus", "activatedAt"],
+        ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true)) || query.orderByChild == 'campaignStatus' && query.equalTo == 'ACTIVE'",
+        "$campaignId": {
+          ".read": "data.child('campaignStatus').val() == 'ACTIVE' && data.child('approvalStatus').val() == 'APPROVED' && data.child('paymentStatus').val() == 'VERIFIED' || (auth != null && (data.child('advertiserId').val() == auth.uid || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true)))",
+          ".write": "auth != null && ((newData.exists() && newData.child('advertiserId').val() == auth.uid && (!data.exists() || data.child('advertiserId').val() == auth.uid) && newData.child('approvalStatus').val() == 'PENDING' && newData.child('paymentStatus').val() == 'PENDING' && newData.child('campaignStatus').val() == 'PENDING' && root.child('advertising').child('packages').child(newData.child('packageId').val()).child('status').val() == 'ACTIVE') || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+          ".validate": "!newData.exists() || (newData.hasChildren(['id', 'advertiserId', 'packageId', 'adType', 'placement', 'paymentStatus', 'approvalStatus', 'campaignStatus', 'createdAt']) && newData.child('id').val() == $campaignId && newData.child('adType').val().matches(/^(HOME_SLIDER|NATIVE_300x100|BOTTOM_BANNER_300x50|APP_OPEN_POPUP_300x200)$/) && newData.child('paymentStatus').val().matches(/^(PENDING|VERIFIED|REJECTED)$/) && newData.child('approvalStatus').val().matches(/^(PENDING|APPROVED|REJECTED)$/) && newData.child('campaignStatus').val().matches(/^(PENDING|ACTIVE|PAUSED|EXPIRED|REJECTED)$/) && (!newData.child('price').exists() || (newData.child('price').isNumber() && newData.child('price').val() > 0)))"
+        }
+      },
+
+      "payments": {
+        ".indexOn": ["advertiserId", "campaignId", "normalizedTrxId", "status"],
+        ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        "$paymentId": {
+          ".read": "auth != null && (data.child('advertiserId').val() == auth.uid || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+          ".write": "auth != null && ((!data.exists() && newData.exists() && newData.child('advertiserId').val() == auth.uid && newData.child('status').val() == 'PENDING' && !root.child('advertising').child('trxIndex').child(newData.child('normalizedTrxId').val()).exists()) || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+          ".validate": "!newData.exists() || (newData.hasChildren(['id', 'campaignId', 'advertiserId', 'trxId', 'normalizedTrxId', 'amount', 'status', 'createdAt']) && newData.child('id').val() == $paymentId && newData.child('trxId').isString() && newData.child('trxId').val().length >= 3 && newData.child('amount').isNumber() && newData.child('amount').val() > 0 && newData.child('status').val().matches(/^(PENDING|VERIFIED|REJECTED)$/))"
+        }
+      },
+
+      "trxIndex": {
+        ".read": "auth != null",
+        "$normalizedTrxId": {
+          ".write": "auth != null && ((!data.exists() && newData.exists()) || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+          ".validate": "!newData.exists() || newData.hasChildren(['paymentId', 'campaignId', 'createdAt'])"
+        }
+      },
+
+      "paymentMethods": {
+        ".read": true,
+        "$methodId": {
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+          ".validate": "!newData.exists() || (newData.hasChildren(['id', 'methodName', 'provider', 'receivingNumber', 'status']) && newData.child('status').val().matches(/^(ACTIVE|INACTIVE)$/))"
+        }
+      },
+
+      "placements": {
+        ".read": true,
+        ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))"
+      },
+
+      "rotation": {
+        ".read": true,
+        "$queueKey": {
+          ".write": "$queueKey.matches(/^(home_slider|doctor_native|hospital_native|diagnostic_native|favorite_native|bottom_banner|app_open_popup)$/)",
+          ".validate": "newData.hasChildren(['index', 'updatedAt']) && newData.child('index').isNumber() && newData.child('index').val() >= 0"
+        }
+      },
+
+      "impressions": {
+        ".indexOn": ["campaignId", "advertiserId", "queueKey", "timestamp"],
+        ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        "$eventId": {
+          ".write": "!data.exists() && newData.exists()",
+          ".validate": "newData.hasChildren(['id', 'campaignId', 'advertiserId', 'adType', 'placement', 'timestamp']) && newData.child('timestamp').isNumber()"
+        }
+      },
+
+      "clicks": {
+        ".indexOn": ["campaignId", "advertiserId", "queueKey", "timestamp"],
+        ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        "$eventId": {
+          ".write": "!data.exists() && newData.exists()",
+          ".validate": "newData.hasChildren(['id', 'campaignId', 'advertiserId', 'adType', 'placement', 'timestamp']) && newData.child('timestamp').isNumber()"
+        }
+      }
+    },
+
+    "homeSlider": {
+      "advertiserCampaigns": {
+        ".read": true,
+        ".indexOn": ["campaignStatus", "approvalStatus", "targetRecordType"],
+        "$campaignId": {
+          ".write": "auth != null && ((newData.exists() && newData.child('advertiserId').val() == auth.uid && (!data.exists() || data.child('advertiserId').val() == auth.uid) && newData.child('approvalStatus').val() == 'PENDING' && newData.child('campaignStatus').val() == 'PENDING') || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+          ".validate": "!newData.exists() || (newData.hasChildren(['campaignId', 'advertiserId', 'targetRecordType', 'targetRecordId', 'approvalStatus', 'campaignStatus']) && newData.child('targetRecordType').val().matches(/^(doctor|hospital|diagnostic)$/) && newData.child('targetRecordId').isString() && newData.child('targetRecordId').val().length >= 2)"
+        }
+      },
+      "adminCustomSliders": {
+        ".read": true,
+        ".indexOn": ["status", "order"],
+        "$sliderId": {
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+          ".validate": "!newData.exists() || (newData.hasChildren(['id', 'title', 'imageUrl', 'status']) && newData.child('id').val() == $sliderId && newData.child('status').val().matches(/^(ACTIVE|INACTIVE|PAUSED)$/))"
+        }
+      },
+      "settings": {
+        ".read": true,
+        ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        ".validate": "!newData.exists() || (newData.hasChildren(['enabled', 'customSliderPosition']) && newData.child('customSliderPosition').val().matches(/^(BEFORE|AFTER)$/))"
+      }
+    }
+  }
+}

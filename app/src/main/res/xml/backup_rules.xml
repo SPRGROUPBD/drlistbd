@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Exclude per-installation random identity so app reinstallations register as new installations -->
+    <exclude domain="sharedpref" path="dlbd_install_identity_nobackup.xml" />
+</full-backup-content>
