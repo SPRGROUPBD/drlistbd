@@ -31,7 +31,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import android.content.Intent
 import android.net.Uri
-import com.example.auth.GoogleAuthManager
 import com.example.data.model.GlobalSearchType
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
@@ -46,7 +45,6 @@ import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.FirebaseConfigAndNotificationSheet
 import com.example.ui.components.GlobalTopAppBar
 import com.example.ui.components.SyncStatusBottomSheet
-import com.example.ui.components.VisitorGoogleSignInGateDialog
 import com.example.ui.screens.*
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MainViewModel
@@ -106,19 +104,10 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     val sponsors by vm.sponsors.collectAsStateWithLifecycle()
     val placementRateCards by vm.placementRateCards.collectAsStateWithLifecycle()
     val advertiserSession by vm.advertiserSession.collectAsStateWithLifecycle()
-    val visitorAccount by vm.visitorAccount.collectAsStateWithLifecycle()
-    val showVisitorSignInGate by vm.showVisitorSignInGate.collectAsStateWithLifecycle()
-    val visitorAuthError by vm.visitorAuthError.collectAsStateWithLifecycle()
     val authoritativeNowMs by vm.authoritativeNowMs.collectAsStateWithLifecycle()
     val isOnline by vm.isOnline.collectAsStateWithLifecycle()
     var showSplash by remember { mutableStateOf(true) }
     val appContext = LocalContext.current
-    val authScope = rememberCoroutineScope()
-
-    LaunchedEffect(Unit) {
-        GoogleAuthManager.attemptAutoSignIn(appContext, authScope)
-    }
-
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -536,15 +525,10 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             onSponsorDisplayed = vm::recordSponsorDisplay,
                             onSponsorClicked = vm::recordSponsorClick,
                             isSyncing = isSyncing,
-                            visitorAccount = visitorAccount,
                             favoriteDoctors = favDocs,
                             favoriteHospitals = favHospitals,
                             favoriteDiagnostics = favDiagnostics,
                             favoriteChambers = favChambers,
-                            onGoogleSignInSuccess = vm::onVisitorSignedIn,
-                            onGoogleSignInError = vm::showMessage,
-                            onVisitorSignOut = { vm.signOutVisitor(appContext) },
-                            onSyncFavorites = vm::syncVisitorFavoritesNow,
                             onRefreshDirectory = vm::refreshDirectory,
                             onToggleFavorite = vm::toggleFavorite,
                             onToggleHospitalFavorite = vm::toggleHospitalFavorite,
@@ -650,18 +634,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                 onVisibleImpression = vm::logAdvertisingImpression,
                 onClicked = vm::logAdvertisingClick,
                 onDismiss = { activeAppOpenPopup = null }
-            )
-        }
-
-        // Visitor Google Sign-In Gate Dialog (triggered when unauthenticated visitor taps Save/Favorite)
-        if (showVisitorSignInGate) {
-            VisitorGoogleSignInGateDialog(
-                lang = lang,
-                isOnline = isOnline,
-                errorMessage = visitorAuthError,
-                onAuthSuccess = vm::onVisitorSignedIn,
-                onAuthError = vm::setVisitorAuthError,
-                onDismiss = vm::dismissVisitorSignInGate
             )
         }
 
