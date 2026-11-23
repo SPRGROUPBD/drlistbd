@@ -507,10 +507,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _visiblePageCount.update { it + 10 }
     }
 
+    private fun requestToggleFavorite(category: FavoriteCategory, id: String, label: String = "") {
+        if (id.isBlank()) return
+        viewModelScope.launch(exceptionHandler) {
+            when (category) {
+                FavoriteCategory.DOCTOR -> {
+                    repo.toggleFavorite(id, favoriteDoctorIds.value.contains(id))
+                }
+                FavoriteCategory.HOSPITAL -> {
+                    val next = _favoriteHospitalIds.value.toMutableSet().apply {
+                        if (!add(id)) remove(id)
+                    }.toSet()
+                    _favoriteHospitalIds.value = next
+                    repo.prefs.saveCachedFacilityFavorites(
+                        localFavoritesKey, next, _favoriteDiagnosticIds.value, _favoriteChamberIds.value
+                    )
+                }
+                FavoriteCategory.DIAGNOSTIC -> {
+                    val next = _favoriteDiagnosticIds.value.toMutableSet().apply {
+                        if (!add(id)) remove(id)
+                    }.toSet()
+                    _favoriteDiagnosticIds.value = next
+                    repo.prefs.saveCachedFacilityFavorites(
+                        localFavoritesKey, _favoriteHospitalIds.value, next, _favoriteChamberIds.value
+                    )
+                }
+                FavoriteCategory.CHAMBER -> {
+                    val next = _favoriteChamberIds.value.toMutableSet().apply {
+                        if (!add(id)) remove(id)
+                    }.toSet()
+                    _favoriteChamberIds.value = next
+                    repo.prefs.saveCachedFacilityFavorites(
+                        localFavoritesKey, _favoriteHospitalIds.value, _favoriteDiagnosticIds.value, next
+                    )
+                }
+            }
+        }
+    }
+
     fun toggleFavorite(doctorId: String) {
-        val doc = publicDoctors.value.firstOrNull { it.doctor.id == doctorId }
-        val label = doc?.doctor?.fullNameEn?.ifBlank { doc.doctor.fullNameBn } ?: doctorId
-        requestToggleFavorite(FavoriteCategory.DOCTOR, doctorId, label)
+        requestToggleFavorite(FavoriteCategory.DOCTOR, doctorId)
     }
 
     fun toggleHospitalFavorite(hospitalId: String, label: String = "") {
