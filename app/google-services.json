@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "606146627263",
+    "firebase_url": "https://octor-aad88-default-rtdb.europe-west1.firebasedatabase.app",
+    "project_id": "octor-aad88",
+    "storage_bucket": "octor-aad88.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:606146627263:android:363cc6ec7e217db259280a",
+        "android_client_info": {
+          "package_name": "com.doctorlist.bd"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCfOJu1lzqyJmqmtiJiCGehSQ7Jr89FYPE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
