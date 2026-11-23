@@ -12,8 +12,6 @@ import com.example.data.model.*
 import com.example.data.remote.AdvertisingRemoteService
 import com.example.data.remote.FavoriteCategory
 import com.example.data.remote.FirebaseUserSyncService
-import com.example.data.remote.FirestoreSliderService
-import com.example.data.remote.HomeAutoSliderItem
 import com.example.data.repository.DirectoryRepository
 import com.example.i18n.AppLang
 import com.example.ui.ads.AdCampaignItem
@@ -23,7 +21,6 @@ import com.example.ui.ads.ConnectivityMonitor
 import com.example.ui.ads.DynamicAdPackage
 import com.example.ui.ads.FairAdRotationEngine
 import com.example.ui.ads.ManagedAdvertiserCampaign
-import com.example.ui.ads.ResolvedHomeSliderSlide
 import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.ads.StrictPlacementTypes
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -151,9 +148,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- Dynamic Firebase Firestore Compact Auto Slider State ---
     val firestoreSliderConfig: StateFlow<FirestoreSliderConfig> = repo.prefs.firestoreSliderConfig
         .safeStateIn(SharingStarted.Eagerly, FirestoreSliderConfig())
-
-    private val _firestoreSliders = MutableStateFlow<List<HomeAutoSliderItem>>(emptyList())
-    val firestoreSliders: StateFlow<List<HomeAutoSliderItem>> = _firestoreSliders.asStateFlow()
 
     private val _sliderSyncStatus = MutableStateFlow<String?>(null)
     val sliderSyncStatus: StateFlow<String?> = _sliderSyncStatus.asStateFlow()
@@ -321,7 +315,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         repo.syncFromAdminCloud()
                     }
                     refreshDynamicAdSystem()
-                    refreshFirestoreSliders()
                     visitorAccount.value?.let { syncVisitorFavoritesFromCloud(it) }
                     _authoritativeNowMs.value = repo.prefs.getAuthoritativeNowMs()
 
@@ -403,80 +396,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .onFailure { err ->
                 Log.w("MainViewModel", "Advertising snapshot sync warning: ${err.message}")
             }
-    }
-
-    private suspend fun refreshFirestoreSliders(overrideConfig: FirestoreSliderConfig? = null) {
-        val cfg = overrideConfig ?: repo.prefs.firestoreSliderConfig.first()
-        if (!cfg.isConfigured) {
-            _firestoreSliders.value = emptyList()
-            _sliderSyncStatus.value = null
-            return
-        }
-        if (!ConnectivityMonitor.isOnline.value) {
-            _sliderSyncStatus.value = if (currentLang.value == AppLang.BN) {
-                "অফলাইন — সংরক্ষিত/ডেমো স্লাইডার দেখানো হচ্ছে"
-            } else {
-                "Offline — showing cached/demo slides"
-            }
-            return
-        }
-        FirestoreSliderService.fetchActiveSliders(cfg)
-            .onSuccess { items ->
-                _firestoreSliders.value = items
-                _sliderSyncStatus.value = if (items.isNotEmpty()) {
-                    if (currentLang.value == AppLang.BN) {
-                        "Firestore '${cfg.collectionName}' থেকে ${items.size}টি সক্রিয় স্লাইডার লোড হয়েছে"
-                    } else {
-                        "Loaded ${items.size} active slides from Firestore '${cfg.collectionName}'"
-                    }
-                } else {
-                    if (currentLang.value == AppLang.BN) {
-                        "Firestore '${cfg.collectionName}' খালি — ডেমো ডেটাসেট দেখানো হচ্ছে"
-                    } else {
-                        "Firestore '${cfg.collectionName}' returned 0 active slides — showing demo dataset"
-                    }
-                }
-            }
-            .onFailure { err ->
-                Log.w("MainViewModel", "Firestore slider sync warning: ${err.message}")
-                _sliderSyncStatus.value = if (currentLang.value == AppLang.BN) {
-                    "Firestore ত্রুটি: ${err.message ?: "সংযোগ ব্যর্থ"} (ডেমো চালু)"
-                } else {
-                    "Firestore error: ${err.message ?: "connection failed"} (using demo fallback)"
-                }
-            }
-    }
-
-    fun saveFirestoreSliderConfig(projectId: String, apiKey: String, collectionName: String) {
-        viewModelScope.launch(exceptionHandler) {
-            val cleanProject = projectId.trim()
-            val cleanKey = apiKey.trim()
-            val cleanCollection = collectionName.trim().ifBlank { "sliders" }
-            repo.prefs.saveFirestoreSliderConfig(cleanProject, cleanKey, cleanCollection)
-            val cfg = FirestoreSliderConfig(cleanProject, cleanKey, cleanCollection)
-            _isSyncing.value = true
-            try {
-                refreshFirestoreSliders(overrideConfig = cfg)
-                showMessage(
-                    if (currentLang.value == AppLang.BN) "Firebase Firestore স্লাইডার কনফিগারেশন সংরক্ষিত হয়েছে"
-                    else "Firebase Firestore slider configuration saved"
-                )
-            } finally {
-                _isSyncing.value = false
-            }
-        }
-    }
-
-    fun resetFirestoreSliderConfig() {
-        viewModelScope.launch(exceptionHandler) {
-            repo.prefs.clearFirestoreSliderConfig()
-            _firestoreSliders.value = emptyList()
-            _sliderSyncStatus.value = null
-            showMessage(
-                if (currentLang.value == AppLang.BN) "বাংলাদেশ ডেমো স্লাইডার ডেটাসেট চালু হয়েছে"
-                else "Switched to built-in Bangladesh demo dataset"
-            )
-        }
     }
 
     private suspend fun syncVisitorFavoritesFromCloud(user: GoogleUserAccount) {
@@ -617,21 +536,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun getAdvertisingQueueBase(queueKey: String): Long =
         AdvertisingRotationEngine.currentCounter(queueKey)
 
-    fun recordHomeSliderVisitAdvance(firstAdvertiserCampaignId: String = "") {
-        val nextVal = AdvertisingRotationEngine.advanceCounter(AdvertisingRotationEngine.QUEUE_HOME_SLIDER)
-        viewModelScope.launch(exceptionHandler) {
-            val merged = repo.prefs.loadRotationCounters() + AdvertisingRotationEngine.snapshotCounters()
-            repo.prefs.saveRotationCounters(merged)
-            if (ConnectivityMonitor.isOnline.value) {
-                AdvertisingRemoteService.atomicAdvanceRotationQueue(
-                    queueKey = AdvertisingRotationEngine.QUEUE_HOME_SLIDER,
-                    lastCampaignId = firstAdvertiserCampaignId,
-                    fallbackLocalValue = nextVal
-                )
-            }
-        }
-    }
-
     fun selectBottomBanner(): AdCampaignItem? {
         val snap = _adSnapshot.value
         return AdvertisingRotationEngine.selectBottomBanner(
@@ -706,18 +610,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 AdvertisingRemoteService.logClick(campaign, queueKey)
             }
         }
-    }
-
-    fun logHomeSliderSlideImpression(slide: ResolvedHomeSliderSlide) {
-        if (slide.isCustomAdminSlider || slide.campaignId.isBlank()) return
-        val camp = _adSnapshot.value.campaigns.firstOrNull { it.id == slide.campaignId } ?: return
-        logAdvertisingImpression(camp, AdvertisingRotationEngine.QUEUE_HOME_SLIDER)
-    }
-
-    fun logHomeSliderSlideClick(slide: ResolvedHomeSliderSlide) {
-        if (slide.isCustomAdminSlider || slide.campaignId.isBlank()) return
-        val camp = _adSnapshot.value.campaigns.firstOrNull { it.id == slide.campaignId } ?: return
-        logAdvertisingClick(camp, AdvertisingRotationEngine.QUEUE_HOME_SLIDER)
     }
 
     // Legacy compatibility hooks kept as safe no-ops
