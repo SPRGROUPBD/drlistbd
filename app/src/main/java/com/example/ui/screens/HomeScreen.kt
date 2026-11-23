@@ -37,9 +37,6 @@ import com.example.data.local.SiteSettingsEntity
 import com.example.data.local.SpecialtyEntity
 import com.example.data.local.SponsorEntity
 import com.example.data.model.DoctorFullProfile
-import com.example.data.remote.FirestoreSliderService
-import com.example.data.remote.HomeAutoSliderItem
-import com.example.data.remote.SliderQuickFilter
 import com.example.data.seed.SeedData
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
@@ -73,16 +70,9 @@ fun HomeScreen(
     onDoctorClick: (String) -> Unit,
     onNavigateFindDoctors: (availableTodayOnly: Boolean) -> Unit,
     onNavigateFacilitiesTab: (Int) -> Unit,
-    autoSliderSlides: List<HomeAutoSliderItem> = FirestoreSliderService.defaultBangladeshDemoSlides(),
-    homeSliderAutoSlideMs: Long = 4000L,
     inlineSearchQuery: String = "",
-    onSliderItemVisible: (HomeAutoSliderItem) -> Unit = {},
-    onSliderViewDetails: (HomeAutoSliderItem) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    // Quick-Filter pill selection that filters the Auto Slider in real time
-    var activeQuickFilter by remember { mutableStateOf(SliderQuickFilter.ALL) }
-
     // Space-saving collapsible single-row dropdown state for "বিভাগ অনুযায়ী ৬৪টি জেলা"
     var isDistrictDropdownExpanded by remember { mutableStateOf(false) }
     var selectedDivisionEn by remember { mutableStateOf<String?>(null) }
@@ -97,133 +87,14 @@ fun HomeScreen(
         }
     }
 
-    val filteredSliderItems = remember(autoSliderSlides, activeQuickFilter, inlineSearchQuery) {
-        FirestoreSliderService.filterSlides(
-            slides = autoSliderSlides,
-            quickFilter = activeQuickFilter,
-            searchQuery = inlineSearchQuery
-        )
-    }
-
     val availableTodayDocs = remember(doctors) { doctors.filter { it.isAvailableToday() }.take(5) }
     val recentDocs = remember(doctors) { doctors.sortedByDescending { it.doctor.updatedAt }.take(6) }
-    val fallbackFeaturedDoctorSlide = remember(autoSliderSlides) {
-        autoSliderSlides.firstOrNull { it.category == "DOCTOR" }
-            ?: FirestoreSliderService.defaultBangladeshDemoSlides().first()
-    }
-
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .background(BackgroundIce),
         contentPadding = PaddingValues(top = 4.dp, bottom = 20.dp)
     ) {
-        // 1. COMPACT AUTO SLIDER (Placed Directly Beneath the Top App Bar)
-        item(key = "home_compact_auto_slider_item") {
-            CompactHomeAutoSlider(
-                slides = filteredSliderItems,
-                lang = lang,
-                autoSlideIntervalMs = homeSliderAutoSlideMs,
-                onViewDetails = onSliderViewDetails,
-                onSlideVisible = onSliderItemVisible,
-                onClearFilter = if (activeQuickFilter != SliderQuickFilter.ALL) {
-                    { activeQuickFilter = SliderQuickFilter.ALL }
-                } else null
-            )
-        }
-
-        // 2. QUICK-FILTER PILLS ROW (Filters the Auto Slider on tap)
-        item(key = "home_quick_filter_pills") {
-            Spacer(Modifier.height(4.dp))
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.testTag("home_quick_filter_row")
-            ) {
-                item {
-                    QuickFilterPill(
-                        icon = Icons.Rounded.EventAvailable,
-                        label = tr(lang, "আজ বসবেন", "Sitting Today"),
-                        selected = activeQuickFilter == SliderQuickFilter.TODAY,
-                        accentColor = EmeraldAvailable,
-                        onClick = {
-                            activeQuickFilter = if (activeQuickFilter == SliderQuickFilter.TODAY) {
-                                SliderQuickFilter.ALL
-                            } else {
-                                SliderQuickFilter.TODAY
-                            }
-                        },
-                        modifier = Modifier.testTag("quick_filter_today")
-                    )
-                }
-                item {
-                    QuickFilterPill(
-                        icon = Icons.Rounded.Schedule,
-                        label = tr(lang, "চেম্বার সময়সূচী", "Chamber Schedule"),
-                        selected = activeQuickFilter == SliderQuickFilter.SCHEDULE,
-                        accentColor = MedicalBlue,
-                        onClick = {
-                            activeQuickFilter = if (activeQuickFilter == SliderQuickFilter.SCHEDULE) {
-                                SliderQuickFilter.ALL
-                            } else {
-                                SliderQuickFilter.SCHEDULE
-                            }
-                        },
-                        modifier = Modifier.testTag("quick_filter_schedule")
-                    )
-                }
-                item {
-                    QuickFilterPill(
-                        icon = Icons.Rounded.LocalHospital,
-                        label = tr(lang, "হাসপাতাল", "Hospitals"),
-                        selected = activeQuickFilter == SliderQuickFilter.HOSPITAL,
-                        accentColor = MedicalTeal,
-                        onClick = {
-                            activeQuickFilter = if (activeQuickFilter == SliderQuickFilter.HOSPITAL) {
-                                SliderQuickFilter.ALL
-                            } else {
-                                SliderQuickFilter.HOSPITAL
-                            }
-                        },
-                        modifier = Modifier.testTag("quick_filter_hospital")
-                    )
-                }
-                item {
-                    QuickFilterPill(
-                        icon = Icons.Rounded.Biotech,
-                        label = tr(lang, "ডায়াগনস্টিক", "Diagnostics"),
-                        selected = activeQuickFilter == SliderQuickFilter.DIAGNOSTIC,
-                        accentColor = MedicalBlueDark,
-                        onClick = {
-                            activeQuickFilter = if (activeQuickFilter == SliderQuickFilter.DIAGNOSTIC) {
-                                SliderQuickFilter.ALL
-                            } else {
-                                SliderQuickFilter.DIAGNOSTIC
-                            }
-                        },
-                        modifier = Modifier.testTag("quick_filter_diagnostic")
-                    )
-                }
-                item {
-                    QuickFilterPill(
-                        icon = Icons.Rounded.Campaign,
-                        label = tr(lang, "বিজ্ঞপ্তি", "Notices"),
-                        selected = activeQuickFilter == SliderQuickFilter.NOTICE,
-                        accentColor = AmberPending,
-                        onClick = {
-                            activeQuickFilter = if (activeQuickFilter == SliderQuickFilter.NOTICE) {
-                                SliderQuickFilter.ALL
-                            } else {
-                                SliderQuickFilter.NOTICE
-                            }
-                        },
-                        modifier = Modifier.testTag("quick_filter_notice")
-                    )
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-        }
-
         // 3. "চিকিৎসা বিশেষজ্ঞতা" (Ultra-Compact Medical Specialties: 96.dp wide, 32x32.dp icon box)
         item(key = "home_compact_specialties") {
             CompactHomeSectionHeader(
@@ -486,23 +357,6 @@ fun HomeScreen(
                         .testTag("sitting_today_card_${doc.doctor.id}")
                 )
             }
-        } else {
-            item(key = "sitting_today_featured_demo") {
-                CompactSittingTodayDoctorCard(
-                    name = fallbackFeaturedDoctorSlide.displayName(lang),
-                    subtitle = listOf(
-                        fallbackFeaturedDoctorSlide.displaySpecialty(lang),
-                        fallbackFeaturedDoctorSlide.displayDesignation(lang)
-                    ).filter { it.isNotBlank() }.joinToString(" • "),
-                    chamberLocation = fallbackFeaturedDoctorSlide.displayAddress(lang),
-                    imageUrl = fallbackFeaturedDoctorSlide.imageUrl,
-                    statusLabel = AppStrings.availableToday(lang),
-                    onClick = { onSliderViewDetails(fallbackFeaturedDoctorSlide) },
-                    modifier = Modifier
-                        .padding(horizontal = 14.dp, vertical = 4.dp)
-                        .testTag("sitting_today_featured_card")
-                )
-            }
         }
 
         // Specialist Doctors (when live directory has records)
@@ -743,7 +597,7 @@ private fun CompactSittingTodayDoctorCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val initials = remember(name) { FirestoreSliderService.extractInitials(name) }
+    val initials = remember(name) { name.trim().split(Regex("\\s+")).take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }.joinToString("").ifBlank { "D" } }
 
     Surface(
         onClick = onClick,
