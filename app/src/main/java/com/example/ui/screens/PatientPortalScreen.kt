@@ -26,7 +26,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.example.auth.GoogleUserAccount
 import com.example.data.local.AdConfigEntity
 import com.example.data.local.ChamberEntity
 import com.example.data.local.DiagnosticCenterEntity
@@ -42,7 +41,6 @@ import com.example.ui.ads.NativeAd300x100Card
 import com.example.ui.ads.NativeSponsorAdCard
 import com.example.ui.ads.PlacementGlobalSettings
 import com.example.ui.ads.SponsorCampaignSelector
-import com.example.ui.components.ContinueWithGoogleButton
 import com.example.ui.components.DoctorCard
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.theme.*
@@ -57,15 +55,10 @@ fun PatientPortalScreen(
     onSponsorDisplayed: (String, Boolean, String) -> Unit = { _, _, _ -> },
     onSponsorClicked: (String, Boolean) -> Unit = { _, _ -> },
     isSyncing: Boolean,
-    visitorAccount: GoogleUserAccount? = null,
     favoriteDoctors: List<DoctorFullProfile>,
     favoriteHospitals: List<HospitalEntity> = emptyList(),
     favoriteDiagnostics: List<DiagnosticCenterEntity> = emptyList(),
     favoriteChambers: List<Pair<DoctorFullProfile, ChamberEntity>> = emptyList(),
-    onGoogleSignInSuccess: (GoogleUserAccount) -> Unit = {},
-    onGoogleSignInError: (String) -> Unit = {},
-    onVisitorSignOut: () -> Unit = {},
-    onSyncFavorites: () -> Unit = {},
     onRefreshDirectory: () -> Unit,
     onToggleFavorite: (String) -> Unit,
     onToggleHospitalFavorite: (String, String) -> Unit = { _, _ -> },
@@ -90,158 +83,34 @@ fun PatientPortalScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Visitor Google Profile Card OR Sign-In CTA
+        // Favorites are saved locally on this device without requiring sign-in.
         item {
-            if (visitorAccount != null) {
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = SurfaceWhite,
-                    border = BorderStroke(1.dp, OutlineSoft),
-                    modifier = Modifier.fillMaxWidth().testTag("visitor_profile_card")
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = SurfaceWhite,
+                border = BorderStroke(1.dp, OutlineSoft),
+                modifier = Modifier.fillMaxWidth().testTag("local_favorites_info_card")
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            if (visitorAccount.photoUrl.isNotBlank()) {
-                                AsyncImage(
-                                    model = visitorAccount.photoUrl,
-                                    contentDescription = visitorAccount.displayName,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .size(50.dp)
-                                        .clip(CircleShape)
-                                        .background(MedicalBlueLight)
-                                )
-                            } else {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = MedicalBlueLight,
-                                    modifier = Modifier.size(50.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(Icons.Rounded.Person, contentDescription = null, tint = MedicalBlueDark)
-                                    }
-                                }
-                            }
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = visitorAccount.displayName,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = visitorAccount.email,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(Icons.Rounded.CloudDone, contentDescription = null, tint = EmeraldAvailable, modifier = Modifier.size(14.dp))
-                                    Text(
-                                        text = tr(lang, "মাল্টি-ডিভাইস সিঙ্ক চালু আছে", "Multi-device cloud sync active"),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = EmeraldAvailable,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                            }
-                        }
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            FilledTonalButton(
-                                onClick = {
-                                    onSyncFavorites()
-                                    onRefreshDirectory()
-                                },
-                                enabled = !isSyncing,
-                                modifier = Modifier.weight(1f).heightIn(min = 44.dp).testTag("sync_directory_btn")
-                            ) {
-                                if (isSyncing) {
-                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                                } else {
-                                    Icon(Icons.Rounded.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
-                                }
-                                Spacer(Modifier.width(6.dp))
-                                Text(tr(lang, "সিঙ্ক করুন", "Sync Now"))
-                            }
-                            OutlinedButton(
-                                onClick = onVisitorSignOut,
-                                modifier = Modifier.weight(1f).heightIn(min = 44.dp).testTag("visitor_logout_btn")
-                            ) {
-                                Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(tr(lang, "লগআউট", "Sign Out"))
-                            }
-                        }
-                    }
-                }
-            } else {
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = SurfaceWhite,
-                    border = BorderStroke(1.dp, OutlineSoft),
-                    modifier = Modifier.fillMaxWidth().testTag("visitor_signin_banner_card")
-                ) {
-                    Column(
-                        modifier = Modifier.padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MedicalBlueLight,
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Rounded.Favorite, contentDescription = null, tint = MedicalBlueDark)
-                                }
-                            }
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = tr(lang, "ভিজিটর ড্যাশবোর্ড ও প্রিয় তালিকা", "Visitor Dashboard & Saved Favorites"),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimary
-                                )
-                                Text(
-                                    text = tr(
-                                        lang,
-                                        "প্রিয় ডাক্তার, হাসপাতাল, ডায়াগনস্টিক ও চেম্বার সব ডিভাইসে সিঙ্ক রাখতে Google দিয়ে সাইন-ইন করুন।",
-                                        "Sign in with Google to save doctors, hospitals, diagnostic centers & chambers and sync across all devices."
-                                    ),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextSecondary
-                                )
-                            }
-                        }
-
-                        ContinueWithGoogleButton(
-                            label = tr(lang, "Google দিয়ে চালিয়ে যান", "Continue with Google"),
-                            enabled = isOnline,
-                            onSuccess = onGoogleSignInSuccess,
-                            onError = onGoogleSignInError,
-                            testTagName = "visitor_dashboard_google_btn"
+                    Icon(Icons.Rounded.Favorite, contentDescription = null, tint = MedicalBlueDark, modifier = Modifier.size(28.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = tr(lang, "আপনার প্রিয় তালিকা", "Your Saved Favorites"),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = tr(lang, "কোনো লগইন ছাড়াই এই ডিভাইসে প্রিয় ডাক্তার, হাসপাতাল ও চেম্বার সংরক্ষণ করুন।", "Save doctors, hospitals, diagnostics and chambers on this device without signing in."),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
                         )
                     }
+                    Icon(Icons.Rounded.Lock, contentDescription = null, tint = TextMuted)
                 }
             }
         }
