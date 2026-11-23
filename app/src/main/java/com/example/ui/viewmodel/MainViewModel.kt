@@ -145,12 +145,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _authoritativeNowMs = MutableStateFlow(System.currentTimeMillis())
     val authoritativeNowMs: StateFlow<Long> = _authoritativeNowMs.asStateFlow()
 
-    // --- Dynamic Firebase Firestore Compact Auto Slider State ---
-    val firestoreSliderConfig: StateFlow<FirestoreSliderConfig> = repo.prefs.firestoreSliderConfig
-        .safeStateIn(SharingStarted.Eagerly, FirestoreSliderConfig())
-
-    private val _sliderSyncStatus = MutableStateFlow<String?>(null)
-    val sliderSyncStatus: StateFlow<String?> = _sliderSyncStatus.asStateFlow()
 
     val isOnline: StateFlow<Boolean> = ConnectivityMonitor.isOnline
 
