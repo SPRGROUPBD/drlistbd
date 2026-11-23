@@ -174,8 +174,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     val favoriteDiagnosticIds by vm.favoriteDiagnosticIds.collectAsStateWithLifecycle()
     val favoriteChamberIds by vm.favoriteChamberIds.collectAsStateWithLifecycle()
     val notifications by vm.notifications.collectAsStateWithLifecycle()
-    val firestoreSliderConfig by vm.firestoreSliderConfig.collectAsStateWithLifecycle()
-    val sliderSyncStatus by vm.sliderSyncStatus.collectAsStateWithLifecycle()
     val snackbarMsg by vm.snackbar.collectAsStateWithLifecycle()
 
     var facilitiesTab by remember { mutableIntStateOf(0) }
@@ -704,13 +702,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
         if (showNotificationCenter) {
             FirebaseConfigAndNotificationSheet(
                 lang = lang,
-                sliderConfig = firestoreSliderConfig,
-                sliderSyncStatus = sliderSyncStatus,
-                syncState = syncUiState,
                 notifications = notifications,
-                isSyncing = isSyncing,
-                onSaveConfig = vm::saveFirestoreSliderConfig,
-                onResetDemo = vm::resetFirestoreSliderConfig,
                 onSyncNow = { vm.syncNow(showToast = true) },
                 onMarkRead = vm::markNotificationRead,
                 onMarkAllRead = vm::markAllNotificationsRead,
