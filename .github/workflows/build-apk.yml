@@ -2,7 +2,7 @@ name: Build Doctor List BD APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, fix/restore-firestore-home-slider ]
     tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
