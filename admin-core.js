@@ -55,7 +55,6 @@ const SUB_ADMIN_PERMISSIONS = [
   {key:"addDoctorChamber",label:"Add Doctor Chamber"},{key:"editDoctorChamber",label:"Edit Doctor Chamber"},
   {key:"addHospital",label:"Add Hospital"},{key:"editHospital",label:"Edit Hospital"},{key:"manageHospitalInfo",label:"Manage Hospital Information"},
   {key:"addDiagnosticCenter",label:"Add Diagnostic Center"},{key:"editDiagnosticCenter",label:"Edit Diagnostic Center"},{key:"manageDiagnosticInfo",label:"Manage Diagnostic Information"},
-  {key:"manageAds",label:"Manage Advertisements & Sliders"},
   {key:"viewDashboard",label:"View Dashboard"}
 ];
 const TAB_PERMISSION_RULES = {
@@ -64,11 +63,6 @@ const TAB_PERMISSION_RULES = {
   hospitals:["addHospital","editHospital","manageHospitalInfo"],
   diagnostics:["addDiagnosticCenter","editDiagnosticCenter","manageDiagnosticInfo"],
   specialties:["manageDoctorInfo"], locations:["manageDoctorInfo","manageHospitalInfo","manageDiagnosticInfo"],
-  ad_dashboard:["manageAds","viewDashboard"], ad_packages:["manageAds"], ad_advertisers:["manageAds"],
-  ad_requests:["manageAds"], ad_payments:["manageAds"], ad_payment_methods:["manageAds"],
-  ad_home_slider:["manageAds"], ad_custom_slider:["manageAds"], ad_banners:["manageAds"],
-  ad_natives:["manageAds"], ad_popups:["manageAds"], ad_rotation:["manageAds"],
-  ad_history:["manageAds"], ad_reports:["manageAds","viewDashboard"], ad_settings:["manageAds"]
 };
 function getAdminSession() {
   const role = sessionStorage.getItem("dlbd_admin_role") || "SUPER_ADMIN";
@@ -130,12 +124,11 @@ function renderDashboard() {
     ["Specialties",specialties,"specialties"]
   ];
   return '<div class="space-y-5"><div class="rounded-2xl bg-gradient-to-r from-slate-900 to-sky-800 text-white p-6">' +
-    '<h3 class="text-xl font-bold">Doctor List BD — Admin Dashboard</h3><p class="text-sm text-sky-100 mt-1">Directory, advertisement &amp; user management overview.</p></div>' +
+    '<h3 class="text-xl font-bold">Doctor List BD — Admin Dashboard</h3><p class="text-sm text-sky-100 mt-1">Medical directory &amp; user management overview.</p></div>' +
     '<div class="grid grid-cols-2 lg:grid-cols-3 gap-3">' + cards.map(c =>
       '<button type="button" onclick="switchTab(\'' + c[2] + '\')" class="text-left bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:border-sky-300">' +
       '<div class="text-xs text-slate-500">' + c[0] + '</div><div class="text-2xl font-extrabold text-slate-900 mt-1">' + c[1].toLocaleString() + '</div></button>'
     ).join("") + '</div><div class="flex flex-wrap gap-2">' +
-    '<button onclick="switchTab(\'ad_dashboard\')" class="px-4 py-2 rounded-xl bg-sky-600 text-white text-xs font-bold">Advertisement Dashboard</button>' +
     '<button onclick="switchTab(\'audit_logs\')" class="px-4 py-2 rounded-xl bg-slate-800 text-white text-xs font-bold">Audit Logs</button></div></div>';
 }
 let visitorSearchText = "";
