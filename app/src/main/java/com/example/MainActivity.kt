@@ -33,8 +33,6 @@ import android.content.Intent
 import android.net.Uri
 import com.example.auth.GoogleAuthManager
 import com.example.data.model.GlobalSearchType
-import com.example.data.remote.FirestoreSliderService
-import com.example.data.remote.HomeAutoSliderItem
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
@@ -47,7 +45,6 @@ import com.example.ui.ads.SliderRecordTypes
 import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.FirebaseConfigAndNotificationSheet
 import com.example.ui.components.GlobalTopAppBar
-import com.example.ui.components.SliderDetailBottomSheet
 import com.example.ui.components.SyncStatusBottomSheet
 import com.example.ui.components.VisitorGoogleSignInGateDialog
 import com.example.ui.screens.*
@@ -178,7 +175,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     val favoriteChamberIds by vm.favoriteChamberIds.collectAsStateWithLifecycle()
     val notifications by vm.notifications.collectAsStateWithLifecycle()
     val firestoreSliderConfig by vm.firestoreSliderConfig.collectAsStateWithLifecycle()
-    val firestoreSliders by vm.firestoreSliders.collectAsStateWithLifecycle()
     val sliderSyncStatus by vm.sliderSyncStatus.collectAsStateWithLifecycle()
     val snackbarMsg by vm.snackbar.collectAsStateWithLifecycle()
 
@@ -192,7 +188,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     var globalSearchQuery by remember { mutableStateOf("") }
     var showSyncSheet by remember { mutableStateOf(false) }
     var showNotificationCenter by remember { mutableStateOf(false) }
-    var selectedSliderDetail by remember { mutableStateOf<HomeAutoSliderItem?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -393,48 +388,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                     modifier = Modifier.weight(1f)
                 ) {
                     composable(Routes.HOME) {
-                        val homeSliderBase = remember { vm.getAdvertisingQueueBase(AdvertisingRotationEngine.QUEUE_HOME_SLIDER) }
-                        var sliderVisitRecorded by remember { mutableStateOf(false) }
-                        val homeSliderSlides = remember(
-                            adSnapshot,
-                            publicDoctors,
-                            hospitals,
-                            diagnosticCenters,
-                            homeSliderBase,
-                            authoritativeNowMs / 60_000L
-                        ) {
-                            AdvertisingRotationEngine.buildHomeSliderSlides(
-                                campaigns = adSnapshot.campaigns,
-                                advertiserSliderIndex = adSnapshot.advertiserHomeSliders,
-                                customSliders = adSnapshot.adminCustomSliders,
-                                sliderSettings = adSnapshot.homeSliderSettings,
-                                placementSettings = adSnapshot.placementSettings,
-                                doctors = publicDoctors,
-                                hospitals = hospitals,
-                                diagnostics = diagnosticCenters,
-                                baseOffset = homeSliderBase,
-                                nowMs = authoritativeNowMs
-                            )
-                        }
-                        LaunchedEffect(adSnapshot.syncedFromServer, homeSliderSlides.size) {
-                            if (adSnapshot.syncedFromServer && !sliderVisitRecorded && homeSliderSlides.any { !it.isCustomAdminSlider }) {
-                                sliderVisitRecorded = true
-                                val firstAdv = homeSliderSlides.firstOrNull { !it.isCustomAdminSlider }?.campaignId.orEmpty()
-                                vm.recordHomeSliderVisitAdvance(firstAdv)
-                            }
-                        }
-
-                        val homeAutoSlides = remember(firestoreSliders, homeSliderSlides) {
-                            val rtdbConverted = homeSliderSlides.mapIndexed { idx, s ->
-                                FirestoreSliderService.fromResolvedSlide(s, idx + 1)
-                            }
-                            when {
-                                firestoreSliders.isNotEmpty() -> firestoreSliders + rtdbConverted
-                                rtdbConverted.isNotEmpty() -> rtdbConverted + FirestoreSliderService.defaultBangladeshDemoSlides()
-                                else -> FirestoreSliderService.defaultBangladeshDemoSlides()
-                            }
-                        }
-
                         HomeScreen(
                             lang = lang,
                             settings = settings,
@@ -474,20 +427,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                                 facilitiesTab = tabIdx
                                 navigateToTab(Routes.FACILITIES)
                             },
-                            autoSliderSlides = homeAutoSlides,
-                            homeSliderAutoSlideMs = 4000L,
-                            inlineSearchQuery = globalSearchQuery,
-                            onSliderItemVisible = { item ->
-                                homeSliderSlides.firstOrNull { it.slideId == item.id }?.let {
-                                    vm.logHomeSliderSlideImpression(it)
-                                }
-                            },
-                            onSliderViewDetails = { item ->
-                                homeSliderSlides.firstOrNull { it.slideId == item.id }?.let {
-                                    vm.logHomeSliderSlideClick(it)
-                                }
-                                selectedSliderDetail = item
-                            }
+                            inlineSearchQuery = globalSearchQuery
                         )
                     }
 
@@ -758,35 +698,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                 diagnosticsCount = diagnosticCenters.size,
                 onSyncNow = { vm.syncNow(showToast = true) },
                 onDismiss = { showSyncSheet = false }
-            )
-        }
-
-        selectedSliderDetail?.let { detailItem ->
-            SliderDetailBottomSheet(
-                item = detailItem,
-                lang = lang,
-                onOpenLinkedRecord = { slide ->
-                    when {
-                        slide.targetRecordType == SliderRecordTypes.DOCTOR && slide.targetRecordId.isNotBlank() ->
-                            openDoctorProfile(slide.targetRecordId)
-                        slide.targetRecordType == SliderRecordTypes.HOSPITAL && slide.targetRecordId.isNotBlank() -> {
-                            facilitiesTab = 0
-                            pendingOpenHospitalId = slide.targetRecordId
-                            navigateToTab(Routes.FACILITIES)
-                        }
-                        slide.targetRecordType == SliderRecordTypes.DIAGNOSTIC && slide.targetRecordId.isNotBlank() -> {
-                            facilitiesTab = 1
-                            pendingOpenDiagnosticId = slide.targetRecordId
-                            navigateToTab(Routes.FACILITIES)
-                        }
-                        slide.destinationUrl.isNotBlank() -> {
-                            runCatching {
-                                appContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(slide.destinationUrl)))
-                            }
-                        }
-                    }
-                },
-                onDismiss = { selectedSliderDetail = null }
             )
         }
 
