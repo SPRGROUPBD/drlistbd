@@ -39,13 +39,6 @@ data class AdvertiserSession(
     val isLoggedIn: Boolean get() = id.isNotBlank()
 }
 
-data class FirestoreSliderConfig(
-    val projectId: String = "",
-    val apiKey: String = "",
-    val collectionName: String = "sliders"
-) {
-    val isConfigured: Boolean get() = projectId.isNotBlank()
-}
 
 class SessionPreferences(private val context: Context) {
     private val keyUserId = stringPreferencesKey("current_user_id")
@@ -80,10 +73,6 @@ class SessionPreferences(private val context: Context) {
     private val keyFavDiagnostics = stringPreferencesKey("cached_fav_diagnostics")
     private val keyFavChambers = stringPreferencesKey("cached_fav_chambers")
 
-    // Configurable Firebase Firestore Auto Slider source (`sliders` collection)
-    private val keyFsProjectId = stringPreferencesKey("firestore_slider_project_id")
-    private val keyFsApiKey = stringPreferencesKey("firestore_slider_api_key")
-    private val keyFsCollection = stringPreferencesKey("firestore_slider_collection")
 
     private val safeData: Flow<Preferences> = context.dataStore.data.catch { emit(emptyPreferences()) }
 
@@ -118,33 +107,6 @@ class SessionPreferences(private val context: Context) {
         )
     }
 
-    val firestoreSliderConfig: Flow<FirestoreSliderConfig> = safeData.map { prefs ->
-        FirestoreSliderConfig(
-            projectId = prefs[keyFsProjectId].orEmpty().trim(),
-            apiKey = prefs[keyFsApiKey].orEmpty().trim(),
-            collectionName = prefs[keyFsCollection].orEmpty().trim().ifBlank { "sliders" }
-        )
-    }
-
-    suspend fun saveFirestoreSliderConfig(projectId: String, apiKey: String, collectionName: String) {
-        runCatching {
-            context.dataStore.edit { prefs ->
-                prefs[keyFsProjectId] = projectId.trim()
-                prefs[keyFsApiKey] = apiKey.trim()
-                prefs[keyFsCollection] = collectionName.trim().ifBlank { "sliders" }
-            }
-        }
-    }
-
-    suspend fun clearFirestoreSliderConfig() {
-        runCatching {
-            context.dataStore.edit { prefs ->
-                prefs.remove(keyFsProjectId)
-                prefs.remove(keyFsApiKey)
-                prefs.remove(keyFsCollection)
-            }
-        }
-    }
 
     suspend fun loadRotationCounters(): Map<String, Long> {
         val raw = runCatching { safeData.map { it[keyRotationCountersJson].orEmpty() }.first() }.getOrDefault("")
