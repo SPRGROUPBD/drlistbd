@@ -1,42 +1,45 @@
 package com.example.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+
+val LocalIsDarkTheme = compositionLocalOf { false }
 
 private val LightColorScheme = lightColorScheme(
     primary = MedicalBlue,
     onPrimary = Color.White,
-    primaryContainer = MedicalBlueLight,
-    onPrimaryContainer = MedicalBlueDark,
-    secondary = Color(0xFF10B96B),
+    primaryContainer = LightMedicalBlueLight,
+    onPrimaryContainer = LightMedicalBlueDark,
+    secondary = EmeraldAvailable,
     onSecondary = Color.White,
     secondaryContainer = Color(0xFFD6F7E5),
     onSecondaryContainer = Color(0xFF0A663B),
     tertiary = EmeraldAvailable,
     onTertiary = Color.White,
-    background = Color(0xFFF6FAFD),
-    onBackground = TextPrimary,
-    surface = SurfaceWhite,
-    onSurface = TextPrimary,
-    surfaceVariant = Color(0xFFEBF3FA),
-    onSurfaceVariant = TextSecondary,
-    outline = Color(0xFFD9E6F2),
-    outlineVariant = OutlineSoft,
+    background = LightBackgroundIce,
+    onBackground = LightTextPrimary,
+    surface = LightSurfaceWhite,
+    onSurface = LightTextPrimary,
+    surfaceVariant = LightSurfaceMuted,
+    onSurfaceVariant = LightTextSecondary,
+    outline = LightOutlineSoft,
+    outlineVariant = LightOutlineSoft,
     error = RoseAlert,
     onError = Color.White
 )
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFF38BDF8),
+    primary = DarkMedicalBlueDark,
     onPrimary = Color(0xFF06253A),
-    primaryContainer = Color(0xFF0C3654),
+    primaryContainer = DarkMedicalBlueLight,
     onPrimaryContainer = Color(0xFFE0F2FE),
     secondary = Color(0xFF10C96F),
     onSecondary = Color(0xFF042615),
@@ -44,13 +47,13 @@ private val DarkColorScheme = darkColorScheme(
     onSecondaryContainer = Color(0xFFCFFCE5),
     tertiary = Color(0xFF10C96F),
     onTertiary = Color(0xFF042615),
-    background = Color(0xFF0A121C),
-    onBackground = Color(0xFFF3F7FC),
-    surface = Color(0xFF121F2E),
-    onSurface = Color(0xFFF8FAFC),
-    surfaceVariant = Color(0xFF18283A),
-    onSurfaceVariant = Color(0xFF9EB2C8),
-    outline = Color(0xFF24384E),
+    background = DarkBackground,
+    onBackground = DarkTextPrimary,
+    surface = DarkSurface,
+    onSurface = DarkTextPrimary,
+    surfaceVariant = DarkSurfaceMuted,
+    onSurfaceVariant = DarkTextSecondary,
+    outline = DarkOutlineSoft,
     outlineVariant = Color(0xFF1E3044),
     error = Color(0xFFF87171),
     onError = Color(0xFF450A0A)
@@ -65,14 +68,16 @@ val AppShapes = Shapes(
 
 @Composable
 fun DoctorDirectoryTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        shapes = AppShapes,
-        content = content
-    )
+    CompositionLocalProvider(LocalIsDarkTheme provides darkTheme) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography,
+            shapes = AppShapes,
+            content = content
+        )
+    }
 }

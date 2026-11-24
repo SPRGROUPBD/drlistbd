@@ -76,6 +76,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val currentLang: StateFlow<AppLang> = repo.prefs.currentLang
         .safeStateIn(SharingStarted.Eagerly, AppLang.BN)
 
+    val isDarkTheme: StateFlow<Boolean> = repo.prefs.isDarkTheme
+        .distinctUntilChanged()
+        .safeStateIn(SharingStarted.Eagerly, false)
+
     val selectedHomeDistrict: StateFlow<String?> = repo.prefs.selectedHomeDistrict
         .distinctUntilChanged()
         .safeStateIn(SharingStarted.Eagerly, null)
@@ -692,6 +696,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(exceptionHandler) {
             val next = if (currentLang.value == AppLang.BN) AppLang.EN else AppLang.BN
             repo.prefs.setLanguage(next)
+        }
+    }
+
+    fun setDarkTheme(isDark: Boolean) {
+        viewModelScope.launch(exceptionHandler) {
+            repo.prefs.setDarkTheme(isDark)
         }
     }
 

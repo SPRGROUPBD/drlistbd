@@ -59,6 +59,8 @@ fun AboutUsScreen(
     specialtiesCount: Int,
     onNavigateInfo: (String) -> Unit,
     onToggleLang: () -> Unit = {},
+    isDarkTheme: Boolean = false,
+    onSetDarkTheme: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -542,6 +544,121 @@ fun AboutUsScreen(
                         Icon(Icons.Rounded.Call, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(tr(lang, "ডেভেলপারকে কল করুন (01756144900)", "Call Developer (01756144900)"), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // App Theme Preference Card (Light = All screens Light, Dark = All screens Dark)
+        item {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = SurfaceWhite,
+                border = BorderStroke(1.dp, OutlineSoft),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("about_theme_card")
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isDarkTheme) Icons.Rounded.DarkMode else Icons.Rounded.LightMode,
+                            contentDescription = null,
+                            tint = EmeraldAvailable,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Column {
+                            Text(
+                                text = tr(lang, "অ্যাপের থিম (Light / Dark)", "App Theme (Light / Dark)"),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = if (isDarkTheme) {
+                                    tr(lang, "বর্তমান: ডার্ক মোড (সব স্ক্রিন ডার্ক)", "Current: Dark Mode (All screens Dark)")
+                                } else {
+                                    tr(lang, "বর্তমান: লাইট মোড (সব স্ক্রিন লাইট)", "Current: Light Mode (All screens Light)")
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            onClick = { onSetDarkTheme(false) },
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (!isDarkTheme) EmeraldAvailable else SurfaceMuted,
+                            border = BorderStroke(1.dp, if (!isDarkTheme) EmeraldAvailable else OutlineSoft),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("about_theme_light_btn")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.LightMode,
+                                    contentDescription = null,
+                                    tint = if (!isDarkTheme) Color.White else TextPrimary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = tr(lang, "লাইট (Light)", "Light"),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (!isDarkTheme) Color.White else TextPrimary
+                                )
+                            }
+                        }
+
+                        Surface(
+                            onClick = { onSetDarkTheme(true) },
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isDarkTheme) EmeraldAvailable else SurfaceMuted,
+                            border = BorderStroke(1.dp, if (isDarkTheme) EmeraldAvailable else OutlineSoft),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("about_theme_dark_btn")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.DarkMode,
+                                    contentDescription = null,
+                                    tint = if (isDarkTheme) Color.White else TextPrimary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = tr(lang, "ডার্ক (Dark)", "Dark"),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isDarkTheme) Color.White else TextPrimary
+                                )
+                            }
+                        }
                     }
                 }
             }

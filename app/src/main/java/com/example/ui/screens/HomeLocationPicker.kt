@@ -10,12 +10,10 @@ import android.location.LocationManager
 import android.os.Build
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -35,9 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,7 +43,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.animation.core.tween
-import com.example.R
 import com.example.data.seed.DistrictInfo
 import com.example.data.seed.SeedData
 import com.example.i18n.AppLang
@@ -121,23 +116,15 @@ fun DistrictPickerBottomSheet(
     onDismiss: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
-    var searchQuery by remember { mutableStateOf("") }
     var selectedDivisionEn by remember { mutableStateOf<String?>(null) }
 
-    val filteredDistricts = remember(searchQuery, selectedDivisionEn) {
-        val base = if (selectedDivisionEn == null) {
+    val filteredDistricts = remember(selectedDivisionEn) {
+        if (selectedDivisionEn == null) {
             SeedData.allDistricts
         } else {
             SeedData.bangladeshDivisions
                 .firstOrNull { it.nameEn == selectedDivisionEn }
                 ?.districts ?: SeedData.allDistricts
-        }
-        val q = searchQuery.trim().lowercase()
-        if (q.isEmpty()) base
-        else base.filter {
-            it.nameEn.lowercase().contains(q) ||
-                it.nameBn.lowercase().contains(q) ||
-                it.divisionEn.lowercase().contains(q)
         }
     }
 
@@ -189,40 +176,6 @@ fun DistrictPickerBottomSheet(
                     }
                 }
             }
-
-            Spacer(Modifier.height(10.dp))
-
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = {
-                    Text(
-                        text = tr(lang, "৬৪ জেলার মধ্যে খুঁজুন...", "Search 64 districts..."),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                },
-                leadingIcon = {
-                    Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.primary)
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Rounded.Close, contentDescription = tr(lang, "মুছুন", "Clear"))
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = colors.surfaceVariant,
-                    unfocusedContainerColor = colors.surfaceVariant,
-                    focusedBorderColor = Color(0xFF10B96B),
-                    unfocusedBorderColor = colors.outline
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("district_picker_search")
-            )
 
             Spacer(Modifier.height(10.dp))
 
@@ -349,9 +302,9 @@ fun DistrictPickerBottomSheet(
 }
 
 /**
- * Hero Medical Banner & Auto-Advancing Slider with pagination dots directly below.
- * Displays Firebase/Admin/Advertiser slides when active, and always includes the clean
- * branded Doctor List BD medical hero card when no custom slides exist.
+ * Admin-managed Auto-Advancing Home Slider with pagination dots directly below.
+ * Strictly renders ONLY slides added by the Admin (or Admin-approved slider ads);
+ * displays nothing when no Admin slides are configured.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -361,35 +314,12 @@ fun HomeHeroBannerSlider(
     lang: AppLang,
     onSlideVisible: (ResolvedHomeSliderSlide) -> Unit,
     onSlideClick: (ResolvedHomeSliderSlide) -> Unit,
-    onFindDoctorClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isDark = isSystemInDarkTheme()
-    val emeraldAccent = Color(0xFF10B96B)
+    if (slides.isEmpty()) return
 
-    // When no advertiser/admin slides are published, show the signature branded hero banner matching the mockup
-    if (slides.isEmpty()) {
-        Column(
-            modifier = modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            BrandedHeroBannerCard(
-                lang = lang,
-                isDark = isDark,
-                onFindDoctorClick = onFindDoctorClick
-            )
-            Spacer(Modifier.height(8.dp))
-            SliderDotIndicators(
-                count = 3,
-                activeIndex = 0,
-                activeColor = emeraldAccent,
-                inactiveColor = if (isDark) Color(0xFF31445A) else Color(0xFFC5D8EC)
-            )
-        }
-        return
-    }
+    val isDark = LocalIsDarkTheme.current
+    val emeraldAccent = Color(0xFF10B96B)
 
     val isSingleSlide = slides.size == 1
     val virtualPageCount = if (isSingleSlide) 1 else Int.MAX_VALUE
@@ -462,7 +392,11 @@ fun HomeHeroBannerSlider(
                     .clip(RoundedCornerShape(20.dp))
                     .background(
                         Brush.horizontalGradient(
-                            colors = listOf(Color(0xFFE7F5FF), Color(0xFFCDE9FF))
+                            colors = if (isDark) {
+                                listOf(Color(0xFF13263B), Color(0xFF1A3552))
+                            } else {
+                                listOf(Color(0xFFE7F5FF), Color(0xFFCDE9FF))
+                            }
                         )
                     )
                     .border(
@@ -487,14 +421,14 @@ fun HomeHeroBannerSlider(
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Surface(
-                                color = Color(0xFF0C3B82).copy(alpha = 0.12f),
+                                color = if (isDark) Color(0xFF38BDF8).copy(alpha = 0.18f) else Color(0xFF0C3B82).copy(alpha = 0.12f),
                                 shape = RoundedCornerShape(6.dp)
                             ) {
                                 Text(
                                     text = badgeLabel,
                                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF0C3B82),
+                                    color = if (isDark) Color(0xFF7DD3FC) else Color(0xFF0C3B82),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
@@ -504,7 +438,7 @@ fun HomeHeroBannerSlider(
                                 text = title,
                                 style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp, lineHeight = 20.sp),
                                 fontWeight = FontWeight.ExtraBold,
-                                color = Color(0xFF0B2C66),
+                                color = if (isDark) Color(0xFFF1F7FF) else Color(0xFF0B2C66),
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -512,7 +446,7 @@ fun HomeHeroBannerSlider(
                                 text = subtitle,
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF154275),
+                                color = if (isDark) Color(0xFFB5D2EC) else Color(0xFF154275),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -549,8 +483,12 @@ fun HomeHeroBannerSlider(
                             .width(102.dp)
                             .height(126.dp)
                             .clip(RoundedCornerShape(14.dp))
-                            .background(Color.White.copy(alpha = 0.65f))
-                            .border(1.dp, Color.White, RoundedCornerShape(14.dp))
+                            .background(if (isDark) Color(0xFF0F2032) else Color.White.copy(alpha = 0.65f))
+                            .border(
+                                1.dp,
+                                if (isDark) Color(0xFF284764) else Color.White,
+                                RoundedCornerShape(14.dp)
+                            )
                     ) {
                         ExternalImageAvatar(
                             imageUrl = item.imageUrl,
@@ -572,117 +510,6 @@ fun HomeHeroBannerSlider(
                 activeColor = emeraldAccent,
                 inactiveColor = if (isDark) Color(0xFF31445A) else Color(0xFFC5D8EC)
             )
-        }
-    }
-}
-
-@Composable
-private fun BrandedHeroBannerCard(
-    lang: AppLang,
-    isDark: Boolean,
-    onFindDoctorClick: () -> Unit
-) {
-    val emeraldAccent = Color(0xFF10B96B)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(152.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(
-                Brush.horizontalGradient(
-                    colors = listOf(Color(0xFFE7F5FF), Color(0xFFCBE7FF), Color(0xFFAEDBFF))
-                )
-            )
-            .border(
-                width = 1.dp,
-                color = if (isDark) Color(0xFF284764) else Color(0xFFBDDDF7),
-                shape = RoundedCornerShape(20.dp)
-            )
-            .clickable(onClick = onFindDoctorClick)
-            .testTag("home_hero_banner_card")
-    ) {
-        // Right side hero healthcare illustration
-        Image(
-            painter = painterResource(id = R.drawable.img_hero_healthcare_1794967702193),
-            contentDescription = tr(lang, "ডাক্তার লিস্ট বিডি ব্যানার", "Doctor List BD Healthcare Banner"),
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .width(152.dp)
-                .fillMaxHeight()
-        )
-        // Smooth horizontal scrim so headline remains crisp and legible over artwork
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        0.0f to Color(0xFFEAF6FF),
-                        0.56f to Color(0xF0E1F2FF),
-                        0.78f to Color(0x66CBE7FF),
-                        1.0f to Color.Transparent
-                    )
-                )
-        )
-
-        Column(
-            modifier = Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(0.68f)
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(
-                    text = tr(lang, "আপনার স্বাস্থ্য\nআমাদের অগ্রাধিকার", "Your Health,\nOur Priority"),
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontSize = 18.sp,
-                        lineHeight = 22.sp
-                    ),
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFF0A2E6E),
-                    maxLines = 2
-                )
-                Surface(
-                    color = if (isDark) Color(0xFFFDE047) else Color(0xFFCCF2EC),
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        text = tr(lang, "সেরা ডাক্তার খুঁজুন", "Find the Best Doctor"),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0A2A52),
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                    )
-                }
-            }
-
-            Surface(
-                onClick = onFindDoctorClick,
-                color = emeraldAccent,
-                shape = RoundedCornerShape(50),
-                shadowElevation = 2.dp,
-                modifier = Modifier.testTag("hero_find_doctor_btn")
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    Text(
-                        text = tr(lang, "ডাক্তার খুঁজুন", "Find Doctor"),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(15.dp)
-                    )
-                }
-            }
         }
     }
 }

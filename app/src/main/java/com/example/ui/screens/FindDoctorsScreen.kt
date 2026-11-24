@@ -94,60 +94,40 @@ fun FindDoctorsScreen(
             .fillMaxSize()
             .background(BackgroundIce)
     ) {
-        // Search & Filter Bar
-        Column(
+        // Quick Filter Row & Advanced Filter Trigger (search lives strictly in the global Top App Bar)
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(SurfaceWhite)
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            LazyRow(
+                modifier = Modifier.weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedTextField(
-                    value = searchState.query,
-                    onValueChange = { q -> onUpdateSearch { it.copy(query = q) } },
-                    placeholder = { Text(AppStrings.searchHint(lang), maxLines = 1) },
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = MedicalBlue) },
-                    trailingIcon = {
-                        if (searchState.query.isNotEmpty()) {
-                            IconButton(onClick = { onUpdateSearch { it.copy(query = "") } }) {
-                                Icon(Icons.Rounded.Close, contentDescription = "Clear")
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("find_doctors_search_input")
-                )
-
-                FilledTonalIconButton(
-                    onClick = { showFilterSheet = true },
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MedicalBlueLight),
-                    modifier = Modifier
-                        .size(52.dp)
-                        .testTag("open_filters_button")
-                ) {
-                    Icon(Icons.Rounded.Tune, contentDescription = "Filters", tint = MedicalBlueDark)
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            // Quick Pill Filter Row
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
                     val isDefault = !searchState.availableTodayOnly &&
                         searchState.specialtyId == null && searchState.district == null &&
+                        searchState.query.isBlank() &&
                         searchState.facilityQuery.isBlank() && searchState.facilityAltQuery.isBlank()
                     FilterChip(
                         selected = isDefault,
                         onClick = onResetFilters,
                         label = { Text(AppStrings.allLabel(lang)) }
                     )
+                }
+                if (searchState.query.isNotBlank()) {
+                    item {
+                        FilterChip(
+                            selected = true,
+                            onClick = { onUpdateSearch { it.copy(query = "") } },
+                            label = { Text(searchState.query, maxLines = 1) },
+                            leadingIcon = { Icon(Icons.Rounded.Search, null, Modifier.size(16.dp)) },
+                            trailingIcon = { Icon(Icons.Rounded.Close, null, Modifier.size(16.dp)) }
+                        )
+                    }
                 }
                 if (searchState.facilityQuery.isNotBlank() || searchState.facilityAltQuery.isNotBlank()) {
                     item {
@@ -206,6 +186,16 @@ fun FindDoctorsScreen(
                         }
                     }
                 }
+            }
+
+            FilledTonalIconButton(
+                onClick = { showFilterSheet = true },
+                colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MedicalBlueLight),
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("open_filters_button")
+            ) {
+                Icon(Icons.Rounded.Tune, contentDescription = "Filters", tint = MedicalBlueDark)
             }
         }
 

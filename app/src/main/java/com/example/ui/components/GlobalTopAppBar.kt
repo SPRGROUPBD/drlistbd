@@ -101,8 +101,8 @@ fun GlobalTopAppBar(
     }
 
     val colors = MaterialTheme.colorScheme
-    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-    val headerBg = if (isDark) Color(0xFF0A121C) else SurfaceWhite
+    val isDark = LocalIsDarkTheme.current
+    val headerBg = if (isDark) Color(0xFF0A121C) else LightSurfaceWhite
     val iconPillBg = if (isDark) Color(0xFF172536) else Color(0xFFEBF3FA)
     val iconTint = if (isDark) Color(0xFFE6F0FA) else Color(0xFF0F2C59)
     val brandGreen = Color(0xFF10B96B)

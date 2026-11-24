@@ -5,6 +5,7 @@ import android.os.SystemClock
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -42,6 +43,7 @@ data class AdvertiserSession(
 class SessionPreferences(private val context: Context) {
     private val keyUserId = stringPreferencesKey("current_user_id")
     private val keyLang = stringPreferencesKey("app_lang")
+    private val keyDarkTheme = booleanPreferencesKey("app_dark_theme")
     private val keySelectedHomeDistrict = stringPreferencesKey("selected_home_district")
     private val keyDeviceHash = stringPreferencesKey("device_install_hash")
     private val keyLastPopupDate = stringPreferencesKey("last_app_open_sponsor_popup_date")
@@ -81,6 +83,10 @@ class SessionPreferences(private val context: Context) {
 
     val currentLang: Flow<AppLang> = safeData.map { prefs ->
         if (prefs[keyLang] == AppLang.EN.name) AppLang.EN else AppLang.BN
+    }
+
+    val isDarkTheme: Flow<Boolean> = safeData.map { prefs ->
+        prefs[keyDarkTheme] ?: false
     }
 
     val selectedHomeDistrict: Flow<String?> = safeData.map { prefs ->
@@ -296,6 +302,14 @@ class SessionPreferences(private val context: Context) {
         runCatching {
             context.dataStore.edit { prefs ->
                 prefs[keyLang] = lang.name
+            }
+        }
+    }
+
+    suspend fun setDarkTheme(isDark: Boolean) {
+        runCatching {
+            context.dataStore.edit { prefs ->
+                prefs[keyDarkTheme] = isDark
             }
         }
     }

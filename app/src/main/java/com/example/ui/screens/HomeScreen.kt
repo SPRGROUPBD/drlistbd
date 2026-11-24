@@ -7,7 +7,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -98,9 +97,9 @@ fun HomeScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
-    val isDark = isSystemInDarkTheme()
+    val isDark = LocalIsDarkTheme.current
     val emeraldGreen = Color(0xFF10B96B)
-    val cardBg = if (isDark) Color(0xFF132131) else SurfaceWhite
+    val cardBg = if (isDark) Color(0xFF132131) else LightSurfaceWhite
     val cardBorder = if (isDark) Color(0xFF23384F) else Color(0xFFDCE9F5)
 
     var showDistrictPicker by remember { mutableStateOf(false) }
@@ -282,16 +281,17 @@ fun HomeScreen(
             }
         }
 
-        // 2. HERO MEDICAL BANNER / AUTO SLIDER + PAGINATION DOTS
-        item(key = "home_hero_slider") {
-            HomeHeroBannerSlider(
-                slides = homeSliderSlides,
-                autoSlideIntervalMs = homeSliderAutoSlideMs,
-                lang = lang,
-                onSlideVisible = onHomeSliderVisible,
-                onSlideClick = onHomeSliderClick,
-                onFindDoctorClick = { onNavigateFindDoctors(false) }
-            )
+        // 2. ADMIN-MANAGED HOME SLIDER — Displays strictly ONLY slides added by Admin
+        if (homeSliderSlides.isNotEmpty()) {
+            item(key = "home_hero_slider") {
+                HomeHeroBannerSlider(
+                    slides = homeSliderSlides,
+                    autoSlideIntervalMs = homeSliderAutoSlideMs,
+                    lang = lang,
+                    onSlideVisible = onHomeSliderVisible,
+                    onSlideClick = onHomeSliderClick
+                )
+            }
         }
 
         // 3. "YOUR LOCATION" CARD WITH WORKING "AUTO DETECT" BUTTON

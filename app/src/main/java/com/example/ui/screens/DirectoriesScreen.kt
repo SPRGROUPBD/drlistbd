@@ -108,7 +108,6 @@ fun DirectoriesScreen(
         AppStrings.specialties(lang),
         AppStrings.chamberSchedule(lang)
     )
-    var search by remember { mutableStateOf("") }
     var selectedDay by remember { mutableStateOf(DayOfWeekBd.today()) }
     var selectedSession by remember { mutableStateOf<ChamberSessionType?>(null) }
     var detailHospital by remember { mutableStateOf<HospitalEntity?>(null) }
@@ -172,24 +171,10 @@ fun DirectoriesScreen(
             }
         }
 
-        OutlinedTextField(
-            value = search,
-            onValueChange = { search = it },
-            placeholder = { Text(tr(lang, "অনুসন্ধান করুন...", "Search directory...")) },
-            leadingIcon = { Icon(Icons.Rounded.Search, null, tint = MedicalBlue) },
-            singleLine = true,
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp)
-        )
-
         when (selectedTab) {
             0 -> { // Hospitals
-                val list = hospitals.filter {
-                    search.isBlank() || it.nameEn.contains(search, true) || it.nameBn.contains(search, true) || it.district.contains(search, true)
-                }
-                val hospPlacementId = if (search.isNotBlank()) PlacementRateCardEngine.HOS_03 else PlacementRateCardEngine.HOS_01
+                val list = hospitals
+                val hospPlacementId = PlacementRateCardEngine.HOS_01
                 val hospFreq = PlacementRateCardEngine.insertionFrequencyForPlacement(rateCards, hospPlacementId, adConfig.nativeSponsorInterval)
                 if (list.isEmpty()) {
                     EmptyStateCard(Icons.Rounded.LocalHospital, tr(lang, "হাসপাতাল পাওয়া যায়নি", "No Hospitals Found"), "")
@@ -241,10 +226,8 @@ fun DirectoriesScreen(
             }
 
             1 -> { // Diagnostic Centers
-                val list = diagnosticCenters.filter {
-                    search.isBlank() || it.nameEn.contains(search, true) || it.nameBn.contains(search, true) || it.district.contains(search, true)
-                }
-                val diaPlacementId = if (search.isNotBlank()) PlacementRateCardEngine.DIA_03 else PlacementRateCardEngine.DIA_01
+                val list = diagnosticCenters
+                val diaPlacementId = PlacementRateCardEngine.DIA_01
                 val diaFreq = PlacementRateCardEngine.insertionFrequencyForPlacement(rateCards, diaPlacementId, adConfig.nativeSponsorInterval)
                 if (list.isEmpty()) {
                     EmptyStateCard(Icons.Rounded.Biotech, tr(lang, "ডায়াগনস্টিক সেন্টার পাওয়া যায়নি", "No Diagnostic Centers Found"), "")
@@ -296,10 +279,8 @@ fun DirectoriesScreen(
             }
 
             2 -> { // Specialties
-                val list = specialties.filter {
-                    search.isBlank() || it.nameBn.contains(search, true) || it.nameEn.contains(search, true)
-                }
-                val spePlacementId = if (search.isNotBlank()) PlacementRateCardEngine.SPE_03 else PlacementRateCardEngine.SPE_01
+                val list = specialties
+                val spePlacementId = PlacementRateCardEngine.SPE_01
                 val speFreq = PlacementRateCardEngine.insertionFrequencyForPlacement(rateCards, spePlacementId, adConfig.nativeSponsorInterval)
                 LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     itemsIndexed(list, key = { _, it -> it.id }) { idx, sp ->
@@ -370,6 +351,7 @@ fun DirectoriesScreen(
 
             3 -> { // Chamber Schedule by Day & Time Session
                 val today = remember { DayOfWeekBd.today() }
+                Spacer(Modifier.height(10.dp))
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -423,19 +405,14 @@ fun DirectoriesScreen(
                     }
                 }
                 Spacer(Modifier.height(6.dp))
-                val matching = remember(doctors, selectedDay, selectedSession, search) {
+                val matching = remember(doctors, selectedDay, selectedSession) {
                     doctors.flatMap { doc ->
                         doc.chambers.mapNotNull { cw ->
                             val daySlots = cw.schedules
                                 .filter { it.dayOfWeek == selectedDay.name }
                                 .filter { selectedSession == null || it.sessionType() == selectedSession }
                                 .sortedBy { it.startMinutesOfDay() }
-                            val matchesSearch = search.isBlank() ||
-                                doc.doctor.fullNameEn.contains(search, true) ||
-                                doc.doctor.fullNameBn.contains(search, true) ||
-                                cw.chamber.facilityName.contains(search, true) ||
-                                cw.chamber.district.contains(search, true)
-                            if (cw.chamber.isActive && daySlots.isNotEmpty() && matchesSearch) {
+                            if (cw.chamber.isActive && daySlots.isNotEmpty()) {
                                 Triple(doc, cw.chamber, daySlots)
                             } else null
                         }
@@ -448,7 +425,7 @@ fun DirectoriesScreen(
                         tr(lang, "অন্য বার বা সময় নির্বাচন করে দেখুন।", "Try selecting another weekday or time session.")
                     )
                 } else {
-                    val chaPlacementId = if (search.isNotBlank()) PlacementRateCardEngine.CHA_04 else PlacementRateCardEngine.CHA_01
+                    val chaPlacementId = PlacementRateCardEngine.CHA_01
                     val chaFreq = PlacementRateCardEngine.insertionFrequencyForPlacement(rateCards, chaPlacementId, adConfig.nativeSponsorInterval)
                     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         itemsIndexed(matching) { idx, (doc, ch, slots) ->

@@ -15,9 +15,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -77,15 +79,23 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            DoctorDirectoryTheme {
-                DoctorListBdApp()
+            val vm: MainViewModel = viewModel()
+            val isDarkTheme by vm.isDarkTheme.collectAsStateWithLifecycle()
+            val view = LocalView.current
+            SideEffect {
+                val controller = WindowCompat.getInsetsController(window, view)
+                controller.isAppearanceLightStatusBars = !isDarkTheme
+                controller.isAppearanceLightNavigationBars = !isDarkTheme
+            }
+            DoctorDirectoryTheme(darkTheme = isDarkTheme) {
+                DoctorListBdApp(vm = vm, isDarkTheme = isDarkTheme)
             }
         }
     }
 }
 
 @Composable
-fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
+fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = LocalIsDarkTheme.current) {
     val lang by vm.currentLang.collectAsStateWithLifecycle()
     val storedAdConfig by vm.adConfig.collectAsStateWithLifecycle()
     // Keep legacy static sponsor slots disabled so only the 4 dynamic RTDB Ad Packages render
@@ -319,8 +329,8 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                         )
                     }
                     if (showMainChrome && !isWideScreen) {
-                        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-                        val navBg = if (isDark) androidx.compose.ui.graphics.Color(0xFF0A121C) else SurfaceWhite
+                        val isDark = LocalIsDarkTheme.current
+                        val navBg = if (isDark) androidx.compose.ui.graphics.Color(0xFF0A121C) else LightSurfaceWhite
                         val activeEmerald = androidx.compose.ui.graphics.Color(0xFF10B96B)
                         val activeIndicator = if (isDark) androidx.compose.ui.graphics.Color(0xFF0D3D2A) else androidx.compose.ui.graphics.Color(0xFFD6F7E5)
                         val inactiveNavTint = if (isDark) androidx.compose.ui.graphics.Color(0xFF9EB2C8) else TextSecondary
@@ -363,9 +373,9 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                     .padding(innerPadding)
             ) {
                 if (showMainChrome && isWideScreen) {
-                    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+                    val isDark = LocalIsDarkTheme.current
                     NavigationRail(
-                        containerColor = if (isDark) androidx.compose.ui.graphics.Color(0xFF0A121C) else SurfaceWhite
+                        containerColor = if (isDark) androidx.compose.ui.graphics.Color(0xFF0A121C) else LightSurfaceWhite
                     ) {
                         mainTabs.forEach { tab ->
                             val selected = currentRoute == tab.route
@@ -644,7 +654,9 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             diagnosticCount = diagnosticCenters.size,
                             specialtiesCount = specialties.size,
                             onNavigateInfo = { key -> navController.navigate(Routes.info(key)) },
-                            onToggleLang = { vm.toggleLanguage() }
+                            onToggleLang = { vm.toggleLanguage() },
+                            isDarkTheme = isDarkTheme,
+                            onSetDarkTheme = vm::setDarkTheme
                         )
                     }
 
