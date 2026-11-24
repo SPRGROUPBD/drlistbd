@@ -85,7 +85,7 @@ const TAB_PERMISSION_RULES = {
   specialties:["manageDoctorInfo"], locations:["manageDoctorInfo","manageHospitalInfo","manageDiagnosticInfo"],
   ad_dashboard:["manageAds","viewDashboard"], ad_packages:["manageAds"], ad_advertisers:["manageAds"],
   ad_requests:["manageAds"], ad_payments:["manageAds"], ad_payment_methods:["manageAds"],
-  ad_custom_slider:["manageAds"], ad_rotation:["manageAds"],
+  ad_custom_slider:["manageAds"], ad_bottom_banners:["manageAds"], ad_rotation:["manageAds"],
   ad_history:["manageAds"], ad_reports:["manageAds","viewDashboard"], ad_settings:["manageAds"]
 };
 function getAdminSession() {
