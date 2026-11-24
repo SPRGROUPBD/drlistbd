@@ -2,6 +2,7 @@ package com.example.data.remote
 
 import android.content.Context
 import android.util.Log
+import androidx.room.withTransaction
 import com.example.data.local.*
 import com.example.ui.ads.SponsorCampaignSelector
 import kotlinx.coroutines.Dispatchers
@@ -10,14 +11,27 @@ import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 /**
  * Syncs live directory data managed via index.html Admin Portal from the
  * Firebase Realtime Database REST endpoint directly into the local Room database.
+ * Uses payload hashing + atomic Room transactions so UI screens never flicker or refresh.
  */
 object RtdbSyncService {
     private const val BASE_URL = "https://octor-aad88-default-rtdb.europe-west1.firebasedatabase.app"
     private const val TAG = "RtdbSyncService"
+
+    @Volatile
+    private var lastSyncedCombinedHash: String? = null
+
+    @Volatile
+    private var lastSyncedDoctorCount: Int = 0
+
+    private fun sha256(input: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
 
     suspend fun pullDirectoryIntoRoom(db: AppDatabase, context: Context? = null): Result<Int> = withContext(Dispatchers.IO) {
         try {
@@ -43,12 +57,33 @@ object RtdbSyncService {
             if (body.isBlank() || body == "null") {
                 return@withContext Result.success(0)
             }
+
+            // Optional top-level /notifications.json support for Firebase-pushed notifications
+            val rootNotifBody = runCatching {
+                val nConn = (URL("$BASE_URL/notifications.json").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 5000
+                    readTimeout = 5000
+                }
+                val text = if (nConn.responseCode in 200..299) {
+                    nConn.inputStream.bufferedReader().use { it.readText() }
+                } else ""
+                nConn.disconnect()
+                text
+            }.getOrDefault("")
+
+            // If Firebase payload is identical to what was already committed in this session,
+            // skip rewriting Room tables so the UI never refreshes or flickers.
+            val combinedHash = sha256("$body||$rootNotifBody")
+            if (lastSyncedCombinedHash == combinedHash) {
+                return@withContext Result.success(lastSyncedDoctorCount)
+            }
+
             val root = JSONObject(body)
             var syncedDoctors = 0
 
-            // Specialties
-            root.optJSONObject("specialties")?.let { obj ->
-                val list = parseMap(obj) { id, o ->
+            val parsedSpecialties: List<SpecialtyEntity>? = root.optJSONObject("specialties")?.let { obj ->
+                parseMap(obj) { id, o ->
                     SpecialtyEntity(
                         id = id,
                         nameBn = o.optString("nameBn", o.optString("nameEn")),
@@ -56,16 +91,11 @@ object RtdbSyncService {
                         iconKey = o.optString("iconKey", "medical"),
                         iconUrl = o.optString("iconUrl", "").trim()
                     )
-                }
-                if (list.isNotEmpty()) {
-                    db.specialtyDao().deleteAll()
-                    db.specialtyDao().insertAll(list)
-                }
+                }.takeIf { it.isNotEmpty() }
             }
 
-            // Locations (preserve all 64 Bangladesh districts + merge Admin custom locations)
-            root.optJSONObject("locations")?.let { obj ->
-                val list = parseMap(obj) { id, o ->
+            val parsedLocations: List<LocationEntity>? = root.optJSONObject("locations")?.let { obj ->
+                parseMap(obj) { id, o ->
                     LocationEntity(
                         id = id,
                         division = o.optString("division", ""),
@@ -73,16 +103,13 @@ object RtdbSyncService {
                         upazila = o.optString("upazila", ""),
                         area = o.optString("area", "")
                     )
-                }
-                if (list.isNotEmpty()) {
-                    db.locationDao().insertAll(list)
-                }
+                }.takeIf { it.isNotEmpty() }
             }
 
-            // Doctors
-            if (root.has("doctors")) {
+            val hasDoctors = root.has("doctors")
+            val parsedDoctors: List<DoctorEntity> = if (hasDoctors) {
                 val obj = root.optJSONObject("doctors")
-                val list = if (obj != null) parseMap(obj) { id, o ->
+                if (obj != null) parseMap(obj) { id, o ->
                     val fallbackName = o.optString("doctorName", "")
                     val nameBn = o.optString("fullNameBn", "").ifBlank { fallbackName }
                     val nameEn = o.optString("fullNameEn", "").ifBlank { fallbackName.ifBlank { nameBn } }
@@ -122,132 +149,124 @@ object RtdbSyncService {
                         updatedAt = o.optLong("updatedAt", System.currentTimeMillis())
                     )
                 } else emptyList()
-                db.doctorDao().deleteAll()
-                if (list.isNotEmpty()) db.doctorDao().insertAll(list)
-                syncedDoctors = list.size
-            }
+            } else emptyList()
+            if (hasDoctors) syncedDoctors = parsedDoctors.size
 
-            // Education
-            if (root.has("education")) {
-                val obj = root.optJSONObject("education")
-                val list = if (obj != null) parseMap(obj) { id, o ->
-                    EducationEntity(
-                        id = id,
-                        doctorId = o.optString("doctorId", ""),
-                        degreeName = o.optString("degreeName", ""),
-                        institution = o.optString("institution", ""),
-                        passingYear = o.optString("passingYear", ""),
-                        specialTraining = o.optString("specialTraining", "")
-                    )
-                } else emptyList()
-                db.educationDao().deleteAll()
-                if (list.isNotEmpty()) db.educationDao().insertAll(list)
-            }
+            val hasEducation = root.has("education")
+            val parsedEducation: List<EducationEntity> = if (hasEducation) {
+                root.optJSONObject("education")?.let { obj ->
+                    parseMap(obj) { id, o ->
+                        EducationEntity(
+                            id = id,
+                            doctorId = o.optString("doctorId", ""),
+                            degreeName = o.optString("degreeName", ""),
+                            institution = o.optString("institution", ""),
+                            passingYear = o.optString("passingYear", ""),
+                            specialTraining = o.optString("specialTraining", "")
+                        )
+                    }
+                } ?: emptyList()
+            } else emptyList()
 
-            // Employment History
-            if (root.has("employment_history")) {
-                val obj = root.optJSONObject("employment_history")
-                val list = if (obj != null) parseMap(obj) { id, o ->
-                    EmploymentHistoryEntity(
-                        id = id,
-                        doctorId = o.optString("doctorId", ""),
-                        hospitalName = o.optString("hospitalName", ""),
-                        medicalCollege = o.optString("medicalCollege", ""),
-                        designation = o.optString("designation", ""),
-                        department = o.optString("department", ""),
-                        startDate = o.optString("startDate", ""),
-                        endDate = o.optString("endDate", ""),
-                        description = o.optString("description", "")
-                    )
-                } else emptyList()
-                db.employmentDao().deleteAll()
-                if (list.isNotEmpty()) db.employmentDao().insertAll(list)
-            }
+            val hasEmployment = root.has("employment_history")
+            val parsedEmployment: List<EmploymentHistoryEntity> = if (hasEmployment) {
+                root.optJSONObject("employment_history")?.let { obj ->
+                    parseMap(obj) { id, o ->
+                        EmploymentHistoryEntity(
+                            id = id,
+                            doctorId = o.optString("doctorId", ""),
+                            hospitalName = o.optString("hospitalName", ""),
+                            medicalCollege = o.optString("medicalCollege", ""),
+                            designation = o.optString("designation", ""),
+                            department = o.optString("department", ""),
+                            startDate = o.optString("startDate", ""),
+                            endDate = o.optString("endDate", ""),
+                            description = o.optString("description", "")
+                        )
+                    }
+                } ?: emptyList()
+            } else emptyList()
 
-            // Chambers
-            if (root.has("chambers")) {
-                val obj = root.optJSONObject("chambers")
-                val list = if (obj != null) parseMap(obj) { id, o ->
-                    ChamberEntity(
-                        id = id,
-                        doctorId = o.optString("doctorId", ""),
-                        facilityName = o.optString("facilityName", ""),
-                        facilityType = o.optString("facilityType", "HOSPITAL"),
-                        chamberName = o.optString("chamberName", ""),
-                        district = o.optString("district", ""),
-                        upazila = o.optString("upazila", ""),
-                        fullAddress = o.optString("fullAddress", ""),
-                        locationArea = o.optString("locationArea", ""),
-                        googleMapsUrl = o.optString("googleMapsUrl", ""),
-                        serialPhone = o.optString("serialPhone", ""),
-                        instructions = o.optString("instructions", ""),
-                        isActive = o.optBoolean("isActive", true)
-                    )
-                } else emptyList()
-                db.chamberDao().deleteAll()
-                if (list.isNotEmpty()) db.chamberDao().insertAll(list)
-            }
+            val hasChambers = root.has("chambers")
+            val parsedChambers: List<ChamberEntity> = if (hasChambers) {
+                root.optJSONObject("chambers")?.let { obj ->
+                    parseMap(obj) { id, o ->
+                        ChamberEntity(
+                            id = id,
+                            doctorId = o.optString("doctorId", ""),
+                            facilityName = o.optString("facilityName", ""),
+                            facilityType = o.optString("facilityType", "HOSPITAL"),
+                            chamberName = o.optString("chamberName", ""),
+                            district = o.optString("district", ""),
+                            upazila = o.optString("upazila", ""),
+                            fullAddress = o.optString("fullAddress", ""),
+                            locationArea = o.optString("locationArea", ""),
+                            googleMapsUrl = o.optString("googleMapsUrl", ""),
+                            serialPhone = o.optString("serialPhone", ""),
+                            instructions = o.optString("instructions", ""),
+                            isActive = o.optBoolean("isActive", true)
+                        )
+                    }
+                } ?: emptyList()
+            } else emptyList()
 
-            // Chamber Schedules
-            if (root.has("chamber_schedules")) {
-                val obj = root.optJSONObject("chamber_schedules")
-                val list = if (obj != null) parseMap(obj) { id, o ->
-                    ChamberScheduleEntity(
-                        id = id,
-                        chamberId = o.optString("chamberId", ""),
-                        doctorId = o.optString("doctorId", ""),
-                        dayOfWeek = o.optString("dayOfWeek", "SATURDAY"),
-                        openTime = o.optString("openTime", ""),
-                        closeTime = o.optString("closeTime", ""),
-                        slotLabel = o.optString("slotLabel", "")
-                    )
-                } else emptyList()
-                db.chamberScheduleDao().deleteAll()
-                if (list.isNotEmpty()) db.chamberScheduleDao().insertAll(list)
-            }
+            val hasSchedules = root.has("chamber_schedules")
+            val parsedSchedules: List<ChamberScheduleEntity> = if (hasSchedules) {
+                root.optJSONObject("chamber_schedules")?.let { obj ->
+                    parseMap(obj) { id, o ->
+                        ChamberScheduleEntity(
+                            id = id,
+                            chamberId = o.optString("chamberId", ""),
+                            doctorId = o.optString("doctorId", ""),
+                            dayOfWeek = o.optString("dayOfWeek", "SATURDAY"),
+                            openTime = o.optString("openTime", ""),
+                            closeTime = o.optString("closeTime", ""),
+                            slotLabel = o.optString("slotLabel", "")
+                        )
+                    }
+                } ?: emptyList()
+            } else emptyList()
 
-            // Hospitals
-            if (root.has("hospitals")) {
-                val obj = root.optJSONObject("hospitals")
-                val list = if (obj != null) parseMap(obj) { id, o ->
-                    HospitalEntity(
-                        id = id,
-                        managerUserId = o.optString("managerUserId", ""),
-                        nameBn = o.optString("nameBn", ""),
-                        nameEn = o.optString("nameEn", ""),
-                        district = o.optString("district", ""),
-                        upazila = o.optString("upazila", ""),
-                        address = o.optString("address", ""),
-                        contactNumber = o.optString("contactNumber", ""),
-                        imageUrl = o.optString("imageUrl", ""),
-                        status = o.optString("status", "ACTIVE"),
-                        isDemoData = false
-                    )
-                } else emptyList()
-                db.hospitalDao().deleteAll()
-                if (list.isNotEmpty()) db.hospitalDao().insertAll(list)
-            }
+            val hasHospitals = root.has("hospitals")
+            val parsedHospitals: List<HospitalEntity> = if (hasHospitals) {
+                root.optJSONObject("hospitals")?.let { obj ->
+                    parseMap(obj) { id, o ->
+                        HospitalEntity(
+                            id = id,
+                            managerUserId = o.optString("managerUserId", ""),
+                            nameBn = o.optString("nameBn", ""),
+                            nameEn = o.optString("nameEn", ""),
+                            district = o.optString("district", ""),
+                            upazila = o.optString("upazila", ""),
+                            address = o.optString("address", ""),
+                            contactNumber = o.optString("contactNumber", ""),
+                            imageUrl = o.optString("imageUrl", ""),
+                            status = o.optString("status", "ACTIVE"),
+                            isDemoData = false
+                        )
+                    }
+                } ?: emptyList()
+            } else emptyList()
 
-            // Diagnostic Centers
-            if (root.has("diagnostic_centers")) {
-                val obj = root.optJSONObject("diagnostic_centers")
-                val list = if (obj != null) parseMap(obj) { id, o ->
-                    DiagnosticCenterEntity(
-                        id = id,
-                        nameBn = o.optString("nameBn", ""),
-                        nameEn = o.optString("nameEn", ""),
-                        district = o.optString("district", ""),
-                        upazila = o.optString("upazila", ""),
-                        address = o.optString("address", ""),
-                        contactNumber = o.optString("contactNumber", ""),
-                        imageUrl = o.optString("imageUrl", ""),
-                        status = o.optString("status", "ACTIVE"),
-                        isDemoData = false
-                    )
-                } else emptyList()
-                db.diagnosticCenterDao().deleteAll()
-                if (list.isNotEmpty()) db.diagnosticCenterDao().insertAll(list)
-            }
+            val hasDiagnostics = root.has("diagnostic_centers")
+            val parsedDiagnostics: List<DiagnosticCenterEntity> = if (hasDiagnostics) {
+                root.optJSONObject("diagnostic_centers")?.let { obj ->
+                    parseMap(obj) { id, o ->
+                        DiagnosticCenterEntity(
+                            id = id,
+                            nameBn = o.optString("nameBn", ""),
+                            nameEn = o.optString("nameEn", ""),
+                            district = o.optString("district", ""),
+                            upazila = o.optString("upazila", ""),
+                            address = o.optString("address", ""),
+                            contactNumber = o.optString("contactNumber", ""),
+                            imageUrl = o.optString("imageUrl", ""),
+                            status = o.optString("status", "ACTIVE"),
+                            isDemoData = false
+                        )
+                    }
+                } ?: emptyList()
+            } else emptyList()
 
             // Notifications (preserve local read status across auto-syncs & merge optional root /notifications)
             val existingReadIds = runCatching { db.notificationDao().getReadIds().toSet() }.getOrDefault(emptySet())
@@ -266,75 +285,104 @@ object RtdbSyncService {
                     )
                 }.forEach { mergedNotifications[it.id] = it }
             }
-            // Optional top-level /notifications.json support for Firebase-pushed notifications
-            runCatching {
-                val nConn = (URL("$BASE_URL/notifications.json").openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    connectTimeout = 5000
-                    readTimeout = 5000
+            if (rootNotifBody.isNotBlank() && rootNotifBody != "null") {
+                runCatching {
+                    parseMap(JSONObject(rootNotifBody)) { id, o ->
+                        NotificationEntity(
+                            id = id,
+                            titleBn = cleanOptString(o, "titleBn").ifBlank { cleanOptString(o, "title") },
+                            titleEn = cleanOptString(o, "titleEn").ifBlank { cleanOptString(o, "title") },
+                            messageBn = cleanOptString(o, "messageBn").ifBlank { cleanOptString(o, "message") },
+                            messageEn = cleanOptString(o, "messageEn").ifBlank { cleanOptString(o, "message") },
+                            targetRole = cleanOptString(o, "targetRole", "ALL"),
+                            isRead = id in existingReadIds,
+                            createdAt = o.optLong("createdAt", System.currentTimeMillis())
+                        )
+                    }.forEach { mergedNotifications.putIfAbsent(it.id, it) }
                 }
-                if (nConn.responseCode in 200..299) {
-                    val nBody = nConn.inputStream.bufferedReader().use { it.readText() }
-                    if (nBody.isNotBlank() && nBody != "null") {
-                        parseMap(JSONObject(nBody)) { id, o ->
-                            NotificationEntity(
-                                id = id,
-                                titleBn = cleanOptString(o, "titleBn").ifBlank { cleanOptString(o, "title") },
-                                titleEn = cleanOptString(o, "titleEn").ifBlank { cleanOptString(o, "title") },
-                                messageBn = cleanOptString(o, "messageBn").ifBlank { cleanOptString(o, "message") },
-                                messageEn = cleanOptString(o, "messageEn").ifBlank { cleanOptString(o, "message") },
-                                targetRole = cleanOptString(o, "targetRole", "ALL"),
-                                isRead = id in existingReadIds,
-                                createdAt = o.optLong("createdAt", System.currentTimeMillis())
-                            )
-                        }.forEach { mergedNotifications.putIfAbsent(it.id, it) }
+            }
+            val shouldUpdateNotifications = root.has("notifications") || mergedNotifications.isNotEmpty()
+
+            val parsedSettings: SiteSettingsEntity? = root.optJSONObject("settings")?.let { s ->
+                SiteSettingsEntity(
+                    id = "global",
+                    siteTitle = s.optString("siteTitle", "Doctor List BD"),
+                    taglineBn = s.optString("taglineBn", "ডাক্তার কোথায় বসেন, কখন বসেন — সব তথ্য এক জায়গায়।"),
+                    taglineEn = s.optString("taglineEn", "Where doctors sit & when they sit — all verified chamber info in one place."),
+                    contactEmail = s.optString("contactEmail", "support@doctorlistbd.org"),
+                    contactPhone = s.optString("contactPhone", "+880 1700-000000"),
+                    allowOnlineBooking = s.optBoolean("allowOnlineBooking", true),
+                    showDemoData = false
+                )
+            }
+
+            // Single atomic Room transaction: prevents intermediate empty list emissions and page refresh flicker
+            db.withTransaction {
+                parsedSpecialties?.let { list ->
+                    db.specialtyDao().deleteAll()
+                    db.specialtyDao().insertAll(list)
+                }
+                parsedLocations?.let { list ->
+                    db.locationDao().insertAll(list)
+                }
+                if (hasDoctors) {
+                    db.doctorDao().deleteAll()
+                    if (parsedDoctors.isNotEmpty()) db.doctorDao().insertAll(parsedDoctors)
+                }
+                if (hasEducation) {
+                    db.educationDao().deleteAll()
+                    if (parsedEducation.isNotEmpty()) db.educationDao().insertAll(parsedEducation)
+                }
+                if (hasEmployment) {
+                    db.employmentDao().deleteAll()
+                    if (parsedEmployment.isNotEmpty()) db.employmentDao().insertAll(parsedEmployment)
+                }
+                if (hasChambers) {
+                    db.chamberDao().deleteAll()
+                    if (parsedChambers.isNotEmpty()) db.chamberDao().insertAll(parsedChambers)
+                }
+                if (hasSchedules) {
+                    db.chamberScheduleDao().deleteAll()
+                    if (parsedSchedules.isNotEmpty()) db.chamberScheduleDao().insertAll(parsedSchedules)
+                }
+                if (hasHospitals) {
+                    db.hospitalDao().deleteAll()
+                    if (parsedHospitals.isNotEmpty()) db.hospitalDao().insertAll(parsedHospitals)
+                }
+                if (hasDiagnostics) {
+                    db.diagnosticCenterDao().deleteAll()
+                    if (parsedDiagnostics.isNotEmpty()) db.diagnosticCenterDao().insertAll(parsedDiagnostics)
+                }
+                if (shouldUpdateNotifications) {
+                    db.notificationDao().deleteAll()
+                    if (mergedNotifications.isNotEmpty()) {
+                        db.notificationDao().insertAll(mergedNotifications.values.toList())
                     }
                 }
-                nConn.disconnect()
-            }
-            if (root.has("notifications") || mergedNotifications.isNotEmpty()) {
-                db.notificationDao().deleteAll()
-                if (mergedNotifications.isNotEmpty()) {
-                    db.notificationDao().insertAll(mergedNotifications.values.toList())
-                }
-            }
+                parsedSettings?.let { db.settingsDao().save(it) }
 
-            // Site Settings
-            root.optJSONObject("settings")?.let { s ->
-                db.settingsDao().save(
-                    SiteSettingsEntity(
-                        id = "global",
-                        siteTitle = s.optString("siteTitle", "Doctor List BD"),
-                        taglineBn = s.optString("taglineBn", "ডাক্তার কোথায় বসেন, কখন বসেন — সব তথ্য এক জায়গায়।"),
-                        taglineEn = s.optString("taglineEn", "Where doctors sit & when they sit — all verified chamber info in one place."),
-                        contactEmail = s.optString("contactEmail", "support@doctorlistbd.org"),
-                        contactPhone = s.optString("contactPhone", "+880 1700-000000"),
-                        allowOnlineBooking = s.optBoolean("allowOnlineBooking", true),
-                        showDemoData = false
+                // Keep legacy ad caches disabled cleanly inside the same transaction
+                db.sponsorDao().deleteAll()
+                db.sponsorPackageDao().deleteAll()
+                db.placementRateCardDao().deleteAll()
+                db.adConfigDao().save(
+                    AdConfigEntity(
+                        adsEnabled = false,
+                        bannerEnabled = false,
+                        appOpenEnabled = false,
+                        nativeBannerEnabled = false,
+                        rewardedEnabled = false,
+                        sponsorBannerEnabled = false,
+                        appOpenPopupEnabled = false,
+                        nativeSponsorEnabled = false,
+                        aboutUsSponsorEnabled = false
                     )
                 )
+                db.paymentSettingsDao().save(PaymentSettingsEntity())
             }
 
-            // All advertisement systems have been removed. Clear legacy ad caches and
-            // persist a disabled configuration so old Firebase records cannot re-enable ads.
-            db.sponsorDao().deleteAll()
-            db.sponsorPackageDao().deleteAll()
-            db.placementRateCardDao().deleteAll()
-            db.adConfigDao().save(
-                AdConfigEntity(
-                    adsEnabled = false,
-                    bannerEnabled = false,
-                    appOpenEnabled = false,
-                    nativeBannerEnabled = false,
-                    rewardedEnabled = false,
-                    sponsorBannerEnabled = false,
-                    appOpenPopupEnabled = false,
-                    nativeSponsorEnabled = false,
-                    aboutUsSponsorEnabled = false
-                )
-            )
-            db.paymentSettingsDao().save(PaymentSettingsEntity())
-
+            lastSyncedCombinedHash = combinedHash
+            lastSyncedDoctorCount = syncedDoctors
             Result.success(syncedDoctors)
         } catch (e: Exception) {
             Log.w(TAG, "Cloud sync skipped/failed (using local Room cache): ${e.message}")

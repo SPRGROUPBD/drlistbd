@@ -34,7 +34,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -44,10 +43,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.local.DiagnosticCenterEntity
-import com.example.data.local.FirestoreSliderConfig
 import com.example.data.local.HospitalEntity
 import com.example.data.local.NotificationEntity
 import com.example.data.model.AutoSyncStatus
@@ -80,7 +77,6 @@ fun GlobalTopAppBar(
     onSuggestionSelected: (GlobalSearchSuggestion) -> Unit,
     onSyncIconClick: () -> Unit,
     onNotificationsClick: () -> Unit,
-    onToggleLang: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -104,26 +100,19 @@ fun GlobalTopAppBar(
         }
     }
 
+    val colors = MaterialTheme.colorScheme
+    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val headerBg = if (isDark) Color(0xFF0A121C) else SurfaceWhite
+    val iconPillBg = if (isDark) Color(0xFF172536) else Color(0xFFEBF3FA)
+    val iconTint = if (isDark) Color(0xFFE6F0FA) else Color(0xFF0F2C59)
+    val brandGreen = Color(0xFF10B96B)
+    val brandBlue = if (isDark) Color(0xFFFFFFFF) else Color(0xFF0C2E66)
+
     val isSyncingNow = syncState.status == AutoSyncStatus.SYNCING
-    val syncRotation = if (isSyncingNow) {
-        val infiniteTransition = rememberInfiniteTransition(label = "global_sync_spin")
-        val angle by infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 900, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "sync_rotation"
-        )
-        angle
-    } else {
-        0f
-    }
 
     Surface(
-        color = SurfaceWhite,
-        shadowElevation = 2.dp,
+        color = headerBg,
+        shadowElevation = if (isDark) 0.dp else 2.dp,
         modifier = modifier
             .fillMaxWidth()
             .testTag("global_top_app_bar")
@@ -133,18 +122,16 @@ fun GlobalTopAppBar(
                 .fillMaxWidth()
                 .statusBarsPadding()
         ) {
-            // Sticky white single-row header:
-            // Left: Stethoscope app badge + "Doctor List BD" title
-            // Right (exact order): 1) Search, 2) Translate ("EN"/"বাং"), 3) AutoSync, 4) Notification Bell with red dot
+            // Fixed single-row header: Brand Logo + Title on extreme far left, 3 icons on extreme far right
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(58.dp)
+                    .height(62.dp)
                     .padding(horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // LEFT SIDE: Stethoscope logo badge + "Doctor List BD" title
+                // LEFT SIDE: Existing Doctor List BD App Logo + Brand Wordmark -> navigates to Home
                 Row(
                     modifier = Modifier
                         .weight(1f)
@@ -156,158 +143,169 @@ fun GlobalTopAppBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(
-                                Brush.linearGradient(
-                                    colors = listOf(MedicalBlue, MedicalTeal)
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isDark) Color(0xFF132234) else SurfaceWhite,
+                        border = BorderStroke(1.dp, if (isDark) Color(0xFF23384F) else MedicalBlueLight),
+                        shadowElevation = 1.dp,
+                        modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.MedicalServices,
-                            contentDescription = tr(lang, "Doctor List BD লোগো", "Doctor List BD Logo"),
-                            tint = Color.White,
-                            modifier = Modifier.size(19.dp)
+                        Image(
+                            painter = painterResource(id = R.drawable.doc_dir_icon_1794967683712),
+                            contentDescription = tr(lang, "Doctor List BD হোম", "Doctor List BD Home"),
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(12.dp))
                         )
                     }
-                    Text(
-                        text = "Doctor List BD",
-                        fontSize = 15.5.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Column(verticalArrangement = Arrangement.Center) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Doctor ",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = brandBlue,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "List BD",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = brandGreen,
+                                maxLines = 1
+                            )
+                        }
+                        Text(
+                            text = tr(lang, "আপনার সঠিক ডাক্তার খুঁজুন", "Find the right doctor for you"),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
-                // RIGHT SIDE (EXACT ORDER): 1. Search  2. Translate ("EN"/"বাং")  3. AutoSync  4. Notification Bell
+                // RIGHT SIDE (STRICT ORDER): 1. Search  2. Auto Sync  3. Notification Bell
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    // 1. Search Button (toggles collapsible inline search bar filtering slider in real time)
+                    // 1. Search Icon
                     IconButton(
                         onClick = onToggleSearch,
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(48.dp)
                             .testTag("global_header_search_btn")
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(36.dp)
                                 .clip(CircleShape)
-                                .background(if (searchExpanded) MintCardSurface else BackgroundIce),
+                                .background(if (searchExpanded) MedicalBlueLight else iconPillBg),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = if (searchExpanded) Icons.Rounded.Close else Icons.Rounded.Search,
                                 contentDescription = tr(lang, "অনুসন্ধান", "Search"),
-                                tint = if (searchExpanded) MedicalBlue else TextPrimary,
-                                modifier = Modifier.size(19.dp)
+                                tint = if (searchExpanded) MedicalBlueDark else iconTint,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
 
-                    // 2. Translate Toggle Button ("EN" / "বাং")
-                    Surface(
-                        onClick = onToggleLang,
-                        shape = RoundedCornerShape(50),
-                        color = MintCardSurface,
-                        border = BorderStroke(1.dp, MintBorder),
-                        modifier = Modifier
-                            .height(34.dp)
-                            .testTag("global_header_lang_btn")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Translate,
-                                contentDescription = tr(lang, "ভাষা পরিবর্তন", "Switch language"),
-                                tint = MedicalBlue,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = if (lang == AppLang.BN) "EN" else "বাং",
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MedicalBlue
-                            )
-                        }
-                    }
-
-                    // 3. AutoSync Button (rotates icon while syncing and refreshes slider feed)
+                    // 2. Auto Sync Icon — spins ONLY while loading new data, stops immediately once loaded
                     IconButton(
                         onClick = onSyncIconClick,
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(48.dp)
                             .testTag("global_header_sync_btn")
                     ) {
                         val isFailure = syncState.status == AutoSyncStatus.FAILURE
+                        val isSuccess = syncState.status == AutoSyncStatus.SUCCESS
+
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(36.dp)
                                 .clip(CircleShape)
-                                .background(if (isSyncingNow) MedicalTealLight else BackgroundIce),
+                                .background(iconPillBg),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = if (isFailure) Icons.Rounded.SyncProblem else Icons.Rounded.Sync,
-                                contentDescription = tr(lang, "অটো সিঙ্ক", "AutoSync"),
-                                tint = when {
-                                    isSyncingNow -> MedicalBlue
-                                    isFailure -> RoseAlert
-                                    else -> MedicalTeal
-                                },
-                                modifier = Modifier
-                                    .size(19.dp)
-                                    .rotate(syncRotation)
-                            )
+                            if (isSyncingNow) {
+                                SpinningSyncIcon(
+                                    contentDescription = tr(lang, "নতুন ডাটা লোড হচ্ছে...", "Syncing new data..."),
+                                    tint = MedicalBlue
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = if (isFailure) Icons.Rounded.SyncProblem else Icons.Rounded.Sync,
+                                    contentDescription = tr(lang, "অটো সিঙ্ক স্ট্যাটাস", "Auto Sync Status"),
+                                    tint = when {
+                                        isFailure -> RoseAlert
+                                        isSuccess -> brandGreen
+                                        else -> iconTint
+                                    },
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            val dotColor = when {
+                                isSyncingNow -> MedicalBlue
+                                isFailure -> RoseAlert
+                                isSuccess -> brandGreen
+                                !syncState.isOnline -> AmberPending
+                                else -> Color.Transparent
+                            }
+                            if (dotColor != Color.Transparent) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .offset(x = (-1).dp, y = 1.dp)
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(headerBg)
+                                        .padding(1.dp)
+                                        .clip(CircleShape)
+                                        .background(dotColor)
+                                )
+                            }
                         }
                     }
 
-                    // 4. Notification Bell Button (with red dot indicator; opens Firebase Configuration modal)
+                    // 3. Notification Bell Icon with live unread count badge
                     IconButton(
                         onClick = onNotificationsClick,
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(48.dp)
                             .testTag("global_header_notification_btn")
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(BackgroundIce),
-                            contentAlignment = Alignment.Center
+                        BadgedBox(
+                            badge = {
+                                if (unreadNotifications > 0) {
+                                    Badge(containerColor = RoseAlert) {
+                                        Text(
+                                            text = if (unreadNotifications > 99) "99+" else unreadNotifications.toString(),
+                                            color = Color.White,
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    }
+                                }
+                            }
                         ) {
-                            Icon(
-                                imageVector = if (unreadNotifications > 0) {
-                                    Icons.Rounded.NotificationsActive
-                                } else {
-                                    Icons.Outlined.Notifications
-                                },
-                                contentDescription = tr(lang, "নোটিফিকেশন ও Firebase কনফিগারেশন", "Notifications & Firebase Config"),
-                                tint = TextPrimary,
-                                modifier = Modifier.size(19.dp)
-                            )
-                            // Crisp red dot indicator on bell
                             Box(
                                 modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(top = 6.dp, end = 6.dp)
-                                    .size(7.dp)
+                                    .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(SurfaceWhite)
-                                    .padding(1.dp)
-                                    .clip(CircleShape)
-                                    .background(RoseAlert)
-                            )
+                                    .background(iconPillBg),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (unreadNotifications > 0) Icons.Rounded.Notifications else Icons.Outlined.Notifications,
+                                    contentDescription = tr(lang, "নোটিফিকেশন সেন্টার", "Notification Center"),
+                                    tint = iconTint,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -322,7 +320,7 @@ fun GlobalTopAppBar(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(SurfaceWhite)
+                        .background(headerBg)
                         .padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
                         .testTag("global_search_drawer")
                 ) {
@@ -345,7 +343,7 @@ fun GlobalTopAppBar(
                             Icon(
                                 imageVector = Icons.Rounded.Search,
                                 contentDescription = null,
-                                tint = MedicalBlue
+                                tint = colors.primary
                             )
                         },
                         trailingIcon = {
@@ -357,7 +355,7 @@ fun GlobalTopAppBar(
                                     Icon(
                                         imageVector = Icons.Rounded.Cancel,
                                         contentDescription = tr(lang, "মুছুন", "Clear"),
-                                        tint = TextMuted
+                                        tint = colors.onSurfaceVariant
                                     )
                                 }
                             }
@@ -365,10 +363,12 @@ fun GlobalTopAppBar(
                         singleLine = true,
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = BackgroundIce,
-                            unfocusedContainerColor = BackgroundIce,
-                            focusedBorderColor = MedicalBlue,
-                            unfocusedBorderColor = OutlineSoft
+                            focusedContainerColor = colors.surfaceVariant,
+                            unfocusedContainerColor = colors.surfaceVariant,
+                            focusedBorderColor = colors.primary,
+                            unfocusedBorderColor = colors.outline,
+                            focusedTextColor = colors.onSurface,
+                            unfocusedTextColor = colors.onSurface
                         ),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(
@@ -394,14 +394,14 @@ fun GlobalTopAppBar(
                                 "Type at least 2 characters for live suggestions"
                             ),
                             style = MaterialTheme.typography.labelMedium,
-                            color = TextMuted,
+                            color = colors.onSurfaceVariant,
                             modifier = Modifier.padding(start = 6.dp, top = 6.dp)
                         )
                     } else if (suggestions.isEmpty()) {
                         Surface(
                             shape = RoundedCornerShape(14.dp),
-                            color = BackgroundIce,
-                            border = BorderStroke(1.dp, OutlineSoft),
+                            color = colors.surfaceVariant,
+                            border = BorderStroke(1.dp, colors.outline),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 8.dp)
@@ -411,7 +411,7 @@ fun GlobalTopAppBar(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Icon(Icons.Rounded.SearchOff, contentDescription = null, tint = TextMuted)
+                                Icon(Icons.Rounded.SearchOff, contentDescription = null, tint = colors.onSurfaceVariant)
                                 Text(
                                     text = tr(
                                         lang,
@@ -419,15 +419,15 @@ fun GlobalTopAppBar(
                                         "No doctors, hospitals, diagnostic centers or chambers found for \"$trimmed\"."
                                     ),
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = TextSecondary
+                                    color = colors.onSurfaceVariant
                                 )
                             }
                         }
                     } else {
                         Surface(
                             shape = RoundedCornerShape(16.dp),
-                            color = SurfaceWhite,
-                            border = BorderStroke(1.dp, OutlineSoft),
+                            color = colors.surface,
+                            border = BorderStroke(1.dp, colors.outline),
                             shadowElevation = 4.dp,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -457,9 +457,34 @@ fun GlobalTopAppBar(
                 }
             }
 
-            HorizontalDivider(thickness = 1.dp, color = OutlineSoft)
+            HorizontalDivider(thickness = 1.dp, color = colors.outlineVariant)
         }
     }
+}
+
+@Composable
+private fun SpinningSyncIcon(
+    contentDescription: String,
+    tint: Color
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "global_sync_spin_active")
+    val syncRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "sync_rotation_active"
+    )
+    Icon(
+        imageVector = Icons.Rounded.Sync,
+        contentDescription = contentDescription,
+        tint = tint,
+        modifier = Modifier
+            .size(20.dp)
+            .rotate(syncRotation)
+    )
 }
 
 @Composable
@@ -1020,388 +1045,3 @@ private fun formatNotificationTime(timestampMs: Long, lang: AppLang): String {
         else -> SimpleDateFormat("dd MMM", Locale.getDefault()).format(Date(timestampMs))
     }
 }
-
-/**
- * Firebase Configuration & Notifications Modal Bottom Sheet
- * Opened by tapping the Notification Bell button in the Top App Bar.
- * Tab 0: Firebase Firestore Slider Configuration (`sliders` where active == true ordered by order) + Sync status.
- * Tab 1: Notifications Center with unread badges & mark-as-read actions.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun FirebaseConfigAndNotificationSheet(
-    lang: AppLang,
-    sliderConfig: FirestoreSliderConfig,
-    sliderSyncStatus: String?,
-    syncState: SyncUiState,
-    notifications: List<NotificationEntity>,
-    isSyncing: Boolean,
-    onSaveConfig: (projectId: String, apiKey: String, collectionName: String) -> Unit,
-    onResetDemo: () -> Unit,
-    onSyncNow: () -> Unit,
-    onMarkRead: (String) -> Unit,
-    onMarkAllRead: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    var selectedTab by remember { mutableIntStateOf(0) }
-    var projectId by remember(sliderConfig) { mutableStateOf(sliderConfig.projectId) }
-    var apiKey by remember(sliderConfig) { mutableStateOf(sliderConfig.apiKey) }
-    var collectionName by remember(sliderConfig) { mutableStateOf(sliderConfig.collectionName.ifBlank { "sliders" }) }
-    val unreadCount = notifications.count { !it.isRead }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = SurfaceWhite
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 26.dp)
-                .testTag("firebase_config_modal_sheet"),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(MintCardSurface),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = if (selectedTab == 0) Icons.Rounded.CloudSync else Icons.Rounded.Notifications,
-                            contentDescription = null,
-                            tint = MedicalBlue,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Column {
-                        Text(
-                            text = if (selectedTab == 0) {
-                                tr(lang, "Firebase কনফিগারেশন", "Firebase Configuration")
-                            } else {
-                                tr(lang, "নোটিফিকেশন ও বিজ্ঞপ্তি", "Notifications & Notices")
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = tr(
-                                lang,
-                                "Firestore 'sliders' কালেকশন ও লাইভ সিঙ্ক",
-                                "Firestore 'sliders' collection & live sync"
-                            ),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TextMuted
-                        )
-                    }
-                }
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Rounded.Close, contentDescription = tr(lang, "বন্ধ করুন", "Close"), tint = TextSecondary)
-                }
-            }
-
-            // Segmented Tab Switcher: Firebase Config | Notifications
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(BackgroundIce)
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Surface(
-                    onClick = { selectedTab = 0 },
-                    shape = RoundedCornerShape(10.dp),
-                    color = if (selectedTab == 0) MedicalBlue else Color.Transparent,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(38.dp)
-                        .testTag("modal_tab_firebase_config")
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = tr(lang, "Firebase কনফিগ", "Firebase Config"),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (selectedTab == 0) Color.White else TextSecondary
-                        )
-                    }
-                }
-                Surface(
-                    onClick = { selectedTab = 1 },
-                    shape = RoundedCornerShape(10.dp),
-                    color = if (selectedTab == 1) MedicalBlue else Color.Transparent,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(38.dp)
-                        .testTag("modal_tab_notifications")
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = tr(lang, "বিজ্ঞপ্তি", "Notices"),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (selectedTab == 1) Color.White else TextSecondary
-                        )
-                        if (unreadCount > 0) {
-                            Spacer(Modifier.width(6.dp))
-                            Surface(
-                                shape = CircleShape,
-                                color = if (selectedTab == 1) Color.White else RoseAlert
-                            ) {
-                                Text(
-                                    text = unreadCount.toString(),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (selectedTab == 1) MedicalBlue else Color.White,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (selectedTab == 0) {
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MintCardStart,
-                    border = BorderStroke(1.dp, MintBorder),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = tr(lang, "স্লাইডার ডাটা সোর্স", "Slider Data Source"),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary
-                            )
-                            StatusPill(
-                                text = if (sliderConfig.isConfigured) {
-                                    tr(lang, "Firestore সংযুক্ত", "Firestore Active")
-                                } else {
-                                    tr(lang, "ডেমো + RTDB চালু", "Demo + RTDB Active")
-                                },
-                                bgColor = EmeraldSoft,
-                                textColor = Color(0xFF065F46)
-                            )
-                        }
-                        Text(
-                            text = sliderSyncStatus ?: tr(
-                                lang,
-                                "Firestore 'sliders' (active == true, order ASC) যুক্ত করুন অথবা বিল্ট-ইন বাংলাদেশ ডেমো ডেটাসেট ব্যবহার করুন।",
-                                "Connect Firestore 'sliders' (active == true, ordered by order) or use the built-in Bangladesh demo dataset."
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
-                        Text(
-                            text = "${tr(lang, "সর্বশেষ সিঙ্ক", "Last sync")}: ${formatSyncTime(syncState.lastSuccessAtMs, lang)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MedicalTealDark
-                        )
-                    }
-                }
-
-                OutlinedTextField(
-                    value = projectId,
-                    onValueChange = { projectId = it },
-                    label = { Text(tr(lang, "Firebase Project ID", "Firebase Project ID")) },
-                    placeholder = { Text("e.g. doctor-list-bd") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("firebase_project_id_input")
-                )
-
-                OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
-                    label = { Text(tr(lang, "Web API Key (ঐচ্ছিক)", "Web API Key (Optional)")) },
-                    placeholder = { Text("AIza...") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("firebase_api_key_input")
-                )
-
-                OutlinedTextField(
-                    value = collectionName,
-                    onValueChange = { collectionName = it },
-                    label = { Text(tr(lang, "Firestore কালেকশন", "Firestore Collection")) },
-                    placeholder = { Text("sliders") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("firebase_collection_input")
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            projectId = ""
-                            apiKey = ""
-                            collectionName = "sliders"
-                            onResetDemo()
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, MintBorder),
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 48.dp)
-                    ) {
-                        Text(tr(lang, "ডেমো ডেটা", "Use Demo"), color = TextPrimary)
-                    }
-                    Button(
-                        onClick = {
-                            if (projectId.isNotBlank()) {
-                                onSaveConfig(projectId, apiKey, collectionName)
-                            } else {
-                                onSyncNow()
-                            }
-                        },
-                        enabled = !isSyncing,
-                        colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .weight(1.4f)
-                            .heightIn(min = 48.dp)
-                            .testTag("firebase_save_sync_btn")
-                    ) {
-                        if (isSyncing) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Text(
-                            text = if (projectId.isNotBlank()) {
-                                tr(lang, "সংরক্ষণ ও সিঙ্ক", "Save & Sync")
-                            } else {
-                                tr(lang, "এখনই সিঙ্ক করুন", "Sync Now")
-                            },
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = tr(lang, "সাম্প্রতিক বিজ্ঞপ্তি", "Recent Notifications"),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = TextSecondary
-                    )
-                    if (unreadCount > 0) {
-                        TextButton(onClick = onMarkAllRead) {
-                            Text(tr(lang, "সব পঠিত", "Mark all read"), color = MedicalBlue)
-                        }
-                    }
-                }
-
-                if (notifications.isEmpty()) {
-                    EmptyStateCard(
-                        icon = Icons.Outlined.Notifications,
-                        title = tr(lang, "কোনো নোটিফিকেশন নেই", "No Notifications Yet"),
-                        subtitle = tr(
-                            lang,
-                            "অ্যাডমিন থেকে নতুন কোনো আপডেট বা বিজ্ঞপ্তি পাঠানো হলে এখানে দেখা যাবে।",
-                            "Firebase announcements and directory updates will appear here."
-                        ),
-                        actionText = tr(lang, "রিফ্রেশ করুন", "Refresh"),
-                        onAction = onSyncNow
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 360.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(notifications, key = { it.id }) { item ->
-                            val title = tr(
-                                lang,
-                                item.titleBn.ifBlank { item.titleEn },
-                                item.titleEn.ifBlank { item.titleBn }
-                            ).ifBlank { tr(lang, "বিজ্ঞপ্তি", "Notice") }
-                            val body = tr(
-                                lang,
-                                item.messageBn.ifBlank { item.messageEn },
-                                item.messageEn.ifBlank { item.messageBn }
-                            )
-                            Surface(
-                                onClick = { if (!item.isRead) onMarkRead(item.id) },
-                                shape = RoundedCornerShape(14.dp),
-                                color = if (item.isRead) BackgroundIce else MintCardSurface,
-                                border = BorderStroke(1.dp, MintBorder),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(
-                                            text = title,
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = if (item.isRead) FontWeight.Medium else FontWeight.Bold,
-                                            color = TextPrimary,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Text(
-                                            text = formatNotificationTime(item.createdAt, lang),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = TextMuted
-                                        )
-                                    }
-                                    if (body.isNotBlank()) {
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(
-                                            text = body,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = TextSecondary
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-

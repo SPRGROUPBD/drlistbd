@@ -19,17 +19,14 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Production connectivity monitor that tracks real internet reachability via
- * ConnectivityManager callbacks paired with lightweight HTTP reachability checks.
- *
- * Reconnect callbacks ONLY fire on an actual offline -> online transition so
- * manual syncs and foreground resumes never cause infinite sync loops.
+ * Production connectivity monitor that verifies ACTUAL internet accessibility
+ * (not just Wi-Fi / Mobile transport attachment) via ConnectivityManager callbacks
+ * paired with a lightweight HTTP 204 reachability check.
  */
 object ConnectivityMonitor {
     private const val TAG = "ConnectivityMonitor"
     private const val PROBE_URL_PRIMARY = "https://connectivitycheck.gstatic.com/generate_204"
-    private const val PROBE_URL_FALLBACK =
-        "https://octor-aad88-default-rtdb.europe-west1.firebasedatabase.app/directory/settings/siteTitle.json"
+    private const val PROBE_URL_FALLBACK = "https://octor-aad88-default-rtdb.europe-west1.firebasedatabase.app/directory/settings/siteTitle.json"
 
     private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
         Log.w(TAG, "Connectivity probe handled error: ${throwable.message}")
@@ -59,7 +56,12 @@ object ConnectivityMonitor {
             started = true
         }
         val appCtx = context.applicationContext ?: context
-        val cm = getConnectivityManager(appCtx)
+        val cm = try {
+            appCtx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        } catch (t: Throwable) {
+            Log.w(TAG, "ConnectivityService unavailable: ${t.message}")
+            null
+        }
         if (cm == null) {
             _isOnline.value = false
             _hasVerifiedOnce.value = true
@@ -79,7 +81,7 @@ object ConnectivityMonitor {
             cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     runCatching {
-                        verifyInternetAccessAsync(cm, triggerReconnect = true, onReconnect = null)
+                        verifyInternetAccessAsync(cm, triggerReconnect = true, onReconnect = onReconnect)
                     }
                 }
 
@@ -89,7 +91,7 @@ object ConnectivityMonitor {
                         if (!hasNet) {
                             setOnlineState(false)
                         } else if (!_isOnline.value) {
-                            verifyInternetAccessAsync(cm, triggerReconnect = true, onReconnect = null)
+                            verifyInternetAccessAsync(cm, triggerReconnect = true, onReconnect = onReconnect)
                         }
                     }
                 }
@@ -99,7 +101,7 @@ object ConnectivityMonitor {
                         if (!hasValidatedTransport(cm)) {
                             setOnlineState(false)
                         } else {
-                            verifyInternetAccessAsync(cm, triggerReconnect = false, onReconnect = null)
+                            verifyInternetAccessAsync(cm, triggerReconnect = false, onReconnect = onReconnect)
                         }
                     }
                 }
@@ -113,57 +115,18 @@ object ConnectivityMonitor {
         }
     }
 
-    /**
-     * Asynchronously refreshes connectivity state. Only invokes reconnectListener
-     * if [triggerReconnect] is true AND the device genuinely transitioned from offline -> online.
-     */
-    fun refreshNow(
-        context: Context,
-        onReconnect: (() -> Unit)? = null,
-        triggerReconnect: Boolean = true
-    ) {
+    fun refreshNow(context: Context, onReconnect: (() -> Unit)? = null) {
         if (onReconnect != null) {
             reconnectListener = onReconnect
         }
         val appCtx = context.applicationContext ?: context
-        val cm = getConnectivityManager(appCtx) ?: return
-        verifyInternetAccessAsync(
-            cm = cm,
-            triggerReconnect = triggerReconnect,
-            onReconnect = onReconnect,
-            force = true
-        )
-    }
-
-    /**
-     * Suspending reachability check used directly by MainViewModel.performFirebaseSync so
-     * sync steps have an up-to-date online status without triggering recursive reconnect callbacks.
-     */
-    suspend fun verifyOnlineNow(context: Context): Boolean = withContext(Dispatchers.IO) {
-        val appCtx = context.applicationContext ?: context
-        val cm = getConnectivityManager(appCtx)
-        if (cm == null) {
-            setOnlineState(false)
-            return@withContext false
-        }
-        val hasTransport = hasValidatedTransport(cm)
-        if (!hasTransport) {
-            setOnlineState(false)
-            return@withContext false
-        }
-        val reachable = probeActualInternet() || hasSystemValidatedInternet(cm)
-        setOnlineState(reachable)
-        lastProbeAtMs = System.currentTimeMillis()
-        reachable
-    }
-
-    /**
-     * Marks connectivity as confirmed online after a real Firebase/HTTP call succeeds,
-     * preventing false offline states on networks that block Google's 204 probe endpoint.
-     */
-    fun markOnlineConfirmed() {
-        setOnlineState(true)
-        lastProbeAtMs = System.currentTimeMillis()
+        val cm = try {
+            appCtx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        } catch (t: Throwable) {
+            Log.w(TAG, "ConnectivityService refresh warning: ${t.message}")
+            null
+        } ?: return
+        verifyInternetAccessAsync(cm, triggerReconnect = true, onReconnect = onReconnect, force = true)
     }
 
     /**
@@ -172,13 +135,6 @@ object ConnectivityMonitor {
     internal fun setOnlineForTesting(online: Boolean) {
         _isOnline.value = online
         _hasVerifiedOnce.value = true
-    }
-
-    private fun getConnectivityManager(context: Context): ConnectivityManager? = try {
-        context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-    } catch (t: Throwable) {
-        Log.w(TAG, "ConnectivityService unavailable: ${t.message}")
-        null
     }
 
     private fun setOnlineState(online: Boolean) {
@@ -193,22 +149,10 @@ object ConnectivityMonitor {
             val hasInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             val hasTransport = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ||
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
             hasInternet && hasTransport
         } catch (t: Throwable) {
             Log.w(TAG, "Transport check warning: ${t.message}")
-            false
-        }
-    }
-
-    private fun hasSystemValidatedInternet(cm: ConnectivityManager): Boolean {
-        return try {
-            val active = cm.activeNetwork ?: return false
-            val caps = cm.getNetworkCapabilities(active) ?: return false
-            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-        } catch (_: Throwable) {
             false
         }
     }
@@ -230,18 +174,17 @@ object ConnectivityMonitor {
                 var reachable = if (!hasTransport) {
                     false
                 } else {
-                    probeActualInternet() || hasSystemValidatedInternet(cm)
+                    probeActualInternet()
                 }
                 if (!reachable && hasTransport) {
-                    kotlinx.coroutines.delay(2500L)
+                    kotlinx.coroutines.delay(4000L)
                     if (hasValidatedTransport(cm)) {
-                        reachable = probeActualInternet() || hasSystemValidatedInternet(cm)
+                        reachable = probeActualInternet()
                     }
                 }
                 setOnlineState(reachable)
                 Log.d(TAG, "Verified internet reachability: online=$reachable (wasOnline=$wasOnline)")
-                // Fire reconnect callback strictly on offline -> online transitions (prevents infinite sync loops)
-                if (reachable && !wasOnline && triggerReconnect) {
+                if (reachable && (!wasOnline || force) && triggerReconnect) {
                     val listener = onReconnect ?: reconnectListener
                     runCatching { listener?.invoke() }
                 }
@@ -252,25 +195,23 @@ object ConnectivityMonitor {
     }
 
     suspend fun probeActualInternet(): Boolean = withContext(Dispatchers.IO) {
-        probeUrl(PROBE_URL_PRIMARY, method = "HEAD") || probeUrl(PROBE_URL_FALLBACK, method = "GET")
+        probeUrl(PROBE_URL_PRIMARY) || probeUrl(PROBE_URL_FALLBACK)
     }
 
-    private fun probeUrl(target: String, method: String = "HEAD"): Boolean {
-        var conn: HttpURLConnection? = null
+    private fun probeUrl(target: String): Boolean {
         return try {
-            conn = (URL(target).openConnection() as HttpURLConnection).apply {
-                requestMethod = method
-                connectTimeout = 3000
-                readTimeout = 3000
+            val conn = (URL(target).openConnection() as HttpURLConnection).apply {
+                requestMethod = "HEAD"
+                connectTimeout = 3500
+                readTimeout = 3500
                 instanceFollowRedirects = false
                 useCaches = false
             }
             val code = conn.responseCode
+            conn.disconnect()
             code in 200..399
         } catch (_: Throwable) {
             false
-        } finally {
-            conn?.disconnect()
         }
     }
 }

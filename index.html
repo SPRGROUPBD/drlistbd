@@ -986,9 +986,12 @@ async function deleteRootNode(collection, id, skipConfirm = false) {
   return true;
 }
 
-async function loadAllData() {
+let lastSyncedDataFingerprint = "";
+
+async function loadAllData(options = {}) {
+  const silent = Boolean(options && options.silent);
   const statusEl = document.getElementById("syncStatus");
-  if (statusEl) statusEl.textContent = "Loading from RTDB...";
+  if (statusEl && !silent) statusEl.textContent = "Loading from RTDB...";
   if (typeof updateGlobalSyncUi === "function") updateGlobalSyncUi("SYNCING");
   try {
     const [res] = await Promise.all([
@@ -998,7 +1001,9 @@ async function loadAllData() {
     ]);
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
-    if (data) {
+    const nextFingerprint = JSON.stringify(data || {});
+    const dataChanged = nextFingerprint !== lastSyncedDataFingerprint;
+    if (data && dataChanged) {
       const objectKeys = ["settings", "ad_config", "about_us_ad_settings", "payment_settings", "rate_card_settings", "installation_settings"];
       for (const k of Object.keys(dbState)) {
         if (objectKeys.includes(k)) {
@@ -1007,19 +1012,25 @@ async function loadAllData() {
           dbState[k] = data[k] || {};
         }
       }
+      lastSyncedDataFingerprint = nextFingerprint;
     }
     if (typeof sweepExpiredAdsSilently === "function") {
       await sweepExpiredAdsSilently();
     }
     const nowMs = Date.now();
     if (statusEl) statusEl.textContent = "Synced live with octor-aad88 RTDB (" + new Date(nowMs).toLocaleTimeString() + ")";
+    // Stop Auto Sync button immediately once new data finishes loading — never force-refresh the page
     if (typeof updateGlobalSyncUi === "function") updateGlobalSyncUi("SUCCESS", nowMs);
     if (typeof refreshGlobalNotificationsUi === "function") refreshGlobalNotificationsUi();
-    renderTab();
+    if (!silent && dataChanged) {
+      renderTab();
+    }
   } catch (err) {
     if (statusEl) statusEl.textContent = "RTDB Error: " + err.message + " (Check RTDB Rules allow read/write)";
     if (typeof updateGlobalSyncUi === "function") updateGlobalSyncUi("FAILURE", null, err.message);
-    renderTab();
+    if (!silent && !lastSyncedDataFingerprint) {
+      renderTab();
+    }
   }
 }
 
@@ -2653,11 +2664,11 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// Automatic periodic Firebase sync every 3 minutes while Admin Panel is open
+// Automatic periodic Firebase sync every 3 minutes while Admin Panel is open (silent — no page refresh)
 setInterval(() => {
   const appEl = document.getElementById("adminApp");
   if (appEl && !appEl.classList.contains("hidden") && globalSyncState.status !== "SYNCING") {
-    loadAllData();
+    loadAllData({ silent: true });
   }
 }, 180000);
 

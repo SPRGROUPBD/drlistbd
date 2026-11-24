@@ -14,7 +14,7 @@ object AppStrings {
 
     fun navHome(lang: AppLang) = tr(lang, "হোম", "Home")
     fun navDoctors(lang: AppLang) = tr(lang, "ডাক্তার", "Doctors")
-    fun navFacilities(lang: AppLang) = tr(lang, "হাসপাতাল", "Hospitals")
+    fun navFacilities(lang: AppLang) = tr(lang, "হাসপাতাল", "Facilities")
     fun navPortal(lang: AppLang) = tr(lang, "সেভড", "Saved")
     fun navAbout(lang: AppLang) = tr(lang, "সম্পর্কে", "About")
 
@@ -25,7 +25,7 @@ object AppStrings {
     )
 
     fun allLabel(lang: AppLang) = tr(lang, "সব", "All")
-    fun availableToday(lang: AppLang) = tr(lang, "আজ বসবেন", "Sitting Today")
+    fun availableToday(lang: AppLang) = tr(lang, "আজ বসবেন", "Available Today")
     fun verifiedOnly(lang: AppLang) = tr(lang, "ভেরিফায়েড", "Verified")
     fun mostExperienced(lang: AppLang) = tr(lang, "সর্বোচ্চ অভিজ্ঞতা", "Most Experienced")
     fun recentlyUpdated(lang: AppLang) = tr(lang, "সম্প্রতি আপডেটেড", "Recently Updated")
@@ -42,8 +42,6 @@ object AppStrings {
     fun hospitals(lang: AppLang) = tr(lang, "হাসপাতাল ডিরেক্টরি", "Hospitals")
     fun diagnosticCenters(lang: AppLang) = tr(lang, "ডায়াগনস্টিক সেন্টার", "Diagnostic Centers")
     fun chamberSchedule(lang: AppLang) = tr(lang, "চেম্বার সময়সূচী", "Chamber Schedule")
-    fun notices(lang: AppLang) = tr(lang, "বিজ্ঞপ্তি", "Notices")
-    fun viewDetails(lang: AppLang) = tr(lang, "বিস্তারিত", "View Details")
 
     fun callForSerial(lang: AppLang) = tr(lang, "সিরিয়ালের জন্য কল করুন", "Call for Serial")
     fun openMaps(lang: AppLang) = tr(lang, "গুগল ম্যাপ", "Google Maps")

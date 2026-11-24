@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Doctor List BD</string>
+    <!-- Filled by google-services.json when configured; empty value keeps builds compilable. -->
+    <string name="default_web_client_id" translatable="false"></string>
 </resources>

@@ -12,8 +12,6 @@ import com.example.data.model.*
 import com.example.data.remote.AdvertisingRemoteService
 import com.example.data.remote.FavoriteCategory
 import com.example.data.remote.FirebaseUserSyncService
-import com.example.data.remote.FirestoreSliderService
-import com.example.data.remote.HomeAutoSliderItem
 import com.example.data.repository.DirectoryRepository
 import com.example.i18n.AppLang
 import com.example.ui.ads.AdCampaignItem
@@ -78,7 +76,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val currentLang: StateFlow<AppLang> = repo.prefs.currentLang
         .safeStateIn(SharingStarted.Eagerly, AppLang.BN)
 
+    val selectedHomeDistrict: StateFlow<String?> = repo.prefs.selectedHomeDistrict
+        .distinctUntilChanged()
+        .safeStateIn(SharingStarted.Eagerly, null)
+
     val settings: StateFlow<SiteSettingsEntity> = repo.settings
+        .distinctUntilChanged()
         .safeStateIn(SharingStarted.Eagerly, SiteSettingsEntity(siteTitle = "Doctor List BD", showDemoData = false))
 
     val adConfig: StateFlow<AdConfigEntity> = repo.adConfig
@@ -148,33 +151,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _authoritativeNowMs = MutableStateFlow(System.currentTimeMillis())
     val authoritativeNowMs: StateFlow<Long> = _authoritativeNowMs.asStateFlow()
 
-    // --- Dynamic Firebase Firestore Compact Auto Slider State ---
-    val firestoreSliderConfig: StateFlow<FirestoreSliderConfig> = repo.prefs.firestoreSliderConfig
-        .safeStateIn(SharingStarted.Eagerly, FirestoreSliderConfig())
-
-    private val _firestoreSliders = MutableStateFlow<List<HomeAutoSliderItem>>(emptyList())
-    val firestoreSliders: StateFlow<List<HomeAutoSliderItem>> = _firestoreSliders.asStateFlow()
-
-    private val _sliderSyncStatus = MutableStateFlow<String?>(null)
-    val sliderSyncStatus: StateFlow<String?> = _sliderSyncStatus.asStateFlow()
-
     val isOnline: StateFlow<Boolean> = ConnectivityMonitor.isOnline
 
     val lastAppOpenPopupDate: StateFlow<String> = repo.prefs.lastAppOpenPopupDate
         .safeStateIn(SharingStarted.Eagerly, "")
 
     val specialties: StateFlow<List<SpecialtyEntity>> = repo.specialties
+        .distinctUntilChanged()
         .safeStateIn(SharingStarted.Eagerly, emptyList())
 
     val locations: StateFlow<List<LocationEntity>> = repo.locations
+        .distinctUntilChanged()
         .safeStateIn(SharingStarted.Eagerly, emptyList())
 
     val hospitals: StateFlow<List<HospitalEntity>> = repo.hospitals
         .map { list -> list.filter { !it.isDemoData && it.status == "ACTIVE" } }
+        .distinctUntilChanged()
         .safeStateIn(SharingStarted.WhileSubscribed(5000), emptyList())
 
     val diagnosticCenters: StateFlow<List<DiagnosticCenterEntity>> = repo.diagnosticCenters
         .map { list -> list.filter { !it.isDemoData && it.status == "ACTIVE" } }
+        .distinctUntilChanged()
         .safeStateIn(SharingStarted.WhileSubscribed(5000), emptyList())
 
     val publicDoctors: StateFlow<List<DoctorFullProfile>> = repo.doctorsFull
@@ -188,6 +185,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 d.copy(chambers = d.chambers.filter { it.chamber.isActive })
             }
         }
+        .distinctUntilChanged()
         .safeStateIn(SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val debouncedSearch: Flow<SearchFilterState> = _searchState.debounce(180)
@@ -247,6 +245,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .safeStateIn(SharingStarted.WhileSubscribed(5000), emptyList())
 
     val notifications: StateFlow<List<NotificationEntity>> = repo.notifications
+        .distinctUntilChanged()
         .safeStateIn(SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
@@ -304,69 +303,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun performFirebaseSync(isInitialBootstrap: Boolean, showToast: Boolean) {
         viewModelScope.launch(exceptionHandler) {
-            syncMutex.withLock {
+            // Skip duplicate overlapping sync requests so the button never re-spins unnecessarily
+            if (!syncMutex.tryLock()) return@launch
+            try {
                 _isSyncing.value = true
                 _syncUiState.update { it.copy(status = AutoSyncStatus.SYNCING, lastError = null) }
-                try {
-                    ConnectivityMonitor.refreshNow(getApplication())
-                    if (isInitialBootstrap) {
-                        val savedCounters = repo.prefs.loadRotationCounters()
-                        FairAdRotationEngine.seedCounters(savedCounters)
-                        AdvertisingRotationEngine.seedCounters(savedCounters)
-                        _authoritativeNowMs.value = repo.prefs.getAuthoritativeNowMs()
-                    }
-                    val result = if (isInitialBootstrap) {
-                        repo.initializeAndSync()
-                    } else {
-                        repo.syncFromAdminCloud()
-                    }
-                    refreshDynamicAdSystem()
-                    refreshFirestoreSliders()
-                    visitorAccount.value?.let { syncVisitorFavoritesFromCloud(it) }
+                ConnectivityMonitor.refreshNow(getApplication())
+                if (isInitialBootstrap) {
+                    val savedCounters = repo.prefs.loadRotationCounters()
+                    FairAdRotationEngine.seedCounters(savedCounters)
+                    AdvertisingRotationEngine.seedCounters(savedCounters)
                     _authoritativeNowMs.value = repo.prefs.getAuthoritativeNowMs()
+                }
+                val result = if (isInitialBootstrap) {
+                    repo.initializeAndSync()
+                } else {
+                    repo.syncFromAdminCloud()
+                }
+                refreshDynamicAdSystem()
+                visitorAccount.value?.let { syncVisitorFavoritesFromCloud(it) }
+                val latestAuthNow = repo.prefs.getAuthoritativeNowMs()
+                if (kotlin.math.abs(latestAuthNow - _authoritativeNowMs.value) >= 60_000L) {
+                    _authoritativeNowMs.value = latestAuthNow
+                }
 
-                    if (result.isSuccess) {
-                        val count = result.getOrDefault(0)
-                        val nowMs = System.currentTimeMillis()
-                        _syncUiState.update {
-                            it.copy(
-                                status = AutoSyncStatus.SUCCESS,
-                                lastSuccessAtMs = maxOf(it.lastSuccessAtMs, nowMs),
-                                lastError = null,
-                                syncedDoctorsCount = count
-                            )
-                        }
-                        if (showToast) {
-                            showMessage(
-                                if (currentLang.value == AppLang.BN) "ডিরেক্টরি আপডেট হয়েছে ($count জন ডাক্তার)"
-                                else "Firebase synced ($count doctors)"
-                            )
-                        }
-                    } else {
-                        val errMsg = result.exceptionOrNull()?.message
-                            ?: if (!ConnectivityMonitor.isOnline.value) "No internet connection" else "Sync failed"
-                        if (isInitialBootstrap && !ConnectivityMonitor.isOnline.value) {
-                            repo.prefs.recordLocalOfflineSession()
-                        }
-                        _syncUiState.update {
-                            it.copy(
-                                status = AutoSyncStatus.FAILURE,
-                                lastError = errMsg
-                            )
-                        }
-                        if (showToast) {
-                            showMessage(
-                                if (currentLang.value == AppLang.BN) "সিঙ্ক ব্যর্থ হয়েছে — লোকাল ডাটা দেখানো হচ্ছে"
-                                else "Sync failed — showing cached data"
-                            )
-                        }
+                if (result.isSuccess) {
+                    val count = result.getOrDefault(0)
+                    val nowMs = System.currentTimeMillis()
+                    _syncUiState.update {
+                        it.copy(
+                            status = AutoSyncStatus.SUCCESS,
+                            lastSuccessAtMs = maxOf(it.lastSuccessAtMs, nowMs),
+                            lastError = null,
+                            syncedDoctorsCount = count
+                        )
                     }
-                } catch (t: Throwable) {
-                    Log.w("MainViewModel", "Firebase sync warning: ${t.message}")
+                    if (showToast) {
+                        showMessage(
+                            if (currentLang.value == AppLang.BN) "ডিরেক্টরি আপডেট হয়েছে ($count জন ডাক্তার)"
+                            else "Firebase synced ($count doctors)"
+                        )
+                    }
+                } else {
+                    val errMsg = result.exceptionOrNull()?.message
+                        ?: if (!ConnectivityMonitor.isOnline.value) "No internet connection" else "Sync failed"
+                    if (isInitialBootstrap && !ConnectivityMonitor.isOnline.value) {
+                        repo.prefs.recordLocalOfflineSession()
+                    }
                     _syncUiState.update {
                         it.copy(
                             status = AutoSyncStatus.FAILURE,
-                            lastError = t.message ?: "Unexpected sync error"
+                            lastError = errMsg
                         )
                     }
                     if (showToast) {
@@ -375,9 +362,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             else "Sync failed — showing cached data"
                         )
                     }
-                } finally {
-                    _isSyncing.value = false
                 }
+            } catch (t: Throwable) {
+                Log.w("MainViewModel", "Firebase sync warning: ${t.message}")
+                _syncUiState.update {
+                    it.copy(
+                        status = AutoSyncStatus.FAILURE,
+                        lastError = t.message ?: "Unexpected sync error"
+                    )
+                }
+                if (showToast) {
+                    showMessage(
+                        if (currentLang.value == AppLang.BN) "সিঙ্ক ব্যর্থ হয়েছে — লোকাল ডাটা দেখানো হচ্ছে"
+                        else "Sync failed — showing cached data"
+                    )
+                }
+            } finally {
+                _isSyncing.value = false
+                syncMutex.unlock()
             }
         }
     }
@@ -389,94 +391,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun refreshDynamicAdSystem() {
-        _dynamicPackages.value = emptyList()
-        _managedCampaigns.value = emptyList()
+        if (_dynamicPackages.value.isNotEmpty()) _dynamicPackages.value = emptyList()
+        if (_managedCampaigns.value.isNotEmpty()) _managedCampaigns.value = emptyList()
         if (!ConnectivityMonitor.isOnline.value) return
         AdvertisingRemoteService.fetchPublicSnapshot()
             .onSuccess { snapshot ->
                 val mergedCounters = repo.prefs.loadRotationCounters() +
                     AdvertisingRotationEngine.snapshotCounters()
                 repo.prefs.saveRotationCounters(mergedCounters)
-                _adSnapshot.value = snapshot
-                _authoritativeNowMs.value = System.currentTimeMillis()
+                if (_adSnapshot.value != snapshot) {
+                    _adSnapshot.value = snapshot
+                }
             }
             .onFailure { err ->
                 Log.w("MainViewModel", "Advertising snapshot sync warning: ${err.message}")
             }
-    }
-
-    private suspend fun refreshFirestoreSliders(overrideConfig: FirestoreSliderConfig? = null) {
-        val cfg = overrideConfig ?: repo.prefs.firestoreSliderConfig.first()
-        if (!cfg.isConfigured) {
-            _firestoreSliders.value = emptyList()
-            _sliderSyncStatus.value = null
-            return
-        }
-        if (!ConnectivityMonitor.isOnline.value) {
-            _sliderSyncStatus.value = if (currentLang.value == AppLang.BN) {
-                "অফলাইন — সংরক্ষিত/ডেমো স্লাইডার দেখানো হচ্ছে"
-            } else {
-                "Offline — showing cached/demo slides"
-            }
-            return
-        }
-        FirestoreSliderService.fetchActiveSliders(cfg)
-            .onSuccess { items ->
-                _firestoreSliders.value = items
-                _sliderSyncStatus.value = if (items.isNotEmpty()) {
-                    if (currentLang.value == AppLang.BN) {
-                        "Firestore '${cfg.collectionName}' থেকে ${items.size}টি সক্রিয় স্লাইডার লোড হয়েছে"
-                    } else {
-                        "Loaded ${items.size} active slides from Firestore '${cfg.collectionName}'"
-                    }
-                } else {
-                    if (currentLang.value == AppLang.BN) {
-                        "Firestore '${cfg.collectionName}' খালি — ডেমো ডেটাসেট দেখানো হচ্ছে"
-                    } else {
-                        "Firestore '${cfg.collectionName}' returned 0 active slides — showing demo dataset"
-                    }
-                }
-            }
-            .onFailure { err ->
-                Log.w("MainViewModel", "Firestore slider sync warning: ${err.message}")
-                _sliderSyncStatus.value = if (currentLang.value == AppLang.BN) {
-                    "Firestore ত্রুটি: ${err.message ?: "সংযোগ ব্যর্থ"} (ডেমো চালু)"
-                } else {
-                    "Firestore error: ${err.message ?: "connection failed"} (using demo fallback)"
-                }
-            }
-    }
-
-    fun saveFirestoreSliderConfig(projectId: String, apiKey: String, collectionName: String) {
-        viewModelScope.launch(exceptionHandler) {
-            val cleanProject = projectId.trim()
-            val cleanKey = apiKey.trim()
-            val cleanCollection = collectionName.trim().ifBlank { "sliders" }
-            repo.prefs.saveFirestoreSliderConfig(cleanProject, cleanKey, cleanCollection)
-            val cfg = FirestoreSliderConfig(cleanProject, cleanKey, cleanCollection)
-            _isSyncing.value = true
-            try {
-                refreshFirestoreSliders(overrideConfig = cfg)
-                showMessage(
-                    if (currentLang.value == AppLang.BN) "Firebase Firestore স্লাইডার কনফিগারেশন সংরক্ষিত হয়েছে"
-                    else "Firebase Firestore slider configuration saved"
-                )
-            } finally {
-                _isSyncing.value = false
-            }
-        }
-    }
-
-    fun resetFirestoreSliderConfig() {
-        viewModelScope.launch(exceptionHandler) {
-            repo.prefs.clearFirestoreSliderConfig()
-            _firestoreSliders.value = emptyList()
-            _sliderSyncStatus.value = null
-            showMessage(
-                if (currentLang.value == AppLang.BN) "বাংলাদেশ ডেমো স্লাইডার ডেটাসেট চালু হয়েছে"
-                else "Switched to built-in Bangladesh demo dataset"
-            )
-        }
     }
 
     private suspend fun syncVisitorFavoritesFromCloud(user: GoogleUserAccount) {
@@ -763,6 +692,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(exceptionHandler) {
             val next = if (currentLang.value == AppLang.BN) AppLang.EN else AppLang.BN
             repo.prefs.setLanguage(next)
+        }
+    }
+
+    fun setSelectedHomeDistrict(district: String?) {
+        viewModelScope.launch(exceptionHandler) {
+            repo.prefs.setSelectedHomeDistrict(district)
         }
     }
 

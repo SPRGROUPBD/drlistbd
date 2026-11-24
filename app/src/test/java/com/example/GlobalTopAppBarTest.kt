@@ -91,7 +91,7 @@ class GlobalTopAppBarTest {
             district = "Dhaka",
             upazila = "Dhanmondi",
             address = "Dhanmondi, Dhaka",
-            contactNumber = "+88018100010615"
+            contactNumber = "01700000001"
         )
         val diagnostic = DiagnosticCenterEntity(
             id = "diag_101",
@@ -100,7 +100,7 @@ class GlobalTopAppBarTest {
             district = "Dhaka",
             upazila = "Dhanmondi",
             address = "Satmasjid Road, Dhaka",
-            contactNumber = "+8809666787801"
+            contactNumber = "01700000002"
         )
 
         // < 2 characters must NOT return suggestions

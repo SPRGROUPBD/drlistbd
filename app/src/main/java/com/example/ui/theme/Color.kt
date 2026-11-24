@@ -2,9 +2,9 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Light Mint-Teal Medical UI Palette (#F7FAFB background, #EBF7F8 surface, #CBE7EA borders, #0277BD primary blue, #0D9488 medical teal)
-val MedicalBlue = Color(0xFF0277BD)
-val MedicalBlueDark = Color(0xFF01579B)
+// Medical Blue & Teal Palette on Crisp White Canvas
+val MedicalBlue = Color(0xFF0284C7)
+val MedicalBlueDark = Color(0xFF0369A1)
 val MedicalBlueLight = Color(0xFFE0F2FE)
 val MedicalBlueContainer = Color(0xFFBAE6FD)
 
@@ -13,12 +13,9 @@ val MedicalTealDark = Color(0xFF0F766E)
 val MedicalTealLight = Color(0xFFCCFBF1)
 
 val SurfaceWhite = Color(0xFFFFFFFF)
-val BackgroundIce = Color(0xFFF7FAFB)
-val MintCardStart = Color(0xFFF2FAFB)
-val MintCardSurface = Color(0xFFEBF7F8)
-val MintBorder = Color(0xFFCBE7EA)
+val BackgroundIce = Color(0xFFF5F9FC)
 val SurfaceMuted = Color(0xFFF1F5F9)
-val OutlineSoft = Color(0xFFCBE7EA)
+val OutlineSoft = Color(0xFFE2E8F0)
 
 val TextPrimary = Color(0xFF0F172A)
 val TextSecondary = Color(0xFF475569)

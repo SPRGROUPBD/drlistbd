@@ -45,7 +45,6 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           SECRET_STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           SECRET_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
         run: |
           # 1. Debug keystore (decode committed debug.keystore.base64 or generate fallback)
           if [ ! -f debug.keystore ]; then
@@ -88,18 +87,8 @@ jobs:
             echo "Generated signing keystore for release APK build (add KEYSTORE_BASE64, STORE_PASSWORD, KEY_PASSWORD secrets for Play Store uploads)."
           fi
 
-          # 3. Firebase google-services.json (override from secret if provided, else use committed app/google-services.json)
-          if [ -n "$GOOGLE_SERVICES_JSON_BASE64" ]; then
-            echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > app/google-services.json
-            echo "Loaded app/google-services.json from GitHub Secret GOOGLE_SERVICES_JSON_BASE64."
-          elif [ -f app/google-services.json ]; then
-            echo "Using committed app/google-services.json."
-          else
-            echo "::warning::app/google-services.json is missing; Firebase resources will not be generated."
-          fi
-
-          # 4. Ensure .env and .env.example files exist for Secrets Gradle Plugin
-          touch .env .env.example
+          # 3. Ensure .env file exists for Secrets Gradle Plugin
+          touch .env
 
       - name: Build Signed Release APK
         run: |

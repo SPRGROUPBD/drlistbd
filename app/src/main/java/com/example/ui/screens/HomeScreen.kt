@@ -1,19 +1,24 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -37,16 +43,19 @@ import com.example.data.local.SiteSettingsEntity
 import com.example.data.local.SpecialtyEntity
 import com.example.data.local.SponsorEntity
 import com.example.data.model.DoctorFullProfile
-import com.example.data.remote.FirestoreSliderService
-import com.example.data.remote.HomeAutoSliderItem
-import com.example.data.remote.SliderQuickFilter
 import com.example.data.seed.SeedData
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
+import com.example.ui.ads.ManagedNativeBannerAd
+import com.example.ui.ads.NativeSponsorAdCard
 import com.example.ui.ads.PlacementRateCardEngine
+import com.example.ui.ads.PlacementSponsorSlot
+import com.example.ui.ads.ResolvedHomeSliderSlide
+import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.*
 import com.example.ui.theme.*
+import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(
@@ -65,7 +74,12 @@ fun HomeScreen(
     doctors: List<DoctorFullProfile>,
     hospitals: List<HospitalEntity>,
     favoriteIds: Set<String>,
+    selectedHomeDistrict: String? = null,
+    onSelectHomeDistrict: (String?) -> Unit = {},
+    onShowMessage: (String) -> Unit = {},
     onRefreshDirectory: () -> Unit,
+    onToggleLanguage: () -> Unit = {},
+    onOpenNotifications: () -> Unit = {},
     onSearchSubmit: (String) -> Unit,
     onSelectSpecialty: (String) -> Unit,
     onSelectDistrict: (String) -> Unit,
@@ -73,630 +87,767 @@ fun HomeScreen(
     onDoctorClick: (String) -> Unit,
     onNavigateFindDoctors: (availableTodayOnly: Boolean) -> Unit,
     onNavigateFacilitiesTab: (Int) -> Unit,
-    autoSliderSlides: List<HomeAutoSliderItem> = FirestoreSliderService.defaultBangladeshDemoSlides(),
+    onNavigateSavedTab: () -> Unit = {},
+    onNavigateAboutTab: () -> Unit = {},
+    homeSliderSlides: List<ResolvedHomeSliderSlide> = emptyList(),
     homeSliderAutoSlideMs: Long = 4000L,
-    inlineSearchQuery: String = "",
-    onSliderItemVisible: (HomeAutoSliderItem) -> Unit = {},
-    onSliderViewDetails: (HomeAutoSliderItem) -> Unit = {},
+    onHomeSliderVisible: (ResolvedHomeSliderSlide) -> Unit = {},
+    onHomeSliderClick: (ResolvedHomeSliderSlide) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    // Quick-Filter pill selection that filters the Auto Slider in real time
-    var activeQuickFilter by remember { mutableStateOf(SliderQuickFilter.ALL) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val colors = MaterialTheme.colorScheme
+    val isDark = isSystemInDarkTheme()
+    val emeraldGreen = Color(0xFF10B96B)
+    val cardBg = if (isDark) Color(0xFF132131) else SurfaceWhite
+    val cardBorder = if (isDark) Color(0xFF23384F) else Color(0xFFDCE9F5)
 
-    // Space-saving collapsible single-row dropdown state for "বিভাগ অনুযায়ী ৬৪টি জেলা"
-    var isDistrictDropdownExpanded by remember { mutableStateOf(false) }
-    var selectedDivisionEn by remember { mutableStateOf<String?>(null) }
+    var showDistrictPicker by remember { mutableStateOf(false) }
+    var isDetectingLocation by remember { mutableStateOf(false) }
 
-    val displayedDistricts = remember(selectedDivisionEn) {
-        if (selectedDivisionEn == null) {
-            SeedData.allDistricts
-        } else {
-            SeedData.bangladeshDivisions
-                .firstOrNull { it.nameEn == selectedDivisionEn }
-                ?.districts ?: SeedData.allDistricts
+    val activeDistrictInfo = remember(selectedHomeDistrict) {
+        selectedHomeDistrict?.let { sel ->
+            SeedData.allDistricts.firstOrNull { it.nameEn.equals(sel, ignoreCase = true) }
         }
     }
 
-    val filteredSliderItems = remember(autoSliderSlides, activeQuickFilter, inlineSearchQuery) {
-        FirestoreSliderService.filterSlides(
-            slides = autoSliderSlides,
-            quickFilter = activeQuickFilter,
-            searchQuery = inlineSearchQuery
-        )
+    val districtDisplayLabel = remember(activeDistrictInfo, lang) {
+        if (activeDistrictInfo != null) {
+            tr(lang, activeDistrictInfo.nameBn, activeDistrictInfo.nameEn)
+        } else {
+            tr(lang, "সারা বাংলাদেশ", "All Bangladesh")
+        }
     }
 
-    val availableTodayDocs = remember(doctors) { doctors.filter { it.isAvailableToday() }.take(5) }
-    val recentDocs = remember(doctors) { doctors.sortedByDescending { it.doctor.updatedAt }.take(6) }
-    val fallbackFeaturedDoctorSlide = remember(autoSliderSlides) {
-        autoSliderSlides.firstOrNull { it.category == "DOCTOR" }
-            ?: FirestoreSliderService.defaultBangladeshDemoSlides().first()
+    val locationSubLabel = remember(activeDistrictInfo, lang) {
+        if (activeDistrictInfo != null) {
+            tr(lang, "${activeDistrictInfo.nameBn}, বাংলাদেশ", "${activeDistrictInfo.nameEn}, Bangladesh")
+        } else {
+            tr(lang, "৬৪ জেলা, বাংলাদেশ", "64 Districts, Bangladesh")
+        }
+    }
+
+    fun runLocationAutoDetect() {
+        if (isDetectingLocation) return
+        scope.launch {
+            isDetectingLocation = true
+            val detected = DistrictAutoDetector.detectBangladeshDistrict(context)
+            isDetectingLocation = false
+            if (detected != null) {
+                onSelectHomeDistrict(detected.nameEn)
+                onShowMessage(
+                    tr(
+                        lang,
+                        "অবস্থান শনাক্ত হয়েছে: ${detected.nameBn}",
+                        "Location detected: ${detected.nameEn}, Bangladesh"
+                    )
+                )
+            } else {
+                onShowMessage(
+                    tr(
+                        lang,
+                        "স্বয়ংক্রিয়ভাবে জেলা পাওয়া যায়নি — তালিকা থেকে নির্বাচন করুন",
+                        "Could not auto-detect district — please select from list"
+                    )
+                )
+                showDistrictPicker = true
+            }
+        }
+    }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            runLocationAutoDetect()
+        } else {
+            onShowMessage(
+                tr(
+                    lang,
+                    "লোকেশন অনুমতি দেওয়া হয়নি — ম্যানুয়ালি জেলা নির্বাচন করুন",
+                    "Location permission denied — select your district manually"
+                )
+            )
+            showDistrictPicker = true
+        }
+    }
+
+    val availableTodayCount = remember(doctors, selectedHomeDistrict) {
+        val scoped = if (selectedHomeDistrict != null) {
+            val local = doctors.filter { doc ->
+                doc.chambers.any { it.chamber.district.equals(selectedHomeDistrict, ignoreCase = true) }
+            }
+            if (local.isNotEmpty()) local else doctors
+        } else doctors
+        scoped.count { it.isAvailableToday() }
+    }
+
+    val popularDoctors = remember(doctors, selectedHomeDistrict) {
+        doctors.sortedWith(
+            compareByDescending<DoctorFullProfile> { doc ->
+                selectedHomeDistrict != null && doc.chambers.any {
+                    it.chamber.district.equals(selectedHomeDistrict, ignoreCase = true)
+                }
+            }
+                .thenByDescending { it.doctor.isFeatured }
+                .thenByDescending { it.isAvailableToday() }
+                .thenByDescending { it.doctor.updatedAt }
+        ).take(10)
+    }
+
+    val displayedHospitals = remember(hospitals, selectedHomeDistrict) {
+        if (selectedHomeDistrict == null) hospitals.take(6)
+        else {
+            val local = hospitals.filter { it.district.equals(selectedHomeDistrict, ignoreCase = true) }
+            (local + hospitals.filterNot { it.district.equals(selectedHomeDistrict, ignoreCase = true) }).take(6)
+        }
     }
 
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(BackgroundIce),
-        contentPadding = PaddingValues(top = 4.dp, bottom = 20.dp)
+            .background(colors.background)
+            .testTag("home_screen_list"),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 1. COMPACT AUTO SLIDER (Placed Directly Beneath the Top App Bar)
-        item(key = "home_compact_auto_slider_item") {
-            CompactHomeAutoSlider(
-                slides = filteredSliderItems,
-                lang = lang,
-                autoSlideIntervalMs = homeSliderAutoSlideMs,
-                onViewDetails = onSliderViewDetails,
-                onSlideVisible = onSliderItemVisible,
-                onClearFilter = if (activeQuickFilter != SliderQuickFilter.ALL) {
-                    { activeQuickFilter = SliderQuickFilter.ALL }
-                } else null
-            )
-        }
-
-        // 2. QUICK-FILTER PILLS ROW (Filters the Auto Slider on tap)
-        item(key = "home_quick_filter_pills") {
-            Spacer(Modifier.height(4.dp))
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.testTag("home_quick_filter_row")
+        // 1. TOP DISTRICT SELECTOR PILL BAR (matches mockup: Pin + District v | Emerald "Change" pill)
+        item(key = "home_district_bar") {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp)
+                    .clickable { showDistrictPicker = true }
+                    .testTag("home_district_selector_bar"),
+                shape = RoundedCornerShape(16.dp),
+                color = if (isDark) Color(0xFF132232) else Color(0xFFEAF4FB),
+                border = BorderStroke(1.dp, cardBorder)
             ) {
-                item {
-                    QuickFilterPill(
-                        icon = Icons.Rounded.EventAvailable,
-                        label = tr(lang, "আজ বসবেন", "Sitting Today"),
-                        selected = activeQuickFilter == SliderQuickFilter.TODAY,
-                        accentColor = EmeraldAvailable,
-                        onClick = {
-                            activeQuickFilter = if (activeQuickFilter == SliderQuickFilter.TODAY) {
-                                SliderQuickFilter.ALL
-                            } else {
-                                SliderQuickFilter.TODAY
-                            }
-                        },
-                        modifier = Modifier.testTag("quick_filter_today")
-                    )
-                }
-                item {
-                    QuickFilterPill(
-                        icon = Icons.Rounded.Schedule,
-                        label = tr(lang, "চেম্বার সময়সূচী", "Chamber Schedule"),
-                        selected = activeQuickFilter == SliderQuickFilter.SCHEDULE,
-                        accentColor = MedicalBlue,
-                        onClick = {
-                            activeQuickFilter = if (activeQuickFilter == SliderQuickFilter.SCHEDULE) {
-                                SliderQuickFilter.ALL
-                            } else {
-                                SliderQuickFilter.SCHEDULE
-                            }
-                        },
-                        modifier = Modifier.testTag("quick_filter_schedule")
-                    )
-                }
-                item {
-                    QuickFilterPill(
-                        icon = Icons.Rounded.LocalHospital,
-                        label = tr(lang, "হাসপাতাল", "Hospitals"),
-                        selected = activeQuickFilter == SliderQuickFilter.HOSPITAL,
-                        accentColor = MedicalTeal,
-                        onClick = {
-                            activeQuickFilter = if (activeQuickFilter == SliderQuickFilter.HOSPITAL) {
-                                SliderQuickFilter.ALL
-                            } else {
-                                SliderQuickFilter.HOSPITAL
-                            }
-                        },
-                        modifier = Modifier.testTag("quick_filter_hospital")
-                    )
-                }
-                item {
-                    QuickFilterPill(
-                        icon = Icons.Rounded.Biotech,
-                        label = tr(lang, "ডায়াগনস্টিক", "Diagnostics"),
-                        selected = activeQuickFilter == SliderQuickFilter.DIAGNOSTIC,
-                        accentColor = MedicalBlueDark,
-                        onClick = {
-                            activeQuickFilter = if (activeQuickFilter == SliderQuickFilter.DIAGNOSTIC) {
-                                SliderQuickFilter.ALL
-                            } else {
-                                SliderQuickFilter.DIAGNOSTIC
-                            }
-                        },
-                        modifier = Modifier.testTag("quick_filter_diagnostic")
-                    )
-                }
-                item {
-                    QuickFilterPill(
-                        icon = Icons.Rounded.Campaign,
-                        label = tr(lang, "বিজ্ঞপ্তি", "Notices"),
-                        selected = activeQuickFilter == SliderQuickFilter.NOTICE,
-                        accentColor = AmberPending,
-                        onClick = {
-                            activeQuickFilter = if (activeQuickFilter == SliderQuickFilter.NOTICE) {
-                                SliderQuickFilter.ALL
-                            } else {
-                                SliderQuickFilter.NOTICE
-                            }
-                        },
-                        modifier = Modifier.testTag("quick_filter_notice")
-                    )
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-        }
-
-        // 3. "চিকিৎসা বিশেষজ্ঞতা" (Ultra-Compact Medical Specialties: 96.dp wide, 32x32.dp icon box)
-        item(key = "home_compact_specialties") {
-            CompactHomeSectionHeader(
-                title = AppStrings.specialties(lang),
-                actionLabel = AppStrings.allLabel(lang),
-                onAction = { onNavigateFacilitiesTab(2) }
-            )
-            Spacer(Modifier.height(6.dp))
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.testTag("home_compact_specialty_row")
-            ) {
-                items(specialties, key = { it.id }) { spec ->
-                    Surface(
-                        onClick = { onSelectSpecialty(spec.id) },
-                        shape = RoundedCornerShape(12.dp),
-                        color = SurfaceWhite,
-                        border = BorderStroke(1.dp, MintBorder),
-                        modifier = Modifier
-                            .width(96.dp)
-                            .testTag("compact_specialty_card_${spec.id}")
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                        Icon(
+                            imageVector = Icons.Rounded.LocationOn,
+                            contentDescription = null,
+                            tint = emeraldGreen,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = districtDisplayLabel,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Icon(
+                            imageVector = Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = emeraldGreen,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    Surface(
+                        onClick = { showDistrictPicker = true },
+                        shape = RoundedCornerShape(50),
+                        color = emeraldGreen,
+                        modifier = Modifier
+                            .heightIn(min = 34.dp)
+                            .testTag("home_district_change_btn")
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            SpecialtyIconBadge(
-                                specialty = spec,
-                                contentDescription = tr(lang, spec.nameBn, spec.nameEn),
-                                selected = false,
-                                size = 32.dp,
-                                iconSize = 18.dp,
-                                cornerRadius = 8.dp
-                            )
-                            Spacer(Modifier.height(5.dp))
                             Text(
-                                text = tr(lang, spec.nameBn, spec.nameEn),
-                                fontSize = 11.sp,
-                                lineHeight = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = TextPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center
+                                text = tr(lang, "পরিবর্তন", "Change"),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
                             )
                         }
                     }
                 }
             }
-            Spacer(Modifier.height(10.dp))
         }
 
-        // 4. "বিভাগ অনুযায়ী ৬৪টি জেলা" (Space-Saving Collapsible Single-Row Dropdown Bar)
-        item(key = "home_64_districts_collapsible") {
+        // 2. HERO MEDICAL BANNER / AUTO SLIDER + PAGINATION DOTS
+        item(key = "home_hero_slider") {
+            HomeHeroBannerSlider(
+                slides = homeSliderSlides,
+                autoSlideIntervalMs = homeSliderAutoSlideMs,
+                lang = lang,
+                onSlideVisible = onHomeSliderVisible,
+                onSlideClick = onHomeSliderClick,
+                onFindDoctorClick = { onNavigateFindDoctors(false) }
+            )
+        }
+
+        // 3. "YOUR LOCATION" CARD WITH WORKING "AUTO DETECT" BUTTON
+        item(key = "home_your_location_card") {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp),
-                shape = RoundedCornerShape(14.dp),
-                color = SurfaceWhite,
-                border = BorderStroke(1.dp, MintBorder)
+                    .padding(horizontal = 14.dp)
+                    .clickable {
+                        if (activeDistrictInfo != null) {
+                            onSelectDistrict(activeDistrictInfo.nameEn)
+                        } else {
+                            showDistrictPicker = true
+                        }
+                    }
+                    .testTag("home_your_location_card"),
+                shape = RoundedCornerShape(18.dp),
+                color = cardBg,
+                border = BorderStroke(1.dp, cardBorder)
             ) {
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 34.dp)
-                            .clickable { isDistrictDropdownExpanded = !isDistrictDropdownExpanded }
-                            .testTag("home_district_dropdown_bar"),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.LocationOn,
-                                contentDescription = null,
-                                tint = MedicalTeal,
-                                modifier = Modifier.size(17.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Rounded.LocationOn,
+                            contentDescription = null,
+                            tint = emeraldGreen,
+                            modifier = Modifier.size(30.dp)
+                        )
+                        Column {
                             Text(
-                                text = tr(lang, "বিভাগ অনুযায়ী ৬৪টি জেলা", "64 Districts by Division"),
-                                fontSize = 13.sp,
+                                text = tr(lang, "আপনার অবস্থান", "Your Location"),
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = TextPrimary,
+                                color = colors.onSurface
+                            )
+                            Text(
+                                text = locationSubLabel,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
+                    }
 
+                    Spacer(Modifier.width(8.dp))
+
+                    Surface(
+                        onClick = {
+                            if (DistrictAutoDetector.hasLocationPermission(context)) {
+                                runLocationAutoDetect()
+                            } else {
+                                locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                            }
+                        },
+                        shape = RoundedCornerShape(50),
+                        color = if (isDark) emeraldGreen else Color(0xFFCFF7E2),
+                        modifier = Modifier
+                            .heightIn(min = 36.dp)
+                            .testTag("home_auto_detect_btn")
+                    ) {
                         Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            StatusPill(
-                                text = tr(lang, "৮ বিভাগ • ৬৪ জেলা", "8 Div • 64 Dist"),
-                                bgColor = MintCardSurface,
-                                textColor = MedicalTealDark
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(26.dp)
-                                    .clip(CircleShape)
-                                    .background(BackgroundIce),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = if (isDistrictDropdownExpanded) {
-                                        Icons.Rounded.KeyboardArrowUp
-                                    } else {
-                                        Icons.Rounded.KeyboardArrowDown
-                                    },
-                                    contentDescription = tr(lang, "জেলা তালিকা", "Toggle Districts"),
-                                    tint = MedicalBlue,
-                                    modifier = Modifier.size(18.dp)
+                            if (isDetectingLocation) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 2.dp,
+                                    color = if (isDark) Color.White else Color(0xFF0A663B)
                                 )
                             }
-                        }
-                    }
-
-                    AnimatedVisibility(
-                        visible = isDistrictDropdownExpanded,
-                        enter = expandVertically(),
-                        exit = shrinkVertically()
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp)
-                        ) {
-                            HorizontalDivider(color = MintBorder, thickness = 1.dp)
-                            Spacer(Modifier.height(8.dp))
-
-                            // 8 Division Pills
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.testTag("home_division_row")
-                            ) {
-                                item {
-                                    FilterChip(
-                                        selected = selectedDivisionEn == null,
-                                        onClick = { selectedDivisionEn = null },
-                                        modifier = Modifier.height(32.dp),
-                                        label = {
-                                            Text(
-                                                text = tr(lang, "সব বিভাগ (৬৪)", "All (64)"),
-                                                fontSize = 11.sp
-                                            )
-                                        },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = MedicalBlue,
-                                            selectedLabelColor = Color.White,
-                                            containerColor = MintCardStart
-                                        )
-                                    )
-                                }
-                                items(SeedData.bangladeshDivisions, key = { it.nameEn }) { div ->
-                                    val label = tr(
-                                        lang,
-                                        "${div.nameBn.removeSuffix(" বিভাগ")} (${div.districts.size})",
-                                        "${div.nameEn} (${div.districts.size})"
-                                    )
-                                    FilterChip(
-                                        selected = selectedDivisionEn == div.nameEn,
-                                        onClick = {
-                                            selectedDivisionEn = if (selectedDivisionEn == div.nameEn) null else div.nameEn
-                                        },
-                                        modifier = Modifier.height(32.dp),
-                                        label = { Text(label, fontSize = 11.sp) },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = MedicalBlue,
-                                            selectedLabelColor = Color.White,
-                                            containerColor = MintCardStart
-                                        )
-                                    )
-                                }
-                            }
-
-                            Spacer(Modifier.height(6.dp))
-
-                            // Matching District Chips — collapses automatically upon selection
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.testTag("home_district_row")
-                            ) {
-                                items(displayedDistricts, key = { "${it.divisionEn}_${it.nameEn}" }) { dist ->
-                                    FilterChip(
-                                        selected = false,
-                                        onClick = {
-                                            isDistrictDropdownExpanded = false
-                                            onSelectDistrict(dist.nameEn)
-                                        },
-                                        modifier = Modifier.height(32.dp),
-                                        label = {
-                                            Text(
-                                                text = tr(lang, dist.nameBn, dist.nameEn),
-                                                fontSize = 11.sp
-                                            )
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Outlined.LocationOn,
-                                                contentDescription = null,
-                                                tint = MedicalTeal,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                        },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            containerColor = SurfaceWhite
-                                        )
-                                    )
-                                }
-                            }
+                            Text(
+                                text = if (isDetectingLocation) {
+                                    tr(lang, "খোঁজা হচ্ছে...", "Detecting...")
+                                } else {
+                                    tr(lang, "অটো শনাক্ত", "Auto Detect")
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isDark) Color.White else Color(0xFF0A4D2E)
+                            )
                         }
                     }
                 }
             }
-            Spacer(Modifier.height(10.dp))
         }
 
-        // 5. "আজ বসবেন" (Sitting Today) — Compact Featured Doctor Card with chamber location & green status pill
-        item(key = "home_sitting_today_header") {
-            CompactHomeSectionHeader(
-                title = AppStrings.availableToday(lang),
-                actionLabel = AppStrings.allLabel(lang),
-                onAction = { onNavigateFindDoctors(true) }
-            )
-            Spacer(Modifier.height(6.dp))
-        }
+        // 4. QUICK SERVICES (4-TILE ROW: Doctors, Hospitals, Diagnostics, Chambers)
+        item(key = "home_quick_services") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                HomeSectionHeading(
+                    icon = Icons.Rounded.GridView,
+                    title = tr(lang, "দ্রুত সেবা", "Quick Services"),
+                    actionLabel = tr(lang, "সব দেখুন", "View All"),
+                    onAction = { onNavigateFacilitiesTab(0) }
+                )
 
-        if (availableTodayDocs.isNotEmpty()) {
-            items(availableTodayDocs, key = { "today_${it.doctor.id}" }) { doc ->
-                val primaryChamber = doc.chambers.firstOrNull { it.chamber.isActive }?.chamber
-                val chamberLocation = primaryChamber?.let {
-                    listOf(it.facilityName, it.upazila.ifBlank { it.locationArea }, it.district)
-                        .filter { p -> p.isNotBlank() }
-                        .joinToString(", ")
-                }?.ifBlank { doc.doctor.currentHospital } ?: doc.doctor.currentHospital
-
-                CompactSittingTodayDoctorCard(
-                    name = tr(lang, doc.doctor.fullNameBn, doc.doctor.fullNameEn),
-                    subtitle = listOf(
-                        doc.specialty?.let { tr(lang, it.nameBn, it.nameEn) }.orEmpty(),
-                        doc.doctor.qualification
-                    ).filter { it.isNotBlank() }.joinToString(" • "),
-                    chamberLocation = chamberLocation.ifBlank { tr(lang, "বাংলাদেশ", "Bangladesh") },
-                    imageUrl = doc.doctor.photoUrl,
-                    statusLabel = AppStrings.availableToday(lang),
-                    onClick = { onDoctorClick(doc.doctor.id) },
+                Row(
                     modifier = Modifier
-                        .padding(horizontal = 14.dp, vertical = 4.dp)
-                        .testTag("sitting_today_card_${doc.doctor.id}")
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    QuickServiceTile(
+                        icon = Icons.Rounded.MedicalServices,
+                        label = tr(lang, "ডাক্তার", "Doctors"),
+                        iconTint = if (isDark) Color(0xFF38BDF8) else Color(0xFF0284C7),
+                        cardBg = cardBg,
+                        cardBorder = cardBorder,
+                        onClick = { onNavigateFindDoctors(false) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("quick_service_doctors")
+                    )
+                    QuickServiceTile(
+                        icon = Icons.Rounded.LocalHospital,
+                        label = tr(lang, "হাসপাতাল", "Hospitals"),
+                        iconTint = if (isDark) Color(0xFF2DD4BF) else Color(0xFF0284C7),
+                        cardBg = cardBg,
+                        cardBorder = cardBorder,
+                        onClick = { onNavigateFacilitiesTab(0) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("quick_service_hospitals")
+                    )
+                    QuickServiceTile(
+                        icon = Icons.Rounded.Biotech,
+                        label = tr(lang, "ডায়াগনস্টিক", "Diagnostics"),
+                        iconTint = if (isDark) Color(0xFF60A5FA) else Color(0xFF0369A1),
+                        cardBg = cardBg,
+                        cardBorder = cardBorder,
+                        onClick = { onNavigateFacilitiesTab(1) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("quick_service_diagnostics")
+                    )
+                    QuickServiceTile(
+                        icon = Icons.Rounded.EventNote,
+                        label = tr(lang, "চেম্বার", "Chambers"),
+                        iconTint = if (isDark) Color(0xFF38BDF8) else Color(0xFF0284C7),
+                        cardBg = cardBg,
+                        cardBorder = cardBorder,
+                        onClick = { onNavigateFacilitiesTab(3) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("quick_service_chambers")
+                    )
+                }
+            }
+        }
+
+        // 5. TODAY'S CHAMBER SCHEDULE HIGHLIGHT BANNER CARD
+        item(key = "home_todays_chamber_banner") {
+            val bannerBrush = if (isDark) {
+                Brush.horizontalGradient(listOf(Color(0xFF0C3625), Color(0xFF104932)))
+            } else {
+                Brush.horizontalGradient(listOf(Color(0xFFE7FCEF), Color(0xFFBAF4D3)))
+            }
+            val bannerBorder = if (isDark) emeraldGreen.copy(alpha = 0.7f) else Color(0xFFA7EBC4)
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(bannerBrush)
+                    .border(1.dp, bannerBorder, RoundedCornerShape(16.dp))
+                    .clickable { onNavigateFindDoctors(true) }
+                    .padding(horizontal = 14.dp, vertical = 13.dp)
+                    .testTag("home_todays_chamber_card")
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(emeraldGreen.copy(alpha = if (isDark) 0.22f else 0.16f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.CalendarMonth,
+                                contentDescription = null,
+                                tint = emeraldGreen,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = tr(lang, "আজকের চেম্বার সময়সূচী", "Today's Chamber Schedule"),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = if (isDark) Color.White else Color(0xFF0B253A)
+                            )
+                            Text(
+                                text = if (availableTodayCount > 0) {
+                                    tr(
+                                        lang,
+                                        "আজ আপনার এলাকায় $availableTodayCount জন ডাক্তার বসছেন।",
+                                        "$availableTodayCount doctors available today in your area."
+                                    )
+                                } else {
+                                    tr(
+                                        lang,
+                                        "আপনার এলাকায় আজ যেসব ডাক্তার বসছেন।",
+                                        "Doctors available today in your area."
+                                    )
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isDark) Color(0xFFC8EBD7) else Color(0xFF284B3C),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = if (isDark) Color.White else emeraldGreen,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+        }
+
+        // Preserved HOME-02 / Native Sponsor Slot
+        item(key = "home_slot_02") {
+            val hasHome02 = remember(sponsors, rateCards, nowMs / 60_000L) {
+                adConfig.adsEnabled && PlacementRateCardEngine.selectSponsorForPlacement(
+                    sponsors = sponsors,
+                    rateCards = rateCards,
+                    placementId = PlacementRateCardEngine.HOME_02,
+                    nowMs = nowMs
+                ) != null
+            }
+            if (hasHome02) {
+                PlacementSponsorSlot(
+                    placementId = PlacementRateCardEngine.HOME_02,
+                    sponsors = sponsors,
+                    rateCards = rateCards,
+                    adConfig = adConfig,
+                    isOnline = isOnline,
+                    nowMs = nowMs,
+                    lang = lang,
+                    onSponsorDisplayed = onSponsorDisplayed,
+                    onSponsorClicked = onSponsorClicked,
+                    modifier = Modifier.padding(horizontal = 14.dp)
+                )
+            } else if (adConfig.adsEnabled && adConfig.nativeSponsorEnabled) {
+                NativeSponsorAdCard(
+                    sponsors = sponsors,
+                    adConfig = adConfig,
+                    pageKey = SponsorCampaignSelector.PAGE_HOME,
+                    slotIndex = 0,
+                    isOnline = isOnline,
+                    nowMs = nowMs,
+                    lang = lang,
+                    onSponsorDisplayed = onSponsorDisplayed,
+                    onSponsorClicked = onSponsorClicked,
+                    enforce300x200 = true,
+                    modifier = Modifier.padding(horizontal = 14.dp)
+                )
+            }
+        }
+
+        // 6. MEDICAL SPECIALISTS HORIZONTAL STRIP (Colorful icons + Firebase custom iconUrl support)
+        item(key = "home_medical_specialists") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                HomeSectionHeading(
+                    icon = Icons.Rounded.Star,
+                    title = tr(lang, "চিকিৎসা বিশেষজ্ঞতা", "Medical Specialists"),
+                    actionLabel = tr(lang, "সব দেখুন", "View All"),
+                    onAction = { onNavigateFacilitiesTab(2) }
+                )
+
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.testTag("home_specialists_row")
+                ) {
+                    items(specialties, key = { it.id }) { spec ->
+                        HomeSpecialtyTile(
+                            specialty = spec,
+                            lang = lang,
+                            isDark = isDark,
+                            cardBg = cardBg,
+                            cardBorder = cardBorder,
+                            onClick = { onSelectSpecialty(spec.id) }
+                        )
+                    }
+                }
+
+                PlacementSponsorSlot(
+                    placementId = PlacementRateCardEngine.HOME_06,
+                    sponsors = sponsors,
+                    rateCards = rateCards,
+                    adConfig = adConfig,
+                    isOnline = isOnline,
+                    nowMs = nowMs,
+                    lang = lang,
+                    onSponsorDisplayed = onSponsorDisplayed,
+                    onSponsorClicked = onSponsorClicked,
+                    modifier = Modifier.padding(horizontal = 14.dp)
+                )
+            }
+        }
+
+        if (isOnline && adConfig.adsEnabled && adConfig.nativeBannerEnabled) {
+            item(key = "home_mid_native") {
+                ManagedNativeBannerAd(
+                    adConfig = adConfig,
+                    isOnline = isOnline,
+                    refreshKey = "home_mid",
+                    modifier = Modifier.padding(horizontal = 14.dp)
+                )
+            }
+        }
+
+        // 7. POPULAR DOCTORS SECTION (Matches mockup card style: Photo, Bold Name, Degree, Emerald Hospital/Location Pill, >)
+        item(key = "home_popular_doctors_header") {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                HomeSectionHeading(
+                    icon = Icons.Rounded.Groups,
+                    title = tr(lang, "জনপ্রিয় ডাক্তারবৃন্দ", "Popular Doctors"),
+                    actionLabel = tr(lang, "সব দেখুন", "View All"),
+                    onAction = { onNavigateFindDoctors(false) }
+                )
+                PlacementSponsorSlot(
+                    placementId = PlacementRateCardEngine.HOME_03,
+                    sponsors = sponsors,
+                    rateCards = rateCards,
+                    adConfig = adConfig,
+                    isOnline = isOnline,
+                    nowMs = nowMs,
+                    lang = lang,
+                    onSponsorDisplayed = onSponsorDisplayed,
+                    onSponsorClicked = onSponsorClicked,
+                    modifier = Modifier.padding(horizontal = 14.dp)
+                )
+            }
+        }
+
+        if (popularDoctors.isEmpty()) {
+            item(key = "home_doctors_empty") {
+                EmptyStateCard(
+                    icon = Icons.Outlined.MedicalServices,
+                    title = tr(lang, "এখনো কোনো ডাক্তার যুক্ত করা হয়নি", "No Doctors Listed Yet"),
+                    subtitle = tr(
+                        lang,
+                        "অ্যাডমিন প্যানেল থেকে ডাক্তার ও চেম্বার যুক্ত করার সাথে সাথে এখানে প্রদর্শিত হবে।",
+                        "Doctors and chamber schedules published by the administrator will appear here automatically."
+                    ),
+                    actionText = tr(lang, "তথ্য রিফ্রেশ করুন", "Refresh Directory"),
+                    onAction = onRefreshDirectory
                 )
             }
         } else {
-            item(key = "sitting_today_featured_demo") {
-                CompactSittingTodayDoctorCard(
-                    name = fallbackFeaturedDoctorSlide.displayName(lang),
-                    subtitle = listOf(
-                        fallbackFeaturedDoctorSlide.displaySpecialty(lang),
-                        fallbackFeaturedDoctorSlide.displayDesignation(lang)
-                    ).filter { it.isNotBlank() }.joinToString(" • "),
-                    chamberLocation = fallbackFeaturedDoctorSlide.displayAddress(lang),
-                    imageUrl = fallbackFeaturedDoctorSlide.imageUrl,
-                    statusLabel = AppStrings.availableToday(lang),
-                    onClick = { onSliderViewDetails(fallbackFeaturedDoctorSlide) },
-                    modifier = Modifier
-                        .padding(horizontal = 14.dp, vertical = 4.dp)
-                        .testTag("sitting_today_featured_card")
-                )
-            }
-        }
-
-        // Specialist Doctors (when live directory has records)
-        if (doctors.isNotEmpty()) {
-            item(key = "home_specialist_doctors_header") {
-                Spacer(Modifier.height(10.dp))
-                CompactHomeSectionHeader(
-                    title = tr(lang, "বিশেষজ্ঞ ডাক্তারবৃন্দ", "Specialist Doctors"),
-                    actionLabel = AppStrings.allLabel(lang),
-                    onAction = { onNavigateFindDoctors(false) }
-                )
-                Spacer(Modifier.height(6.dp))
-            }
-            items(doctors.take(8), key = { "dir_${it.doctor.id}" }) { doc ->
-                DoctorCard(
+            itemsIndexed(popularDoctors, key = { _, it -> "popular_${it.doctor.id}" }) { index, doc ->
+                PopularDoctorCompactCard(
                     item = doc,
                     lang = lang,
+                    isDark = isDark,
+                    cardBg = cardBg,
+                    cardBorder = cardBorder,
                     isFavorite = doc.doctor.id in favoriteIds,
                     onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
                     onClick = { onDoctorClick(doc.doctor.id) },
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp)
+                    modifier = Modifier.padding(horizontal = 14.dp)
                 )
-            }
-        }
 
-        // Recently Updated Doctors
-        if (recentDocs.isNotEmpty()) {
-            item(key = "home_recent_doctors") {
-                Spacer(Modifier.height(10.dp))
-                CompactHomeSectionHeader(
-                    title = AppStrings.recentlyUpdatedDoctors(lang),
-                    actionLabel = AppStrings.allLabel(lang),
-                    onAction = { onNavigateFindDoctors(false) }
-                )
-                Spacer(Modifier.height(6.dp))
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(recentDocs, key = { "rec_${it.doctor.id}" }) { doc ->
-                        Surface(
-                            onClick = { onDoctorClick(doc.doctor.id) },
-                            shape = RoundedCornerShape(14.dp),
-                            color = SurfaceWhite,
-                            border = BorderStroke(1.dp, MintBorder),
-                            modifier = Modifier.width(205.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ExternalImageAvatar(
-                                    imageUrl = doc.doctor.photoUrl,
-                                    contentDescription = tr(lang, doc.doctor.fullNameBn, doc.doctor.fullNameEn),
-                                    fallbackIcon = Icons.Rounded.Person,
-                                    size = 42.dp,
-                                    shape = RoundedCornerShape(10.dp)
-                                )
-                                Spacer(Modifier.width(10.dp))
-                                Column {
-                                    Text(
-                                        text = tr(lang, doc.doctor.fullNameBn, doc.doctor.fullNameEn),
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = doc.specialty?.let { tr(lang, it.nameBn, it.nameEn) } ?: "",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MedicalBlue,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
+                if (SponsorCampaignSelector.shouldInsertNativeAfterDoctorCard(index) && adConfig.adsEnabled) {
+                    val slot = 1 + SponsorCampaignSelector.nativeSlotIndexForDoctorCard(index)
+                    val hasDirectNative = remember(sponsors, adConfig, slot, nowMs / 60_000L) {
+                        adConfig.nativeSponsorEnabled &&
+                            SponsorCampaignSelector.selectNativeSponsorForSlot(
+                                sponsors = sponsors,
+                                pageKey = SponsorCampaignSelector.PAGE_HOME,
+                                slotIndex = slot,
+                                nowMs = nowMs
+                            ) != null
+                    }
+                    if (hasDirectNative) {
+                        NativeSponsorAdCard(
+                            sponsors = sponsors,
+                            adConfig = adConfig,
+                            pageKey = SponsorCampaignSelector.PAGE_HOME,
+                            slotIndex = slot,
+                            isOnline = isOnline,
+                            nowMs = nowMs,
+                            lang = lang,
+                            onSponsorDisplayed = onSponsorDisplayed,
+                            onSponsorClicked = onSponsorClicked,
+                            enforce300x200 = true,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)
+                        )
+                    } else if (isOnline && adConfig.nativeBannerEnabled) {
+                        ManagedNativeBannerAd(
+                            adConfig = adConfig,
+                            isOnline = isOnline,
+                            refreshKey = "home_dir_native_$slot",
+                            enforce300x200 = true,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)
+                        )
                     }
                 }
             }
         }
 
-        // Popular Hospitals
-        if (hospitals.isNotEmpty()) {
+        // 8. POPULAR HOSPITALS (Preserved directory section)
+        if (displayedHospitals.isNotEmpty()) {
             item(key = "home_popular_hospitals") {
-                Spacer(Modifier.height(12.dp))
-                CompactHomeSectionHeader(
-                    title = AppStrings.popularHospitals(lang),
-                    actionLabel = AppStrings.allLabel(lang),
-                    onAction = { onNavigateFacilitiesTab(0) }
-                )
-                Spacer(Modifier.height(6.dp))
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(hospitals.take(6), key = { it.id }) { hosp ->
-                        Surface(
-                            onClick = { onNavigateFacilitiesTab(0) },
-                            shape = RoundedCornerShape(14.dp),
-                            color = SurfaceWhite,
-                            border = BorderStroke(1.dp, MintBorder),
-                            modifier = Modifier.width(220.dp)
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    HomeSectionHeading(
+                        icon = Icons.Rounded.LocalHospital,
+                        title = AppStrings.popularHospitals(lang),
+                        actionLabel = tr(lang, "সব দেখুন", "View All"),
+                        onAction = { onNavigateFacilitiesTab(0) }
+                    )
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(displayedHospitals, key = { it.id }) { hosp ->
+                            Surface(
+                                modifier = Modifier
+                                    .width(228.dp)
+                                    .clickable { onNavigateFacilitiesTab(0) },
+                                shape = RoundedCornerShape(16.dp),
+                                color = cardBg,
+                                border = BorderStroke(1.dp, cardBorder)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(11.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
                                     ExternalImageAvatar(
                                         imageUrl = hosp.imageUrl,
                                         contentDescription = tr(lang, hosp.nameBn, hosp.nameEn),
                                         fallbackIcon = Icons.Rounded.LocalHospital,
-                                        size = 40.dp,
-                                        shape = RoundedCornerShape(10.dp)
+                                        size = 44.dp,
+                                        shape = RoundedCornerShape(12.dp)
                                     )
-                                    Spacer(Modifier.width(8.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = tr(lang, hosp.nameBn, hosp.nameEn),
                                             style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.SemiBold,
+                                            fontWeight = FontWeight.Bold,
+                                            color = colors.onSurface,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            text = "${hosp.upazila}, ${hosp.district}",
+                                            text = listOf(hosp.upazila, hosp.district).filter { it.isNotBlank() }.joinToString(", "),
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = MedicalTealDark,
+                                            color = emeraldGreen,
+                                            fontWeight = FontWeight.SemiBold,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
-                                if (hosp.address.isNotBlank()) {
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(
-                                        text = hosp.address,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = TextSecondary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
-}
 
-@Composable
-private fun QuickFilterPill(
-    icon: ImageVector,
-    label: String,
-    selected: Boolean,
-    accentColor: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(50),
-        color = if (selected) MedicalBlue else SurfaceWhite,
-        border = BorderStroke(1.dp, if (selected) MedicalBlue else MintBorder),
-        modifier = modifier
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (selected) Color.White else accentColor,
-                modifier = Modifier.size(15.dp)
-            )
-            Text(
-                text = label,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = if (selected) Color.White else TextPrimary,
-                maxLines = 1
-            )
+        // Preserved bottom sponsor placements (HOME-04, HOME-05, HOME-07)
+        if (adConfig.adsEnabled) {
+            item(key = "home_bottom_placements") {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    PlacementSponsorSlot(
+                        placementId = PlacementRateCardEngine.HOME_04,
+                        sponsors = sponsors,
+                        rateCards = rateCards,
+                        adConfig = adConfig,
+                        isOnline = isOnline,
+                        nowMs = nowMs,
+                        lang = lang,
+                        onSponsorDisplayed = onSponsorDisplayed,
+                        onSponsorClicked = onSponsorClicked,
+                        modifier = Modifier.padding(horizontal = 14.dp)
+                    )
+                    PlacementSponsorSlot(
+                        placementId = PlacementRateCardEngine.HOME_05,
+                        sponsors = sponsors,
+                        rateCards = rateCards,
+                        adConfig = adConfig,
+                        isOnline = isOnline,
+                        nowMs = nowMs,
+                        lang = lang,
+                        onSponsorDisplayed = onSponsorDisplayed,
+                        onSponsorClicked = onSponsorClicked,
+                        modifier = Modifier.padding(horizontal = 14.dp)
+                    )
+                    PlacementSponsorSlot(
+                        placementId = PlacementRateCardEngine.HOME_07,
+                        sponsors = sponsors,
+                        rateCards = rateCards,
+                        adConfig = adConfig,
+                        isOnline = isOnline,
+                        nowMs = nowMs,
+                        lang = lang,
+                        onSponsorDisplayed = onSponsorDisplayed,
+                        onSponsorClicked = onSponsorClicked,
+                        modifier = Modifier.padding(horizontal = 14.dp)
+                    )
+                }
+            }
         }
     }
+
+    if (showDistrictPicker) {
+        DistrictPickerBottomSheet(
+            lang = lang,
+            selectedDistrictEn = selectedHomeDistrict,
+            onSelectDistrict = { picked ->
+                onSelectHomeDistrict(picked)
+            },
+            onDismiss = { showDistrictPicker = false }
+        )
+    }
 }
 
 @Composable
-private fun CompactHomeSectionHeader(
+private fun HomeSectionHeading(
+    icon: ImageVector,
     title: String,
-    actionLabel: String,
-    onAction: () -> Unit
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null
 ) {
+    val colors = MaterialTheme.colorScheme
+    val emeraldGreen = Color(0xFF10B96B)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -704,142 +855,318 @@ private fun CompactHomeSectionHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = title,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            color = TextPrimary
-        )
         Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .clickable(onClick = onAction)
-                .padding(horizontal = 4.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            modifier = Modifier.weight(1f)
         ) {
-            Text(
-                text = actionLabel,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MedicalBlue
-            )
             Icon(
-                imageVector = Icons.Rounded.ChevronRight,
+                imageVector = icon,
                 contentDescription = null,
-                tint = MedicalBlue,
-                modifier = Modifier.size(16.dp)
+                tint = emeraldGreen,
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = colors.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (actionLabel != null && onAction != null) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onAction)
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = actionLabel,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = emeraldGreen
+                )
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                    contentDescription = null,
+                    tint = emeraldGreen,
+                    modifier = Modifier.size(15.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickServiceTile(
+    icon: ImageVector,
+    label: String,
+    iconTint: Color,
+    cardBg: Color,
+    cardBorder: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = cardBg,
+        border = BorderStroke(1.dp, cardBorder),
+        modifier = modifier.heightIn(min = 78.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = iconTint,
+                modifier = Modifier.size(30.dp)
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.5.sp),
+                fontWeight = FontWeight.Bold,
+                color = colors.onSurface,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
 }
 
 @Composable
-private fun CompactSittingTodayDoctorCard(
-    name: String,
-    subtitle: String,
-    chamberLocation: String,
-    imageUrl: String,
-    statusLabel: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+private fun HomeSpecialtyTile(
+    specialty: SpecialtyEntity,
+    lang: AppLang,
+    isDark: Boolean,
+    cardBg: Color,
+    cardBorder: Color,
+    onClick: () -> Unit
 ) {
-    val initials = remember(name) { FirestoreSliderService.extractInitials(name) }
+    val colors = MaterialTheme.colorScheme
+    val label = tr(lang, specialty.nameBn, specialty.nameEn)
+    val (tint, softBg) = specialtyVisualColors(specialty.iconKey, isDark)
+    val hasCustomIconUrl = specialty.iconUrl.trim().let {
+        it.startsWith("http://", true) || it.startsWith("https://", true) || it.startsWith("data:image/", true)
+    }
 
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
-        color = SurfaceWhite,
-        border = BorderStroke(1.dp, MintBorder),
-        modifier = modifier.fillMaxWidth()
+        shape = RoundedCornerShape(16.dp),
+        color = cardBg,
+        border = BorderStroke(1.dp, cardBorder),
+        modifier = Modifier
+            .width(82.dp)
+            .testTag("home_specialty_tile_${specialty.id}")
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(11.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        Column(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 9.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            if (imageUrl.startsWith("http://", true) || imageUrl.startsWith("https://", true)) {
-                ExternalImageAvatar(
-                    imageUrl = imageUrl,
-                    contentDescription = name,
-                    fallbackIcon = Icons.Rounded.Person,
-                    size = 50.dp,
-                    shape = RoundedCornerShape(12.dp)
+            if (hasCustomIconUrl) {
+                SpecialtyIconBadge(
+                    specialty = specialty,
+                    contentDescription = label,
+                    selected = false,
+                    size = 44.dp,
+                    iconSize = 24.dp,
+                    cornerRadius = 22.dp
                 )
             } else {
                 Box(
                     modifier = Modifier
-                        .size(50.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Brush.linearGradient(listOf(MintCardStart, MintCardSurface))),
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(softBg),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = initials,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MedicalBlue
+                    Icon(
+                        imageVector = specialtyIcon(specialty.iconKey),
+                        contentDescription = label,
+                        tint = tint,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                fontWeight = FontWeight.Bold,
+                color = colors.onSurface,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+private fun specialtyVisualColors(iconKey: String, isDark: Boolean): Pair<Color, Color> = when (iconKey.lowercase()) {
+    "heart" -> Color(0xFFEF4444) to if (isDark) Color(0xFF3A1820) else Color(0xFFFEE2E2)
+    "brain" -> Color(0xFF8B5CF6) to if (isDark) Color(0xFF281E42) else Color(0xFFEDE9FE)
+    "child" -> Color(0xFFF59E0B) to if (isDark) Color(0xFF3A2B14) else Color(0xFFFEF3C7)
+    "bone" -> Color(0xFF14B8A6) to if (isDark) Color(0xFF103438) else Color(0xFFCCFBF1)
+    "eye" -> Color(0xFF0284C7) to if (isDark) Color(0xFF102D45) else Color(0xFFE0F2FE)
+    "stethoscope" -> Color(0xFFEC4899) to if (isDark) Color(0xFF3B1A2F) else Color(0xFFFCE7F3)
+    "female" -> Color(0xFFD946EF) to if (isDark) Color(0xFF371A40) else Color(0xFFFAE8FF)
+    "skin" -> Color(0xFF10B981) to if (isDark) Color(0xFF103529) else Color(0xFFD1FAE5)
+    "ear" -> Color(0xFF0EA5E9) to if (isDark) Color(0xFF0E2F44) else Color(0xFFE0F2FE)
+    "scalpel" -> Color(0xFFF97316) to if (isDark) Color(0xFF3C2314) else Color(0xFFFFEDD5)
+    "mind" -> Color(0xFF6366F1) to if (isDark) Color(0xFF21244A) else Color(0xFFE0E7FF)
+    else -> Color(0xFF0284C7) to if (isDark) Color(0xFF132D46) else Color(0xFFE0F2FE)
+}
+
+@Composable
+private fun PopularDoctorCompactCard(
+    item: DoctorFullProfile,
+    lang: AppLang,
+    isDark: Boolean,
+    cardBg: Color,
+    cardBorder: Color,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    val emeraldGreen = Color(0xFF10B96B)
+    val doc = item.doctor
+    val primaryChamber = item.chambers.firstOrNull { it.chamber.isActive }?.chamber
+    val specName = item.specialty?.let { tr(lang, it.nameBn, it.nameEn) } ?: doc.subSpecialty
+
+    val hospitalLocationText = remember(doc, primaryChamber, specName) {
+        val place = doc.currentHospital.ifBlank { primaryChamber?.facilityName.orEmpty() }
+        val dist = primaryChamber?.district.orEmpty()
+        when {
+            place.isNotBlank() && dist.isNotBlank() -> "$place, $dist"
+            place.isNotBlank() -> place
+            dist.isNotBlank() -> dist
+            else -> specName
+        }
+    }
+
+    val qualificationLine = remember(doc, specName) {
+        when {
+            doc.qualification.isNotBlank() && specName.isNotBlank() -> "${doc.qualification} ($specName)"
+            doc.qualification.isNotBlank() -> doc.qualification
+            else -> specName
+        }
+    }
+
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(18.dp),
+        color = cardBg,
+        border = BorderStroke(1.dp, cardBorder),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("popular_doctor_card_${doc.id}")
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            ExternalImageAvatar(
+                imageUrl = doc.photoUrl,
+                contentDescription = tr(lang, doc.fullNameBn, doc.fullNameEn),
+                fallbackIcon = Icons.Rounded.Person,
+                size = 68.dp,
+                shape = RoundedCornerShape(14.dp)
+            )
 
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = name,
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    StatusPill(
-                        text = statusLabel,
-                        bgColor = EmeraldSoft,
-                        textColor = Color(0xFF065F46),
-                        icon = Icons.Rounded.FiberManualRecord
-                    )
-                }
+                Text(
+                    text = tr(lang, doc.fullNameBn, doc.fullNameEn),
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.5.sp),
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (isDark) Color.White else Color(0xFF0A2E6E),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
 
-                if (subtitle.isNotBlank()) {
+                if (qualificationLine.isNotBlank()) {
                     Text(
-                        text = subtitle,
-                        fontSize = 11.sp,
+                        text = qualificationLine,
+                        style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
-                        color = MedicalBlue,
+                        color = colors.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                if (hospitalLocationText.isNotBlank()) {
+                    Spacer(Modifier.height(1.dp))
+                    Surface(
+                        color = if (isDark) Color(0xFF0D4E33) else Color(0xFFCFF7E2),
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.LocationOn,
+                                contentDescription = null,
+                                tint = if (isDark) Color(0xFF4ADE80) else Color(0xFF0D8A4E),
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                text = hospitalLocationText,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isDark) Color(0xFFD5FDE7) else Color(0xFF0A4F2F),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                IconButton(
+                    onClick = onToggleFavorite,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .testTag("popular_favorite_btn_${doc.id}")
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.LocationOn,
-                        contentDescription = null,
-                        tint = MedicalTeal,
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Text(
-                        text = chamberLocation,
-                        fontSize = 11.sp,
-                        color = TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        imageVector = if (isFavorite) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder,
+                        contentDescription = AppStrings.saveFavorite(lang),
+                        tint = if (isFavorite) RoseAlert else colors.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = emeraldGreen,
+                    modifier = Modifier.size(22.dp)
+                )
             }
         }
     }

@@ -1,5 +1,6 @@
 package com.example.ui.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -14,19 +15,19 @@ private val LightColorScheme = lightColorScheme(
     onPrimary = Color.White,
     primaryContainer = MedicalBlueLight,
     onPrimaryContainer = MedicalBlueDark,
-    secondary = MedicalTeal,
+    secondary = Color(0xFF10B96B),
     onSecondary = Color.White,
-    secondaryContainer = MedicalTealLight,
-    onSecondaryContainer = MedicalTealDark,
+    secondaryContainer = Color(0xFFD6F7E5),
+    onSecondaryContainer = Color(0xFF0A663B),
     tertiary = EmeraldAvailable,
     onTertiary = Color.White,
-    background = BackgroundIce,
+    background = Color(0xFFF6FAFD),
     onBackground = TextPrimary,
     surface = SurfaceWhite,
     onSurface = TextPrimary,
-    surfaceVariant = SurfaceMuted,
+    surfaceVariant = Color(0xFFEBF3FA),
     onSurfaceVariant = TextSecondary,
-    outline = OutlineSoft,
+    outline = Color(0xFFD9E6F2),
     outlineVariant = OutlineSoft,
     error = RoseAlert,
     onError = Color.White
@@ -34,20 +35,23 @@ private val LightColorScheme = lightColorScheme(
 
 private val DarkColorScheme = darkColorScheme(
     primary = Color(0xFF38BDF8),
-    onPrimary = Color(0xFF082F49),
-    primaryContainer = Color(0xFF075985),
+    onPrimary = Color(0xFF06253A),
+    primaryContainer = Color(0xFF0C3654),
     onPrimaryContainer = Color(0xFFE0F2FE),
-    secondary = Color(0xFF2DD4BF),
-    onSecondary = Color(0xFF042F2E),
-    secondaryContainer = Color(0xFF115E59),
-    onSecondaryContainer = Color(0xFFCCFBF1),
-    background = Color(0xFF0B1120),
-    onBackground = Color(0xFFF1F5F9),
-    surface = Color(0xFF111827),
+    secondary = Color(0xFF10C96F),
+    onSecondary = Color(0xFF042615),
+    secondaryContainer = Color(0xFF0D3D2A),
+    onSecondaryContainer = Color(0xFFCFFCE5),
+    tertiary = Color(0xFF10C96F),
+    onTertiary = Color(0xFF042615),
+    background = Color(0xFF0A121C),
+    onBackground = Color(0xFFF3F7FC),
+    surface = Color(0xFF121F2E),
     onSurface = Color(0xFFF8FAFC),
-    surfaceVariant = Color(0xFF1E293B),
-    onSurfaceVariant = Color(0xFF94A3B8),
-    outline = Color(0xFF334155),
+    surfaceVariant = Color(0xFF18283A),
+    onSurfaceVariant = Color(0xFF9EB2C8),
+    outline = Color(0xFF24384E),
+    outlineVariant = Color(0xFF1E3044),
     error = Color(0xFFF87171),
     onError = Color(0xFF450A0A)
 )
@@ -61,7 +65,7 @@ val AppShapes = Shapes(
 
 @Composable
 fun DoctorDirectoryTheme(
-    darkTheme: Boolean = false,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme

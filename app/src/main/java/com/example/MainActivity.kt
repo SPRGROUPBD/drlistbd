@@ -29,12 +29,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import android.content.Intent
-import android.net.Uri
 import com.example.auth.GoogleAuthManager
 import com.example.data.model.GlobalSearchType
-import com.example.data.remote.FirestoreSliderService
-import com.example.data.remote.HomeAutoSliderItem
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
@@ -45,9 +41,8 @@ import com.example.ui.ads.BottomBanner300x50Bar
 import com.example.ui.ads.ConnectivityMonitor
 import com.example.ui.ads.SliderRecordTypes
 import com.example.ui.ads.SponsorCampaignSelector
-import com.example.ui.components.FirebaseConfigAndNotificationSheet
 import com.example.ui.components.GlobalTopAppBar
-import com.example.ui.components.SliderDetailBottomSheet
+import com.example.ui.components.NotificationCenterBottomSheet
 import com.example.ui.components.SyncStatusBottomSheet
 import com.example.ui.components.VisitorGoogleSignInGateDialog
 import com.example.ui.screens.*
@@ -163,6 +158,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
 
     val isSyncing by vm.isSyncing.collectAsStateWithLifecycle()
     val syncUiState by vm.syncUiState.collectAsStateWithLifecycle()
+    val selectedHomeDistrict by vm.selectedHomeDistrict.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val specialties by vm.specialties.collectAsStateWithLifecycle()
     val locations by vm.locations.collectAsStateWithLifecycle()
@@ -177,9 +173,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     val favoriteDiagnosticIds by vm.favoriteDiagnosticIds.collectAsStateWithLifecycle()
     val favoriteChamberIds by vm.favoriteChamberIds.collectAsStateWithLifecycle()
     val notifications by vm.notifications.collectAsStateWithLifecycle()
-    val firestoreSliderConfig by vm.firestoreSliderConfig.collectAsStateWithLifecycle()
-    val firestoreSliders by vm.firestoreSliders.collectAsStateWithLifecycle()
-    val sliderSyncStatus by vm.sliderSyncStatus.collectAsStateWithLifecycle()
     val snackbarMsg by vm.snackbar.collectAsStateWithLifecycle()
 
     var facilitiesTab by remember { mutableIntStateOf(0) }
@@ -192,7 +185,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
     var globalSearchQuery by remember { mutableStateOf("") }
     var showSyncSheet by remember { mutableStateOf(false) }
     var showNotificationCenter by remember { mutableStateOf(false) }
-    var selectedSliderDetail by remember { mutableStateOf<HomeAutoSliderItem?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -302,8 +294,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             }
                         }
                     },
-                    onToggleLang = { vm.toggleLanguage() },
-                    onSyncIconClick = { vm.syncNow(showToast = true) },
+                    onSyncIconClick = { showSyncSheet = true },
                     onNotificationsClick = { showNotificationCenter = true }
                 )
             },
@@ -328,10 +319,14 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                         )
                     }
                     if (showMainChrome && !isWideScreen) {
-                        HorizontalDivider(thickness = 1.dp, color = MintBorder)
+                        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+                        val navBg = if (isDark) androidx.compose.ui.graphics.Color(0xFF0A121C) else SurfaceWhite
+                        val activeEmerald = androidx.compose.ui.graphics.Color(0xFF10B96B)
+                        val activeIndicator = if (isDark) androidx.compose.ui.graphics.Color(0xFF0D3D2A) else androidx.compose.ui.graphics.Color(0xFFD6F7E5)
+                        val inactiveNavTint = if (isDark) androidx.compose.ui.graphics.Color(0xFF9EB2C8) else TextSecondary
+
                         NavigationBar(
-                            containerColor = SurfaceWhite,
-                            tonalElevation = 0.dp
+                            containerColor = navBg
                         ) {
                             mainTabs.forEach { tab ->
                                 val selected = currentRoute == tab.route
@@ -346,11 +341,11 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                                     },
                                     label = { Text(tab.label, maxLines = 1) },
                                     colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = MedicalBlue,
-                                        selectedTextColor = MedicalBlue,
-                                        indicatorColor = MintCardSurface,
-                                        unselectedIconColor = TextMuted,
-                                        unselectedTextColor = TextMuted
+                                        selectedIconColor = activeEmerald,
+                                        selectedTextColor = activeEmerald,
+                                        indicatorColor = activeIndicator,
+                                        unselectedIconColor = inactiveNavTint,
+                                        unselectedTextColor = inactiveNavTint
                                     ),
                                     modifier = Modifier.testTag(tab.tag)
                                 )
@@ -368,7 +363,10 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                     .padding(innerPadding)
             ) {
                 if (showMainChrome && isWideScreen) {
-                    NavigationRail(containerColor = SurfaceWhite) {
+                    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+                    NavigationRail(
+                        containerColor = if (isDark) androidx.compose.ui.graphics.Color(0xFF0A121C) else SurfaceWhite
+                    ) {
                         mainTabs.forEach { tab ->
                             val selected = currentRoute == tab.route
                             NavigationRailItem(
@@ -424,17 +422,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             }
                         }
 
-                        val homeAutoSlides = remember(firestoreSliders, homeSliderSlides) {
-                            val rtdbConverted = homeSliderSlides.mapIndexed { idx, s ->
-                                FirestoreSliderService.fromResolvedSlide(s, idx + 1)
-                            }
-                            when {
-                                firestoreSliders.isNotEmpty() -> firestoreSliders + rtdbConverted
-                                rtdbConverted.isNotEmpty() -> rtdbConverted + FirestoreSliderService.defaultBangladeshDemoSlides()
-                                else -> FirestoreSliderService.defaultBangladeshDemoSlides()
-                            }
-                        }
-
                         HomeScreen(
                             lang = lang,
                             settings = settings,
@@ -451,7 +438,12 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                             doctors = publicDoctors,
                             hospitals = hospitals,
                             favoriteIds = favoriteIds,
+                            selectedHomeDistrict = selectedHomeDistrict,
+                            onSelectHomeDistrict = vm::setSelectedHomeDistrict,
+                            onShowMessage = vm::showMessage,
                             onRefreshDirectory = vm::refreshDirectory,
+                            onToggleLanguage = { vm.toggleLanguage() },
+                            onOpenNotifications = { showNotificationCenter = true },
                             onSearchSubmit = { query ->
                                 vm.updateSearch { it.copy(query = query) }
                                 navigateToTab(Routes.FIND_DOCTORS)
@@ -474,19 +466,26 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
                                 facilitiesTab = tabIdx
                                 navigateToTab(Routes.FACILITIES)
                             },
-                            autoSliderSlides = homeAutoSlides,
-                            homeSliderAutoSlideMs = 4000L,
-                            inlineSearchQuery = globalSearchQuery,
-                            onSliderItemVisible = { item ->
-                                homeSliderSlides.firstOrNull { it.slideId == item.id }?.let {
-                                    vm.logHomeSliderSlideImpression(it)
+                            onNavigateSavedTab = { navigateToTab(Routes.PORTAL) },
+                            onNavigateAboutTab = { navigateToTab(Routes.ABOUT_US) },
+                            homeSliderSlides = homeSliderSlides,
+                            homeSliderAutoSlideMs = adSnapshot.homeSliderSettings.autoSlideIntervalMs,
+                            onHomeSliderVisible = vm::logHomeSliderSlideImpression,
+                            onHomeSliderClick = { slide ->
+                                vm.logHomeSliderSlideClick(slide)
+                                when (slide.targetRecordType) {
+                                    SliderRecordTypes.DOCTOR -> openDoctorProfile(slide.targetRecordId)
+                                    SliderRecordTypes.HOSPITAL -> {
+                                        facilitiesTab = 0
+                                        pendingOpenHospitalId = slide.targetRecordId
+                                        navigateToTab(Routes.FACILITIES)
+                                    }
+                                    SliderRecordTypes.DIAGNOSTIC -> {
+                                        facilitiesTab = 1
+                                        pendingOpenDiagnosticId = slide.targetRecordId
+                                        navigateToTab(Routes.FACILITIES)
+                                    }
                                 }
-                            },
-                            onSliderViewDetails = { item ->
-                                homeSliderSlides.firstOrNull { it.slideId == item.id }?.let {
-                                    vm.logHomeSliderSlideClick(it)
-                                }
-                                selectedSliderDetail = item
                             }
                         )
                     }
@@ -761,48 +760,14 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel()) {
             )
         }
 
-        selectedSliderDetail?.let { detailItem ->
-            SliderDetailBottomSheet(
-                item = detailItem,
-                lang = lang,
-                onOpenLinkedRecord = { slide ->
-                    when {
-                        slide.targetRecordType == SliderRecordTypes.DOCTOR && slide.targetRecordId.isNotBlank() ->
-                            openDoctorProfile(slide.targetRecordId)
-                        slide.targetRecordType == SliderRecordTypes.HOSPITAL && slide.targetRecordId.isNotBlank() -> {
-                            facilitiesTab = 0
-                            pendingOpenHospitalId = slide.targetRecordId
-                            navigateToTab(Routes.FACILITIES)
-                        }
-                        slide.targetRecordType == SliderRecordTypes.DIAGNOSTIC && slide.targetRecordId.isNotBlank() -> {
-                            facilitiesTab = 1
-                            pendingOpenDiagnosticId = slide.targetRecordId
-                            navigateToTab(Routes.FACILITIES)
-                        }
-                        slide.destinationUrl.isNotBlank() -> {
-                            runCatching {
-                                appContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(slide.destinationUrl)))
-                            }
-                        }
-                    }
-                },
-                onDismiss = { selectedSliderDetail = null }
-            )
-        }
-
         if (showNotificationCenter) {
-            FirebaseConfigAndNotificationSheet(
+            NotificationCenterBottomSheet(
                 lang = lang,
-                sliderConfig = firestoreSliderConfig,
-                sliderSyncStatus = sliderSyncStatus,
-                syncState = syncUiState,
                 notifications = notifications,
                 isSyncing = isSyncing,
-                onSaveConfig = vm::saveFirestoreSliderConfig,
-                onResetDemo = vm::resetFirestoreSliderConfig,
-                onSyncNow = { vm.syncNow(showToast = true) },
                 onMarkRead = vm::markNotificationRead,
                 onMarkAllRead = vm::markAllNotificationsRead,
+                onRefresh = { vm.syncNow(showToast = false) },
                 onDismiss = { showNotificationCenter = false }
             )
         }

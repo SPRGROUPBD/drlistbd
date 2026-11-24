@@ -545,13 +545,14 @@ fun EmptyStateCard(
     actionText: String? = null,
     onAction: (() -> Unit)? = null
 ) {
+    val colors = MaterialTheme.colorScheme
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp),
         shape = RoundedCornerShape(20.dp),
-        color = SurfaceWhite,
-        border = BorderStroke(1.dp, OutlineSoft)
+        color = colors.surface,
+        border = BorderStroke(1.dp, colors.outline)
     ) {
         Column(
             modifier = Modifier.padding(24.dp),
@@ -561,15 +562,15 @@ fun EmptyStateCard(
                 modifier = Modifier
                     .size(56.dp)
                     .clip(CircleShape)
-                    .background(MedicalBlueLight),
+                    .background(colors.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, contentDescription = null, tint = MedicalBlue, modifier = Modifier.size(28.dp))
+                Icon(icon, contentDescription = null, tint = colors.primary, modifier = Modifier.size(28.dp))
             }
             Spacer(Modifier.height(12.dp))
-            Text(title, style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+            Text(title, style = MaterialTheme.typography.titleMedium, color = colors.onSurface)
             Spacer(Modifier.height(4.dp))
-            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
             if (actionText != null && onAction != null) {
                 Spacer(Modifier.height(12.dp))
                 OutlinedButton(onClick = onAction) { Text(actionText) }
