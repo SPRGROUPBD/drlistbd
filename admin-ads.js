@@ -195,11 +195,7 @@ function getAdTabTitle(tabKey) {
     ad_requests: "Advertisement Requests",
     ad_payments: "Payment Verification",
     ad_payment_methods: "Payment Methods",
-    ad_home_slider: "Home Slider Management",
     ad_custom_slider: "Custom Slider Management",
-    ad_banners: "Banner Management (300x50)",
-    ad_natives: "Native Ad Management (300x100)",
-    ad_popups: "Popup Management (300x200)",
     ad_rotation: "Rotation Management",
     ad_history: "Campaign History",
     ad_reports: "Advertisement Reports & CSV",
@@ -234,43 +230,76 @@ function renderAdvertisingTab(tabKey) {
     case "ad_requests": return renderAdRequests();
     case "ad_payments": return renderAdPayments();
     case "ad_payment_methods": return renderAdPaymentMethods();
-    case "ad_home_slider": return renderAdHomeSlider();
     case "ad_custom_slider": return renderAdCustomSlider();
-    case "ad_banners": return renderAdBanners();
-    case "ad_natives": return renderAdNatives();
-    case "ad_popups": return renderAdPopups();
     case "ad_rotation": return renderAdRotation();
     case "ad_history": return renderAdHistory();
     case "ad_reports": return renderAdReports();
     case "ad_settings": return renderAdSettings();
+    case "ad_home_slider":
+    case "ad_banners":
+    case "ad_natives":
+    case "ad_popups":
+      return renderAdRequests();
     default: return null;
   }
 }
 
-function resolveLinkedRecordSummary(c) {
-  if (!c || String(c.adType || "").toUpperCase() !== "HOME_SLIDER") return null;
-  const rType = String(c.targetRecordType || "").toLowerCase();
-  const rId = String(c.targetRecordId || "").trim();
-  if (!rType || !rId) return { exists: false, label: "Missing linked record ID" };
+function resolveSingleTargetRef(recordType, recordId, fallbackTitle = "") {
+  const rType = String(recordType || "").toLowerCase();
+  const rId = String(recordId || "").trim();
+  if (!rType || !rId) return { exists: false, type: rType || "Record", recordId: rId, label: fallbackTitle || "Missing linked record ID" };
   if (rType === "doctor") {
     const doc = (dbState.doctors || {})[rId];
     return doc
-      ? { exists: true, type: "Doctor", label: doc.fullNameEn || doc.fullNameBn || doc.doctorName || rId, photo: doc.photoUrl || "" }
-      : { exists: false, type: "Doctor", label: `${rId} (Not found in Doctors)` };
+      ? { exists: true, type: "Doctor", recordType: "doctor", recordId: rId, label: doc.fullNameEn || doc.fullNameBn || doc.doctorName || rId, photo: doc.photoUrl || "" }
+      : { exists: false, type: "Doctor", recordType: "doctor", recordId: rId, label: `${fallbackTitle || rId} (Not found in Doctors)` };
   }
   if (rType === "hospital") {
     const h = (dbState.hospitals || {})[rId];
     return h
-      ? { exists: true, type: "Hospital", label: h.nameEn || h.nameBn || rId, photo: h.imageUrl || "" }
-      : { exists: false, type: "Hospital", label: `${rId} (Not found in Hospitals)` };
+      ? { exists: true, type: "Hospital", recordType: "hospital", recordId: rId, label: h.nameEn || h.nameBn || rId, photo: h.imageUrl || "" }
+      : { exists: false, type: "Hospital", recordType: "hospital", recordId: rId, label: `${fallbackTitle || rId} (Not found in Hospitals)` };
   }
   if (rType === "diagnostic") {
     const d = (dbState.diagnostic_centers || {})[rId];
     return d
-      ? { exists: true, type: "Diagnostic", label: d.nameEn || d.nameBn || rId, photo: d.imageUrl || "" }
-      : { exists: false, type: "Diagnostic", label: `${rId} (Not found in Diagnostics)` };
+      ? { exists: true, type: "Diagnostic", recordType: "diagnostic", recordId: rId, label: d.nameEn || d.nameBn || rId, photo: d.imageUrl || "" }
+      : { exists: false, type: "Diagnostic", recordType: "diagnostic", recordId: rId, label: `${fallbackTitle || rId} (Not found in Diagnostics)` };
   }
-  return { exists: false, label: `Unknown record type: ${rType}` };
+  return { exists: false, type: rType, recordType: rType, recordId: rId, label: fallbackTitle || `Unknown record type: ${rType}` };
+}
+
+function resolveCampaignPromotedTargets(c) {
+  if (!c || String(c.adType || "").toUpperCase() !== "HOME_SLIDER") return [];
+  const rawList = Array.isArray(c.promotedTargets)
+    ? c.promotedTargets
+    : (c.promotedTargets && typeof c.promotedTargets === "object" ? Object.values(c.promotedTargets) : []);
+  const results = [];
+  const seen = new Set();
+  for (const item of rawList) {
+    if (!item || !item.recordId) continue;
+    const key = `${String(item.recordType || "").toLowerCase()}_${item.recordId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    results.push(resolveSingleTargetRef(item.recordType, item.recordId, item.title || ""));
+  }
+  if (results.length === 0 && c.targetRecordType && c.targetRecordId) {
+    results.push(resolveSingleTargetRef(c.targetRecordType, c.targetRecordId, c.targetRecordTitle || ""));
+  }
+  return results;
+}
+
+function resolveLinkedRecordSummary(c) {
+  if (!c || String(c.adType || "").toUpperCase() !== "HOME_SLIDER") return null;
+  const targets = resolveCampaignPromotedTargets(c);
+  if (targets.length === 0) return { exists: false, label: "Missing linked record ID", targets: [] };
+  const validCount = targets.filter(t => t.exists).length;
+  return {
+    exists: validCount > 0,
+    type: targets.length > 1 ? `${targets.length} Targets` : targets[0].type,
+    label: targets.map(t => `${t.type}: ${t.label}`).join(" • "),
+    targets
+  };
 }
 
 // 1. DASHBOARD (All 11 Mandatory KPIs)
@@ -517,70 +546,249 @@ async function deleteAdPackage(id) {
   renderTab();
 }
 
-// 3. ADVERTISER MANAGEMENT
+// 3. ADVERTISER MANAGEMENT (Full Add / Edit / Delete + Saved Institution Dropdown)
+function getSavedInstitutionsList() {
+  const list = [];
+  for (const [id, h] of Object.entries(dbState.hospitals || {})) {
+    if (!h) continue;
+    list.push({
+      id,
+      type: "hospital",
+      nameEn: h.nameEn || h.nameBn || id,
+      nameBn: h.nameBn || h.nameEn || id,
+      address: [h.address, h.upazila, h.district].filter(Boolean).join(", "),
+      category: "Hospital"
+    });
+  }
+  for (const [id, d] of Object.entries(dbState.diagnostic_centers || {})) {
+    if (!d) continue;
+    list.push({
+      id,
+      type: "diagnostic",
+      nameEn: d.nameEn || d.nameBn || id,
+      nameBn: d.nameBn || d.nameEn || id,
+      address: [d.address, d.upazila, d.district].filter(Boolean).join(", "),
+      category: "Diagnostic Center"
+    });
+  }
+  return list.sort((a, b) => a.nameEn.localeCompare(b.nameEn));
+}
+
 function renderAdAdvertisers() {
   const q = adUiFilter.advertiserQuery.trim().toLowerCase();
-  const list = Object.entries(adState.advertisers || {})
-    .map(([id, a]) => ({ id, ...a }))
+  const allAdv = Object.entries(adState.advertisers || {}).map(([id, a]) => ({ id, ...a }));
+  const list = allAdv
     .filter(a => [a.advertiserName, a.businessName, a.mobile, a.email, a.category].some(v => String(v || "").toLowerCase().includes(q)))
     .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
 
   const campList = Object.values(adState.campaigns || {});
+  const edit = editing.adAdvertiser || null;
+  const savedInstitutions = getSavedInstitutionsList();
+  const claimedIds = new Set(allAdv.filter(a => (!edit || a.id !== edit.id) && a.institutionId).map(a => String(a.institutionId)));
+  const claimedNames = new Set(allAdv.filter(a => (!edit || a.id !== edit.id) && a.businessName).map(a => String(a.businessName).trim().toLowerCase()));
 
   return `
-    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-      <div class="flex flex-wrap justify-between items-center gap-3">
-        <div>
-          <h3 class="font-bold text-base">Registered Advertisers (${list.length})</h3>
-          <p class="text-xs text-slate-500">View advertiser accounts, campaign volume, and activate or suspend access.</p>
-        </div>
-        <input class="input max-w-xs" placeholder="Search name, business, mobile..." value="${esc(adUiFilter.advertiserQuery)}"
-          oninput="adUiFilter.advertiserQuery=this.value;renderTab()" />
-      </div>
-      ${list.length === 0 ? `<p class="text-xs text-slate-400 py-8 text-center">No advertiser accounts found.</p>` : `
-        <div class="overflow-x-auto">
-          <table class="w-full text-xs text-left">
-            <thead>
-              <tr class="bg-slate-50 text-slate-600">
-                <th class="p-3">Business &amp; Owner</th>
-                <th class="p-3">Mobile / Email</th>
-                <th class="p-3">Category</th>
-                <th class="p-3">Campaigns</th>
-                <th class="p-3">Status</th>
-                <th class="p-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${list.map(a => {
-                const count = campList.filter(c => c.advertiserId === a.id).length;
-                const isSusp = String(a.status || "ACTIVE").toUpperCase() !== "ACTIVE";
-                return `
-                  <tr class="border-t border-slate-100">
-                    <td class="p-3">
-                      <div class="font-bold text-slate-900">${esc(a.businessName || "—")}</div>
-                      <div class="text-slate-500">${esc(a.advertiserName || "—")} &bull; ${esc(a.address || "")}</div>
-                    </td>
-                    <td class="p-3">
-                      <div>${esc(a.mobile || "—")}</div>
-                      <div class="text-slate-500">${esc(a.email || "—")}</div>
-                    </td>
-                    <td class="p-3">${esc(a.category || "Healthcare")}</td>
-                    <td class="p-3 font-bold">${count}</td>
-                    <td class="p-3">${adStatusPill(a.status || "ACTIVE")}</td>
-                    <td class="p-3 whitespace-nowrap">
-                      <button onclick="toggleAdvertiserAccountStatus('${esc(a.id)}')" class="px-2.5 py-1 rounded-lg ${isSusp ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"} font-semibold">
-                        ${isSusp ? "Activate" : "Suspend"}
-                      </button>
-                    </td>
-                  </tr>
-                `;
+    <div class="space-y-5">
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="font-bold text-base mb-1">${edit ? "Edit Advertiser Account" : "Add Advertiser Account"}</h3>
+        <p class="text-xs text-slate-500 mb-3">Select a saved Hospital or Diagnostic Center from the dropdown so two advertisers cannot register the same institution.</p>
+        <form onsubmit="submitAdAdvertiser(event)" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <input type="hidden" id="adv_id" value="${esc(edit ? edit.id : "")}" />
+          <div class="md:col-span-2">
+            <label class="block text-xs font-semibold mb-1">Saved Institution Dropdown (হাসপাতাল / ডায়াগনস্টিক)</label>
+            <select id="adv_inst_select" class="input" onchange="onAdminAdvInstitutionSelected(this.value)">
+              <option value="">-- Custom / Other Institution --</option>
+              ${savedInstitutions.map(inst => {
+                const isTaken = claimedIds.has(inst.id) || claimedNames.has(inst.nameEn.trim().toLowerCase()) || claimedNames.has(inst.nameBn.trim().toLowerCase());
+                const selected = edit && edit.institutionId === inst.id;
+                return `<option value="${esc(inst.type)}::${esc(inst.id)}" ${selected ? "selected" : ""} ${isTaken && !selected ? "disabled" : ""}>${esc(inst.nameEn)} (${inst.category})${isTaken && !selected ? " — Already Registered" : ""}</option>`;
               }).join("")}
-            </tbody>
-          </table>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Category</label>
+            <input id="adv_cat" class="input" placeholder="Hospital / Diagnostic / Clinic" value="${esc(edit ? (edit.category || "Healthcare") : "Healthcare")}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Business / Institution Name *</label>
+            <input id="adv_biz" required class="input" placeholder="Institution / Business Name *" value="${esc(edit ? (edit.businessName || "") : "")}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Owner / Contact Name *</label>
+            <input id="adv_name" required class="input" placeholder="Advertiser Full Name *" value="${esc(edit ? (edit.advertiserName || "") : "")}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Mobile Number *</label>
+            <input id="adv_mobile" required class="input" placeholder="017XXXXXXXX *" value="${esc(edit ? (edit.mobile || "") : "")}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Email (optional)</label>
+            <input id="adv_email" type="email" class="input" placeholder="email@example.com" value="${esc(edit ? (edit.email || "") : "")}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Password ${edit ? "(leave blank to keep)" : "*"}</label>
+            <input id="adv_pass" type="password" ${edit ? "" : "required"} minlength="6" class="input" placeholder="${edit ? "New password (optional)" : "Min 6 characters *"}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Status</label>
+            <select id="adv_status" class="input">
+              <option value="ACTIVE" ${!edit || edit.status === "ACTIVE" ? "selected" : ""}>ACTIVE</option>
+              <option value="SUSPENDED" ${edit && edit.status === "SUSPENDED" ? "selected" : ""}>SUSPENDED</option>
+            </select>
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-xs font-semibold mb-1">Address</label>
+            <input id="adv_addr" class="input" placeholder="Full Address" value="${esc(edit ? (edit.address || "") : "")}" />
+          </div>
+          <div class="flex items-end gap-2">
+            <button type="submit" class="flex-1 py-2.5 px-4 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold">${edit ? "Update Advertiser" : "Save Advertiser"}</button>
+            ${edit ? `<button type="button" onclick="editing={};renderTab()" class="px-3 py-2.5 rounded-xl bg-slate-100 text-xs font-semibold">Cancel</button>` : ""}
+          </div>
+        </form>
+      </div>
+
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+        <div class="flex flex-wrap justify-between items-center gap-3">
+          <div>
+            <h3 class="font-bold text-base">Registered Advertisers (${list.length})</h3>
+            <p class="text-xs text-slate-500">Add, edit, suspend, or delete advertiser accounts.</p>
+          </div>
+          <input class="input max-w-xs" placeholder="Search name, business, mobile..." value="${esc(adUiFilter.advertiserQuery)}"
+            oninput="adUiFilter.advertiserQuery=this.value;renderTab()" />
         </div>
-      `}
+        ${list.length === 0 ? `<p class="text-xs text-slate-400 py-8 text-center">No advertiser accounts found.</p>` : `
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left">
+              <thead>
+                <tr class="bg-slate-50 text-slate-600">
+                  <th class="p-3">Business &amp; Owner</th>
+                  <th class="p-3">Mobile / Email</th>
+                  <th class="p-3">Category</th>
+                  <th class="p-3">Campaigns</th>
+                  <th class="p-3">Status</th>
+                  <th class="p-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${list.map(a => {
+                  const count = campList.filter(c => c.advertiserId === a.id).length;
+                  const isSusp = String(a.status || "ACTIVE").toUpperCase() !== "ACTIVE";
+                  return `
+                    <tr class="border-t border-slate-100">
+                      <td class="p-3">
+                        <div class="font-bold text-slate-900">${esc(a.businessName || "—")}</div>
+                        <div class="text-slate-500">${esc(a.advertiserName || "—")} &bull; ${esc(a.address || "")}</div>
+                        ${a.institutionId ? `<div class="text-[10px] text-teal-700 font-semibold">Linked ${esc(a.institutionType || "institution")}: ${esc(a.institutionId)}</div>` : ""}
+                      </td>
+                      <td class="p-3">
+                        <div>${esc(a.mobile || "—")}</div>
+                        <div class="text-slate-500">${esc(a.email || "—")}</div>
+                      </td>
+                      <td class="p-3">${esc(a.category || "Healthcare")}</td>
+                      <td class="p-3 font-bold">${count}</td>
+                      <td class="p-3">${adStatusPill(a.status || "ACTIVE")}</td>
+                      <td class="p-3 whitespace-nowrap space-x-1">
+                        <button onclick="editAdAdvertiser('${esc(a.id)}')" class="px-2.5 py-1 rounded-lg bg-sky-50 text-sky-700 font-semibold">Edit</button>
+                        <button onclick="toggleAdvertiserAccountStatus('${esc(a.id)}')" class="px-2.5 py-1 rounded-lg ${isSusp ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"} font-semibold">
+                          ${isSusp ? "Activate" : "Suspend"}
+                        </button>
+                        <button onclick="deleteAdAdvertiser('${esc(a.id)}')" class="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 font-semibold">Delete</button>
+                      </td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        `}
+      </div>
     </div>
   `;
+}
+
+function onAdminAdvInstitutionSelected(val) {
+  if (!val) return;
+  const [type, instId] = val.split("::");
+  const inst = getSavedInstitutionsList().find(i => i.id === instId && i.type === type);
+  if (!inst) return;
+  const bizEl = document.getElementById("adv_biz");
+  const catEl = document.getElementById("adv_cat");
+  const addrEl = document.getElementById("adv_addr");
+  if (bizEl) bizEl.value = inst.nameEn;
+  if (catEl) catEl.value = inst.category;
+  if (addrEl && !addrEl.value.trim()) addrEl.value = inst.address;
+}
+
+async function submitAdAdvertiser(e) {
+  e.preventDefault();
+  const id = (document.getElementById("adv_id").value || "").trim() || uid("adv");
+  const old = adState.advertisers[id] || {};
+  const instVal = document.getElementById("adv_inst_select").value || "";
+  const [institutionType, institutionId] = instVal ? instVal.split("::") : ["", ""];
+  const businessName = document.getElementById("adv_biz").value.trim();
+  const advertiserName = document.getElementById("adv_name").value.trim();
+  const mobile = document.getElementById("adv_mobile").value.trim();
+  const email = document.getElementById("adv_email").value.trim().toLowerCase();
+  const pass = document.getElementById("adv_pass").value;
+
+  // Duplicate institution guard
+  for (const [otherId, other] of Object.entries(adState.advertisers || {})) {
+    if (otherId === id || !other) continue;
+    if (institutionId && other.institutionId === institutionId) {
+      return alert("This saved institution is already registered by another advertiser.");
+    }
+    if (businessName && other.businessName && other.businessName.trim().toLowerCase() === businessName.toLowerCase()) {
+      return alert("An advertiser with this institution/business name already exists.");
+    }
+  }
+
+  let salt = old.passwordSalt || "";
+  let passwordHash = old.passwordHash || "";
+  if (pass) {
+    salt = generateSaltHex(16);
+    passwordHash = await hashCredential(pass, salt);
+  }
+  const now = Date.now();
+  const payload = {
+    ...old,
+    id,
+    advertiserName,
+    businessName,
+    institutionId: institutionId || old.institutionId || "",
+    institutionType: institutionType || old.institutionType || "",
+    mobile,
+    email,
+    address: document.getElementById("adv_addr").value.trim(),
+    category: document.getElementById("adv_cat").value.trim() || "Healthcare",
+    status: document.getElementById("adv_status").value || "ACTIVE",
+    passwordSalt: salt,
+    passwordHash,
+    createdAt: old.createdAt || now,
+    updatedAt: now
+  };
+  await rtdbAdPut(`advertising/advertisers/${id}`, payload);
+  adState.advertisers[id] = payload;
+  editing = {};
+  await writeAuditLog("SAVE_ADVERTISER", "ADVERTISER", id, `Saved advertiser ${businessName}`);
+  toast("Advertiser saved!");
+  renderTab();
+}
+
+function editAdAdvertiser(id) {
+  const a = adState.advertisers[id];
+  if (!a) return;
+  editing = { adAdvertiser: { id, ...a } };
+  renderTab();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function deleteAdAdvertiser(id) {
+  if (!confirm("Delete this advertiser account?")) return;
+  await rtdbAdDelete(`advertising/advertisers/${id}`);
+  delete adState.advertisers[id];
+  await writeAuditLog("DELETE_ADVERTISER", "ADVERTISER", id, `Deleted advertiser ${id}`);
+  toast("Advertiser deleted.");
+  renderTab();
 }
 
 async function toggleAdvertiserAccountStatus(advId) {
@@ -594,7 +802,7 @@ async function toggleAdvertiserAccountStatus(advId) {
   renderTab();
 }
 
-// 4. ADVERTISEMENT REQUESTS (Separate Campaign Approval from Payment Verification!)
+// 4. ADVERTISEMENT REQUESTS & CAMPAIGNS (Full Add / Edit / Delete + Multi-Target Home Slider)
 function renderAdRequests() {
   const now = Date.now();
   const filter = adUiFilter.requestStatus || "ALL";
@@ -603,11 +811,105 @@ function renderAdRequests() {
     .filter(c => filter === "ALL" || c.effectiveStatus === filter || c.approvalStatus === filter)
     .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
 
+  const edit = editing.adCampaign || null;
+  const advertisers = Object.entries(adState.advertisers || {}).map(([id, a]) => ({ id, ...a }));
+  const packages = Object.entries(adState.packages || {}).map(([id, p]) => ({ id, ...p }));
+  const editTargets = edit ? resolveCampaignPromotedTargets(edit) : [];
+  const selectedTargetKeys = new Set(editTargets.map(t => `${t.recordType}::${t.recordId}`));
+
+  const allPromoOptions = [
+    ...Object.entries(dbState.hospitals || {}).map(([id, h]) => ({ key: `hospital::${id}`, label: `[Hospital] ${h.nameEn || h.nameBn || id}` })),
+    ...Object.entries(dbState.diagnostic_centers || {}).map(([id, d]) => ({ key: `diagnostic::${id}`, label: `[Diagnostic] ${d.nameEn || d.nameBn || id}` })),
+    ...Object.entries(dbState.doctors || {}).map(([id, d]) => ({ key: `doctor::${id}`, label: `[Doctor] ${d.fullNameEn || d.fullNameBn || d.doctorName || id}` }))
+  ];
+
   return `
-    <div class="space-y-4">
+    <div class="space-y-5">
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="font-bold text-base mb-1">${edit ? "Edit Advertisement Campaign" : "Add Advertisement Campaign"}</h3>
+        <p class="text-xs text-slate-500 mb-3">Create or edit any ad campaign (Home Slider multi-target, Native 300x100, Bottom Banner 300x50, or App Open Popup 300x200).</p>
+        <form onsubmit="submitAdCampaign(event)" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <input type="hidden" id="camp_id" value="${esc(edit ? edit.id : "")}" />
+          <div>
+            <label class="block text-xs font-semibold mb-1">Advertiser</label>
+            <select id="camp_adv" class="input" onchange="onCampaignAdvChange(this.value)">
+              <option value="">-- Admin / Direct --</option>
+              ${advertisers.map(a => `<option value="${esc(a.id)}" ${edit && edit.advertiserId === a.id ? "selected" : ""}>${esc(a.businessName || a.advertiserName)} (${esc(a.mobile || "")})</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Package</label>
+            <select id="camp_pkg" class="input" onchange="onCampaignPkgChange(this.value)">
+              <option value="">-- Select Package (optional) --</option>
+              ${packages.map(p => `<option value="${esc(p.id)}" ${edit && edit.packageId === p.id ? "selected" : ""}>${esc(p.name)} (${esc(p.adType)} - ৳${p.price})</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Campaign Title *</label>
+            <input id="camp_title" required class="input" placeholder="Ad Headline / Title *" value="${esc(edit ? (edit.title || "") : "")}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Business Name</label>
+            <input id="camp_biz" class="input" placeholder="Business / Hospital Name" value="${esc(edit ? (edit.businessName || "") : "")}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Advertisement Type *</label>
+            <select id="camp_type" class="input" onchange="syncCampaignDefaultPlacement(this.value)">
+              ${AD_PACKAGE_TYPES.map(t => `<option value="${t.key}" ${(edit ? edit.adType : "BOTTOM_BANNER_300x50") === t.key ? "selected" : ""}>${esc(t.label)}</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Placement *</label>
+            <select id="camp_placement" class="input">
+              ${AD_PLACEMENTS.map(p => `<option value="${p.key}" ${(edit ? edit.placement : "BOTTOM_ALL_SCREENS") === p.key ? "selected" : ""}>${esc(p.label)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-xs font-semibold mb-1">Creative Image URL (or Base64 data URI)</label>
+            <input id="camp_img" class="input" placeholder="https://... or data:image/..." value="${esc(edit ? (edit.imageUrl || "") : "")}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Destination URL / Call Link</label>
+            <input id="camp_dest" class="input" placeholder="https://... or tel:017..." value="${esc(edit ? (edit.destinationUrl || "") : "")}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Price (৳)</label>
+            <input id="camp_price" type="number" min="0" class="input" value="${esc(edit ? (edit.price || 0) : 0)}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Duration (Days)</label>
+            <input id="camp_days" type="number" min="1" class="input" value="${esc(edit ? (edit.durationDays || 30) : 30)}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Payment / Approval / Status</label>
+            <div class="grid grid-cols-3 gap-1">
+              <select id="camp_pay_st" class="input text-[11px] px-1.5">
+                ${["VERIFIED", "PENDING", "REJECTED"].map(st => `<option value="${st}" ${(edit ? edit.paymentStatus : "VERIFIED") === st ? "selected" : ""}>Pay: ${st}</option>`).join("")}
+              </select>
+              <select id="camp_app_st" class="input text-[11px] px-1.5">
+                ${["APPROVED", "PENDING", "REJECTED"].map(st => `<option value="${st}" ${(edit ? edit.approvalStatus : "APPROVED") === st ? "selected" : ""}>Appr: ${st}</option>`).join("")}
+              </select>
+              <select id="camp_st" class="input text-[11px] px-1.5">
+                ${["ACTIVE", "PENDING", "PAUSED", "EXPIRED", "REJECTED"].map(st => `<option value="${st}" ${(edit ? edit.campaignStatus : "ACTIVE") === st ? "selected" : ""}>${st}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+          <div class="md:col-span-3">
+            <label class="block text-xs font-semibold mb-1">Home Slider Promoted Targets (Ctrl/Cmd+Click to multi-select Institution &amp; Doctors)</label>
+            <select id="camp_targets" multiple size="4" class="input">
+              ${allPromoOptions.map(o => `<option value="${esc(o.key)}" ${selectedTargetKeys.has(o.key) ? "selected" : ""}>${esc(o.label)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="md:col-span-3 flex gap-2">
+            <button type="submit" class="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold">${edit ? "Update Campaign" : "Save Campaign"}</button>
+            ${edit ? `<button type="button" onclick="editing={};renderTab()" class="px-4 py-2.5 rounded-xl bg-slate-100 text-xs font-semibold">Cancel Edit</button>` : ""}
+          </div>
+        </form>
+      </div>
+
       <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 class="font-bold text-base">Advertisement Requests &amp; Campaign Approval (${list.length})</h3>
+          <h3 class="font-bold text-base">Advertisement Requests &amp; Campaigns (${list.length})</h3>
           <p class="text-xs text-slate-500">Campaign goes ACTIVE only after BOTH Payment Verification (VERIFIED) and Campaign Approval (APPROVED).</p>
         </div>
         <select class="input max-w-[200px]" onchange="adUiFilter.requestStatus=this.value;renderTab()">
@@ -631,11 +933,15 @@ function renderAdRequests() {
                     <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold">${esc(c.placement)}</span>
                   </div>
                   <div class="text-xs text-slate-600 mt-1">
-                    Advertiser: <b>${esc(c.businessName || c.advertiserName)}</b> (${esc(c.contactMobile || "")}) &bull; Package: <b>${esc(c.packageName)}</b> (৳${Number(c.price || 0).toLocaleString()} / ${c.durationDays}d)
+                    Advertiser: <b>${esc(c.businessName || c.advertiserName || "Direct")}</b> (${esc(c.contactMobile || "")}) &bull; Package: <b>${esc(c.packageName || "Custom")}</b> (৳${Number(c.price || 0).toLocaleString()} / ${c.durationDays || 30}d)
                   </div>
-                  ${linked ? `
-                    <div class="mt-1 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold ${linked.exists ? "bg-teal-50 text-teal-800" : "bg-rose-50 text-rose-700"}">
-                      Linked ${esc(linked.type || "Record")}: ${esc(linked.label)}
+                  ${linked && linked.targets && linked.targets.length ? `
+                    <div class="mt-1.5 flex flex-wrap gap-1">
+                      ${linked.targets.map(t => `
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold ${t.exists ? "bg-teal-50 text-teal-800" : "bg-rose-50 text-rose-700"}">
+                          ${esc(t.type)}: ${esc(t.label)}
+                        </span>
+                      `).join("")}
                     </div>
                   ` : ""}
                   <div class="flex flex-wrap gap-3 text-[11px] text-slate-500 mt-1.5">
@@ -649,10 +955,10 @@ function renderAdRequests() {
               </div>
               <div class="flex flex-wrap items-start gap-1.5 text-xs">
                 ${c.approvalStatus !== "APPROVED" && eff !== "EXPIRED" ? `
-                  <button onclick="approveCampaignContent('${esc(c.id)}')" class="px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-bold">Approve Ad</button>
+                  <button onclick="approveCampaignContent('${esc(c.id)}')" class="px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-bold">Approve</button>
                 ` : ""}
                 ${eff !== "REJECTED" && eff !== "EXPIRED" ? `
-                  <button onclick="rejectCampaignContent('${esc(c.id)}')" class="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-700 font-bold">Reject Ad</button>
+                  <button onclick="rejectCampaignContent('${esc(c.id)}')" class="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-800 font-bold">Reject</button>
                 ` : ""}
                 ${eff === "ACTIVE" ? `
                   <button onclick="setCampaignPaused('${esc(c.id)}', true)" class="px-3 py-1.5 rounded-xl bg-amber-100 text-amber-900 font-bold">Pause</button>
@@ -660,6 +966,8 @@ function renderAdRequests() {
                 ${eff === "PAUSED" ? `
                   <button onclick="setCampaignPaused('${esc(c.id)}', false)" class="px-3 py-1.5 rounded-xl bg-sky-600 text-white font-bold">Resume</button>
                 ` : ""}
+                <button onclick="editAdCampaign('${esc(c.id)}')" class="px-3 py-1.5 rounded-xl bg-sky-50 text-sky-700 font-bold">Edit</button>
+                <button onclick="deleteAdCampaign('${esc(c.id)}')" class="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-700 font-bold">Delete</button>
               </div>
             </div>
           </div>
@@ -667,6 +975,110 @@ function renderAdRequests() {
       }).join("")}
     </div>
   `;
+}
+
+function onCampaignAdvChange(advId) {
+  const a = adState.advertisers[advId];
+  if (!a) return;
+  const biz = document.getElementById("camp_biz");
+  if (biz && !biz.value.trim()) biz.value = a.businessName || a.advertiserName || "";
+}
+
+function onCampaignPkgChange(pkgId) {
+  const p = adState.packages[pkgId];
+  if (!p) return;
+  const t = document.getElementById("camp_type");
+  const pl = document.getElementById("camp_placement");
+  const pr = document.getElementById("camp_price");
+  const dy = document.getElementById("camp_days");
+  if (t) t.value = p.adType;
+  if (pl) pl.value = p.placement;
+  if (pr) pr.value = p.price || 0;
+  if (dy) dy.value = p.durationDays || 30;
+}
+
+function syncCampaignDefaultPlacement(adType) {
+  const sel = document.getElementById("camp_placement");
+  const found = AD_PACKAGE_TYPES.find(t => t.key === adType);
+  if (sel && found) sel.value = found.defaultPlacement;
+}
+
+async function submitAdCampaign(e) {
+  e.preventDefault();
+  const id = (document.getElementById("camp_id").value || "").trim() || uid("camp");
+  const old = adState.campaigns[id] || {};
+  const advId = document.getElementById("camp_adv").value || "";
+  const adv = adState.advertisers[advId] || {};
+  const pkgId = document.getElementById("camp_pkg").value || "";
+  const pkg = adState.packages[pkgId] || {};
+  const adType = document.getElementById("camp_type").value;
+  const placement = document.getElementById("camp_placement").value;
+  const durationDays = Math.max(1, parseInt(document.getElementById("camp_days").value || "30", 10));
+  const selectedOpts = Array.from(document.getElementById("camp_targets")?.selectedOptions || []);
+  const promotedTargets = selectedOpts.map(opt => {
+    const [rType, rId] = opt.value.split("::");
+    const resolved = resolveSingleTargetRef(rType, rId);
+    return { recordType: rType, recordId: rId, title: resolved.label };
+  });
+  const firstTarget = promotedTargets[0] || null;
+  const now = Date.now();
+  const payload = {
+    ...old,
+    id,
+    advertiserId: advId || old.advertiserId || "",
+    advertiserName: adv.advertiserName || old.advertiserName || "Admin",
+    businessName: document.getElementById("camp_biz").value.trim() || adv.businessName || old.businessName || "",
+    contactMobile: adv.mobile || old.contactMobile || "",
+    packageId: pkgId || old.packageId || "",
+    packageName: pkg.name || old.packageName || adType,
+    adType,
+    placement,
+    title: document.getElementById("camp_title").value.trim(),
+    imageUrl: document.getElementById("camp_img").value.trim(),
+    destinationUrl: document.getElementById("camp_dest").value.trim(),
+    targetRecordType: firstTarget ? firstTarget.recordType : (adType === "HOME_SLIDER" ? (old.targetRecordType || "") : ""),
+    targetRecordId: firstTarget ? firstTarget.recordId : (adType === "HOME_SLIDER" ? (old.targetRecordId || "") : ""),
+    targetRecordTitle: firstTarget ? firstTarget.title : (adType === "HOME_SLIDER" ? (old.targetRecordTitle || "") : ""),
+    promotedTargets: adType === "HOME_SLIDER" ? promotedTargets : [],
+    price: Number(document.getElementById("camp_price").value || 0),
+    durationDays,
+    paymentStatus: document.getElementById("camp_pay_st").value || "VERIFIED",
+    approvalStatus: document.getElementById("camp_app_st").value || "APPROVED",
+    campaignStatus: document.getElementById("camp_st").value || "ACTIVE",
+    createdAt: old.createdAt || now,
+    updatedAt: now
+  };
+  adState.campaigns[id] = payload;
+  await recalculateCampaignActivation(id);
+  editing = {};
+  await writeAuditLog("SAVE_AD_CAMPAIGN", "AD_CAMPAIGN", id, `Saved campaign ${payload.title}`);
+  toast("Campaign saved!");
+  renderTab();
+}
+
+function editAdCampaign(id) {
+  const c = adState.campaigns[id];
+  if (!c) return;
+  editing = { adCampaign: { id, ...c } };
+  if (activeTab !== "ad_requests") {
+    switchTab("ad_requests");
+  } else {
+    renderTab();
+  }
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function deleteAdCampaign(id) {
+  if (!confirm("Delete this advertisement campaign permanently?")) return;
+  await rtdbAdDelete(`advertising/campaigns/${id}`);
+  delete adState.campaigns[id];
+  if (adState.homeSliderAdvertisers && adState.homeSliderAdvertisers[id]) {
+    await rtdbAdDelete(`homeSlider/advertiserCampaigns/${id}`);
+    delete adState.homeSliderAdvertisers[id];
+  }
+  await writeAuditLog("DELETE_AD_CAMPAIGN", "AD_CAMPAIGN", id, `Deleted campaign ${id}`);
+  toast("Campaign deleted.");
+  renderTab();
 }
 
 async function recalculateCampaignActivation(campId) {
@@ -718,6 +1130,7 @@ async function recalculateCampaignActivation(campId) {
       advertiserId: updated.advertiserId,
       targetRecordType: updated.targetRecordType,
       targetRecordId: updated.targetRecordId,
+      promotedTargets: Array.isArray(updated.promotedTargets) ? updated.promotedTargets : [],
       approvalStatus: updated.approvalStatus,
       paymentStatus: updated.paymentStatus,
       campaignStatus: updated.campaignStatus,
@@ -777,7 +1190,7 @@ async function setCampaignPaused(campId, pause) {
   renderTab();
 }
 
-// 5. PAYMENT VERIFICATION (Separate Control + Duplicate TRX check)
+// 5. PAYMENT VERIFICATION (Full Add / Edit / Delete + Separate Verify/Reject)
 function renderAdPayments() {
   const filter = adUiFilter.paymentStatus || "ALL";
   const allPayments = Object.entries(adState.payments || {}).map(([id, p]) => ({ id, ...p }));
@@ -791,12 +1204,66 @@ function renderAdPayments() {
     .filter(p => filter === "ALL" || String(p.status || "PENDING").toUpperCase() === filter)
     .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
 
+  const edit = editing.adPayment || null;
+  const campaigns = Object.entries(adState.campaigns || {}).map(([id, c]) => ({ id, ...c }));
+
   return `
-    <div class="space-y-4">
+    <div class="space-y-5">
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="font-bold text-base mb-1">${edit ? "Edit Payment Record" : "Add Payment Record"}</h3>
+        <p class="text-xs text-slate-500 mb-3">Record or update advertiser payments manually, or verify/reject submitted payments below.</p>
+        <form onsubmit="submitAdPayment(event)" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <input type="hidden" id="pay_id" value="${esc(edit ? edit.id : "")}" />
+          <div>
+            <label class="block text-xs font-semibold mb-1">Linked Campaign</label>
+            <select id="pay_camp" class="input" onchange="onPaymentCampaignSelected(this.value)">
+              <option value="">-- Select Campaign (optional) --</option>
+              ${campaigns.map(c => `<option value="${esc(c.id)}" ${edit && edit.campaignId === c.id ? "selected" : ""}>${esc(c.title || c.id)} — ${esc(c.businessName || "")}</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Business / Advertiser *</label>
+            <input id="pay_biz" required class="input" placeholder="Business Name *" value="${esc(edit ? (edit.businessName || edit.advertiserName || "") : "")}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Transaction ID (TRX) *</label>
+            <input id="pay_trx" required class="input" placeholder="e.g. BK9X72LM41 *" value="${esc(edit ? (edit.trxId || "") : "")}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Provider</label>
+            <select id="pay_provider" class="input">
+              ${["bKash", "Nagad", "Rocket", "Upay", "Bank", "Cash"].map(pr => `<option value="${pr}" ${(edit ? edit.provider : "bKash") === pr ? "selected" : ""}>${pr}</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Sender Mobile</label>
+            <input id="pay_sender" class="input" placeholder="017XXXXXXXX" value="${esc(edit ? (edit.senderMobile || "") : "")}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Receiving Number</label>
+            <input id="pay_recv" class="input" placeholder="017XXXXXXXX" value="${esc(edit ? (edit.receivingNumber || "") : "")}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Amount Paid (৳) *</label>
+            <input id="pay_amt" type="number" min="0" required class="input" value="${esc(edit ? (edit.amount || 0) : 0)}" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1">Status</label>
+            <select id="pay_status" class="input">
+              ${["PENDING", "VERIFIED", "REJECTED"].map(st => `<option value="${st}" ${(edit ? edit.status : "VERIFIED") === st ? "selected" : ""}>${st}</option>`).join("")}
+            </select>
+          </div>
+          <div class="flex items-end gap-2">
+            <button type="submit" class="flex-1 py-2.5 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold">${edit ? "Update Payment" : "Save Payment"}</button>
+            ${edit ? `<button type="button" onclick="editing={};renderTab()" class="px-3 py-2.5 rounded-xl bg-slate-100 text-xs font-semibold">Cancel</button>` : ""}
+          </div>
+        </form>
+      </div>
+
       <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 class="font-bold text-base">Payment Verification (${list.length})</h3>
-          <p class="text-xs text-slate-500">Verify or reject advertiser payments independently of ad content approval.</p>
+          <p class="text-xs text-slate-500">Verify, reject, edit, or delete advertiser payments independently of ad content approval.</p>
         </div>
         <select class="input max-w-[180px]" onchange="adUiFilter.paymentStatus=this.value;renderTab()">
           ${["ALL", "PENDING", "VERIFIED", "REJECTED"].map(f => `<option value="${f}" ${filter === f ? "selected" : ""}>${f}</option>`).join("")}
@@ -816,23 +1283,104 @@ function renderAdPayments() {
                 ${isDup ? `<span class="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold">DUPLICATE TRX</span>` : ""}
               </div>
               <div class="text-slate-700">
-                <b>${esc(p.businessName || p.advertiserName)}</b> &bull; Package: <b>${esc(p.packageName)}</b> &bull; Paid: <b class="text-teal-700">৳${Number(p.amount || 0).toLocaleString()}</b> (Expected: ৳${Number(p.expectedAmount || 0).toLocaleString()})
+                <b>${esc(p.businessName || p.advertiserName)}</b> &bull; Package: <b>${esc(p.packageName || "Custom")}</b> &bull; Paid: <b class="text-teal-700">৳${Number(p.amount || 0).toLocaleString()}</b> (Expected: ৳${Number(p.expectedAmount || p.amount || 0).toLocaleString()})
               </div>
               <div class="text-slate-500">
-                Method: <b>${esc(p.provider)} — ${esc(p.methodName)}</b> &bull; Sender: <b>${esc(p.senderMobile)}</b> &rarr; Receiving: <b>${esc(p.receivingNumber)}</b> &bull; Date: ${esc(p.paymentDate || formatDateOnly(p.createdAt))}
+                Method: <b>${esc(p.provider)} ${p.methodName ? "— " + esc(p.methodName) : ""}</b> &bull; Sender: <b>${esc(p.senderMobile || "—")}</b> &rarr; Receiving: <b>${esc(p.receivingNumber || "—")}</b> &bull; Date: ${esc(p.paymentDate || formatDateOnly(p.createdAt))}
               </div>
               ${p.screenshotUrl ? `<a href="${esc(p.screenshotUrl)}" target="_blank" class="inline-block text-sky-700 font-semibold hover:underline">View Payment Screenshot &nearr;</a>` : ""}
               ${p.rejectionReason ? `<div class="text-rose-700 font-medium">Rejection Note: ${esc(p.rejectionReason)}</div>` : ""}
             </div>
             <div class="flex flex-wrap items-start gap-1.5 text-xs">
-              ${st !== "VERIFIED" ? `<button onclick="verifyAdPayment('${esc(p.id)}')" class="px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-bold">Verify Payment</button>` : ""}
-              ${st !== "REJECTED" ? `<button onclick="rejectAdPayment('${esc(p.id)}')" class="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-700 font-bold">Reject</button>` : ""}
+              ${st !== "VERIFIED" ? `<button onclick="verifyAdPayment('${esc(p.id)}')" class="px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-bold">Verify</button>` : ""}
+              ${st !== "REJECTED" ? `<button onclick="rejectAdPayment('${esc(p.id)}')" class="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-800 font-bold">Reject</button>` : ""}
+              <button onclick="editAdPayment('${esc(p.id)}')" class="px-3 py-1.5 rounded-xl bg-sky-50 text-sky-700 font-bold">Edit</button>
+              <button onclick="deleteAdPayment('${esc(p.id)}')" class="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-700 font-bold">Delete</button>
             </div>
           </div>
         `;
       }).join("")}
     </div>
   `;
+}
+
+function onPaymentCampaignSelected(campId) {
+  const c = adState.campaigns[campId];
+  if (!c) return;
+  const biz = document.getElementById("pay_biz");
+  const amt = document.getElementById("pay_amt");
+  if (biz && !biz.value.trim()) biz.value = c.businessName || c.advertiserName || "";
+  if (amt && (!amt.value || Number(amt.value) === 0)) amt.value = c.price || 0;
+}
+
+async function submitAdPayment(e) {
+  e.preventDefault();
+  const id = (document.getElementById("pay_id").value || "").trim() || uid("pay");
+  const old = adState.payments[id] || {};
+  const campId = document.getElementById("pay_camp").value || old.campaignId || "";
+  const camp = adState.campaigns[campId] || {};
+  const trxId = document.getElementById("pay_trx").value.trim();
+  const normTrx = trxId.toUpperCase().replace(/[^A-Z0-9_-]/g, "");
+  const status = document.getElementById("pay_status").value || "PENDING";
+  const amount = Number(document.getElementById("pay_amt").value || 0);
+  const now = Date.now();
+  const payload = {
+    ...old,
+    id,
+    campaignId: campId,
+    advertiserId: camp.advertiserId || old.advertiserId || "",
+    advertiserName: camp.advertiserName || old.advertiserName || "",
+    businessName: document.getElementById("pay_biz").value.trim(),
+    packageName: camp.packageName || old.packageName || "Custom",
+    provider: document.getElementById("pay_provider").value || "bKash",
+    methodName: old.methodName || document.getElementById("pay_provider").value || "bKash",
+    senderMobile: document.getElementById("pay_sender").value.trim(),
+    receivingNumber: document.getElementById("pay_recv").value.trim(),
+    trxId,
+    normalizedTrxId: normTrx,
+    amount,
+    expectedAmount: old.expectedAmount || camp.price || amount,
+    status,
+    createdAt: old.createdAt || now,
+    updatedAt: now
+  };
+  await rtdbAdPut(`advertising/payments/${id}`, payload);
+  adState.payments[id] = payload;
+  if (normTrx) {
+    await rtdbAdPut(`advertising/trxIndex/${normTrx}`, { paymentId: id, campaignId: campId, trxId, updatedAt: now });
+    adState.trxIndex[normTrx] = { paymentId: id, campaignId: campId, trxId, updatedAt: now };
+  }
+  if (campId && adState.campaigns[campId]) {
+    adState.campaigns[campId].paymentStatus = status;
+    await recalculateCampaignActivation(campId);
+  }
+  editing = {};
+  await writeAuditLog("SAVE_AD_PAYMENT", "AD_PAYMENT", id, `Saved payment TRX ${trxId} (৳${amount})`);
+  toast("Payment saved!");
+  renderTab();
+}
+
+function editAdPayment(id) {
+  const p = adState.payments[id];
+  if (!p) return;
+  editing = { adPayment: { id, ...p } };
+  renderTab();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function deleteAdPayment(id) {
+  if (!confirm("Delete this payment record?")) return;
+  const p = adState.payments[id];
+  const normTrx = p ? String(p.normalizedTrxId || p.trxId || "").trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "") : "";
+  await rtdbAdDelete(`advertising/payments/${id}`);
+  delete adState.payments[id];
+  if (normTrx && adState.trxIndex && adState.trxIndex[normTrx] && adState.trxIndex[normTrx].paymentId === id) {
+    await rtdbAdDelete(`advertising/trxIndex/${normTrx}`);
+    delete adState.trxIndex[normTrx];
+  }
+  await writeAuditLog("DELETE_AD_PAYMENT", "AD_PAYMENT", id, `Deleted payment ${id}`);
+  toast("Payment deleted.");
+  renderTab();
 }
 
 async function verifyAdPayment(payId) {
@@ -1386,7 +1934,7 @@ async function resetRotationQueue(queueKey) {
   renderTab();
 }
 
-// 13. CAMPAIGN HISTORY
+// 13. CAMPAIGN HISTORY (With Edit & Delete)
 function renderAdHistory() {
   const now = Date.now();
   const q = adUiFilter.historyQuery.trim().toLowerCase();
@@ -1411,6 +1959,7 @@ function renderAdHistory() {
               <th class="p-3">Amount</th>
               <th class="p-3">Payment / Approval / Status</th>
               <th class="p-3">Start &ndash; Expiry</th>
+              <th class="p-3">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -1421,6 +1970,10 @@ function renderAdHistory() {
                 <td class="p-3 font-bold">৳${Number(c.price || 0).toLocaleString()}</td>
                 <td class="p-3 space-x-1">${adStatusPill(c.paymentStatus)} ${adStatusPill(c.approvalStatus)} ${adStatusPill(c.effectiveStatus)}</td>
                 <td class="p-3 whitespace-nowrap">${formatDateOnly(c.startDate)} &ndash; ${formatDateOnly(c.expiryDate)}</td>
+                <td class="p-3 whitespace-nowrap space-x-1">
+                  <button onclick="editAdCampaign('${esc(c.id)}')" class="px-2.5 py-1 rounded-lg bg-sky-50 text-sky-700 font-semibold">Edit</button>
+                  <button onclick="deleteAdCampaign('${esc(c.id)}')" class="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 font-semibold">Delete</button>
+                </td>
               </tr>
             `).join("")}
           </tbody>

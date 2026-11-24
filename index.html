@@ -252,7 +252,7 @@
           </div>
         </div>
 
-        <!-- Group 2: Advertisement Management (All 15 Modules) -->
+        <!-- Group 2: Advertisement Management -->
         <div class="nav-group rounded-xl border border-slate-100 bg-slate-50/60 p-1.5" data-group="advertising">
           <button type="button" onclick="toggleNavGroup('advertising')" aria-expanded="false"
             class="nav-group-toggle w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider text-slate-600 hover:bg-white">
@@ -280,11 +280,7 @@
               <span id="navBadgePayments" class="hidden px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800">0</span>
             </button>
             <button type="button" data-tab="ad_payment_methods" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Payment Methods</button>
-            <button type="button" data-tab="ad_home_slider" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Home Slider Management</button>
             <button type="button" data-tab="ad_custom_slider" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Custom Slider Management</button>
-            <button type="button" data-tab="ad_banners" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Banner Management (300&times;50)</button>
-            <button type="button" data-tab="ad_natives" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Native Ad Management (300&times;100)</button>
-            <button type="button" data-tab="ad_popups" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Popup Management (300&times;200)</button>
             <button type="button" data-tab="ad_rotation" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Rotation Management</button>
             <button type="button" data-tab="ad_history" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Campaign History</button>
             <button type="button" data-tab="ad_reports" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Reports &amp; CSV</button>
@@ -331,7 +327,7 @@
           </button>
           <div class="nav-group-items collapsed mt-1 flex flex-col gap-0.5">
             <button type="button" data-tab="sub_admins" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition font-semibold text-indigo-800">Sub Admin Management</button>
-            <button type="button" data-tab="visitors_users" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition font-semibold text-sky-800">Visitors &amp; Google Users</button>
+            <button type="button" data-tab="visitors_users" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition font-semibold text-sky-800">Visitors &amp; Users</button>
             <button type="button" data-tab="notifications" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">App Notifications</button>
             <button type="button" data-tab="settings" class="nav-item w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-white transition">Settings, Security &amp; CSV</button>
           </div>
@@ -2151,21 +2147,31 @@ function renderSpecialties() {
   return `
     <div class="bg-white p-5 rounded-2xl border border-slate-200 mb-6">
       <h3 class="font-bold text-sky-800 mb-3">${s.id ? "Edit Specialty" : "Add Medical Specialty"}</h3>
-      <form onsubmit="submitSpecialty(event)" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <form onsubmit="submitSpecialty(event)" class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <input type="hidden" id="sp_id" value="${esc(s.id || "")}" />
         <input id="sp_bn" value="${esc(s.nameBn || "")}" required placeholder="Bangla Name *" class="input" />
         <input id="sp_en" value="${esc(s.nameEn || "")}" required placeholder="English Name *" class="input" />
-        <input id="sp_icon" value="${esc(s.iconKey || "medical")}" placeholder="Icon (heart, brain, eye, child...)" class="input" />
-        <button type="submit" class="md:col-span-3 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Save Specialty</button>
+        <input id="sp_icon" value="${esc(s.iconKey || "medical")}" placeholder="Icon Key (heart, brain, eye, child...)" class="input" />
+        <input id="sp_iconUrl" value="${esc(s.iconUrl || "")}" placeholder="Custom Icon Image URL (https://...)" class="input" />
+        <div class="md:col-span-2 flex gap-2">
+          <button type="submit" class="px-5 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">${s.id ? "Update Specialty" : "Save Specialty"}</button>
+          ${s.id ? `<button type="button" onclick="editing={};renderTab()" class="px-4 py-2.5 rounded-xl bg-slate-100 text-sm">Cancel</button>` : ""}
+        </div>
       </form>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
       ${Object.entries(dbState.specialties).map(([id, item]) => `
-        <div class="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center">
-          <div><div class="font-bold">${esc(item.nameBn)}</div><div class="text-xs text-slate-500">${esc(item.nameEn)} (${esc(item.iconKey)})</div></div>
-          <div class="flex gap-2">
-            <button onclick='editing={spec:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs">Edit</button>
-            <button onclick="deleteNode('specialties','${id}')" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs">Delete</button>
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center gap-2">
+          <div class="flex items-center gap-3 min-w-0">
+            ${item.iconUrl ? `<img src="${esc(item.iconUrl)}" class="w-9 h-9 rounded-lg object-cover border border-slate-200 flex-shrink-0" onerror="this.style.display='none'" />` : ""}
+            <div class="min-w-0">
+              <div class="font-bold truncate">${esc(item.nameBn)}</div>
+              <div class="text-xs text-slate-500 truncate">${esc(item.nameEn)} (${esc(item.iconKey || "medical")})</div>
+            </div>
+          </div>
+          <div class="flex gap-2 flex-shrink-0">
+            <button onclick='editing={spec:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold">Edit</button>
+            <button onclick="deleteNode('specialties','${id}')" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs font-semibold">Delete</button>
           </div>
         </div>
       `).join("")}
@@ -2180,7 +2186,8 @@ async function submitSpecialty(e) {
   await saveNode("specialties", id, {
     nameBn: document.getElementById("sp_bn").value.trim(),
     nameEn: document.getElementById("sp_en").value.trim(),
-    iconKey: document.getElementById("sp_icon").value.trim() || "medical"
+    iconKey: document.getElementById("sp_icon").value.trim() || "medical",
+    iconUrl: (document.getElementById("sp_iconUrl")?.value || "").trim()
   });
 }
 
@@ -2194,6 +2201,7 @@ function renderLocations() {
   const visibleDivs = locDivisionFilter === "ALL"
     ? BD_DIVISIONS_64
     : BD_DIVISIONS_64.filter(d => d.en === locDivisionFilter);
+  const editLoc = editing.loc || {};
 
   return `
     <!-- বাংলাদেশের ৮টি বিভাগ ও ৬৪টি জেলার তালিকা -->
@@ -2234,33 +2242,40 @@ function renderLocations() {
       </div>
     </div>
 
-    <!-- Custom Upazila / Area Entry -->
+    <!-- Custom Upazila / Area Entry (Add & Edit) -->
     <div class="bg-white p-5 rounded-2xl border border-slate-200 mb-6">
-      <h3 class="font-bold text-sky-800 mb-1">Add Custom Upazila / Area</h3>
-      <p class="text-xs text-slate-500 mb-3">Add additional upazilas or local areas to any of the 64 districts.</p>
+      <h3 class="font-bold text-sky-800 mb-1">${editLoc.id ? "Edit Upazila / Area" : "Add Custom Upazila / Area"}</h3>
+      <p class="text-xs text-slate-500 mb-3">Add or edit upazilas and local areas in any of the 64 districts.</p>
       <form onsubmit="submitLocation(event)" class="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <input type="hidden" id="loc_id" value="${esc(editLoc.id || "")}" />
         <select id="loc_div" required class="input bg-white">
           <option value="">-- Select Division * --</option>
-          ${BD_DIVISIONS_64.map(div => `<option value="${esc(div.en)}">${esc(div.bn)} (${esc(div.en)})</option>`).join("")}
+          ${BD_DIVISIONS_64.map(div => `<option value="${esc(div.en)}" ${editLoc.division === div.en ? "selected" : ""}>${esc(div.bn)} (${esc(div.en)})</option>`).join("")}
         </select>
         <select id="loc_dist" required class="input bg-white">
           <option value="">-- Select District * --</option>
           ${BD_DIVISIONS_64.map(div => `
             <optgroup label="${esc(div.bn)} (${esc(div.en)})">
-              ${div.districts.map(d => `<option value="${esc(d.en)}">${esc(d.en)} (${esc(d.bn)})</option>`).join("")}
+              ${div.districts.map(d => `<option value="${esc(d.en)}" ${editLoc.district === d.en ? "selected" : ""}>${esc(d.en)} (${esc(d.bn)})</option>`).join("")}
             </optgroup>
           `).join("")}
         </select>
-        <input id="loc_upz" required placeholder="Upazila / Thana *" class="input" />
-        <input id="loc_area" placeholder="Area / Road (Optional)" class="input" />
-        <button type="submit" class="md:col-span-4 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Add Upazila / Area</button>
+        <input id="loc_upz" value="${esc(editLoc.upazila || "")}" required placeholder="Upazila / Thana *" class="input" />
+        <input id="loc_area" value="${esc(editLoc.area || "")}" placeholder="Area / Road (Optional)" class="input" />
+        <div class="md:col-span-4 flex gap-2">
+          <button type="submit" class="px-5 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">${editLoc.id ? "Update Upazila / Area" : "Add Upazila / Area"}</button>
+          ${editLoc.id ? `<button type="button" onclick="editing={};renderTab()" class="px-4 py-2.5 rounded-xl bg-slate-100 text-sm">Cancel</button>` : ""}
+        </div>
       </form>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
       ${Object.entries(dbState.locations).map(([id, l]) => `
-        <div class="bg-white p-3.5 rounded-xl border border-slate-200 flex justify-between items-center text-sm">
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200 flex justify-between items-center gap-2 text-sm">
           <span>${esc(l.division)} &rsaquo; <strong>${esc(l.district)}</strong> &rsaquo; ${esc(l.upazila)}${l.area ? " (" + esc(l.area) + ")" : ""}</span>
-          <button onclick="deleteNode('locations','${id}')" class="text-rose-600 text-xs font-semibold">Delete</button>
+          <div class="flex gap-2 flex-shrink-0">
+            <button onclick='editing={loc:${JSON.stringify({...l, id}).replace(/'/g,"&#39;")}};renderTab();window.scrollTo({top:0,behavior:"smooth"})' class="px-2.5 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold">Edit</button>
+            <button onclick="deleteNode('locations','${id}')" class="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-600 text-xs font-semibold">Delete</button>
+          </div>
         </div>
       `).join("")}
     </div>
@@ -2269,7 +2284,9 @@ function renderLocations() {
 
 async function submitLocation(e) {
   e.preventDefault();
-  await saveNode("locations", uid("loc"), {
+  const id = document.getElementById("loc_id")?.value || uid("loc");
+  editing = {};
+  await saveNode("locations", id, {
     division: document.getElementById("loc_div").value.trim(),
     district: document.getElementById("loc_dist").value.trim(),
     upazila: document.getElementById("loc_upz").value.trim(),
@@ -2278,22 +2295,34 @@ async function submitLocation(e) {
 }
 
 function renderNotifications() {
+  const editN = editing.notif || {};
   return `
     <div class="bg-white p-5 rounded-2xl border border-slate-200 mb-6">
-      <h3 class="font-bold text-sky-800 mb-3">Send Notification to App Users</h3>
+      <h3 class="font-bold text-sky-800 mb-3">${editN.id ? "Edit Notification" : "Send Notification to App Users"}</h3>
       <form onsubmit="submitNotif(event)" class="space-y-2.5">
-        <input id="n_tBn" required placeholder="Title (Bangla) *" class="input" />
-        <input id="n_tEn" required placeholder="Title (English) *" class="input" />
-        <textarea id="n_mBn" required placeholder="Message (Bangla) *" class="input" rows="2"></textarea>
-        <textarea id="n_mEn" required placeholder="Message (English) *" class="input" rows="2"></textarea>
-        <button type="submit" class="px-5 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">Publish Notification</button>
+        <input type="hidden" id="n_id" value="${esc(editN.id || "")}" />
+        <input id="n_tBn" value="${esc(editN.titleBn || "")}" required placeholder="Title (Bangla) *" class="input" />
+        <input id="n_tEn" value="${esc(editN.titleEn || "")}" required placeholder="Title (English) *" class="input" />
+        <textarea id="n_mBn" required placeholder="Message (Bangla) *" class="input" rows="2">${esc(editN.messageBn || "")}</textarea>
+        <textarea id="n_mEn" required placeholder="Message (English) *" class="input" rows="2">${esc(editN.messageEn || "")}</textarea>
+        <div class="flex gap-2">
+          <button type="submit" class="px-5 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">${editN.id ? "Update Notification" : "Publish Notification"}</button>
+          ${editN.id ? `<button type="button" onclick="editing={};renderTab()" class="px-4 py-2.5 rounded-xl bg-slate-100 text-sm">Cancel</button>` : ""}
+        </div>
       </form>
     </div>
     <div class="space-y-2.5">
       ${Object.entries(dbState.notifications).map(([id, n]) => `
-        <div class="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-start">
-          <div><div class="font-bold">${esc(n.titleBn)} / ${esc(n.titleEn)}</div><div class="text-xs text-slate-600 mt-1">${esc(n.messageBn)}</div></div>
-          <button onclick="deleteNode('notifications','${id}')" class="text-rose-600 text-xs font-semibold">Delete</button>
+        <div class="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-start gap-3">
+          <div class="min-w-0">
+            <div class="font-bold">${esc(n.titleBn)} / ${esc(n.titleEn)}</div>
+            <div class="text-xs text-slate-600 mt-1">${esc(n.messageBn)}</div>
+            ${n.messageEn ? `<div class="text-[11px] text-slate-400 mt-0.5">${esc(n.messageEn)}</div>` : ""}
+          </div>
+          <div class="flex gap-2 flex-shrink-0">
+            <button onclick='editing={notif:${JSON.stringify({...n, id}).replace(/'/g,"&#39;")}};renderTab();window.scrollTo({top:0,behavior:"smooth"})' class="px-2.5 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold">Edit</button>
+            <button onclick="deleteNode('notifications','${id}')" class="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-600 text-xs font-semibold">Delete</button>
+          </div>
         </div>
       `).join("")}
     </div>
@@ -2302,13 +2331,18 @@ function renderNotifications() {
 
 async function submitNotif(e) {
   e.preventDefault();
-  await saveNode("notifications", uid("ntf"), {
+  const id = document.getElementById("n_id")?.value || uid("ntf");
+  const existing = dbState.notifications?.[id] || {};
+  editing = {};
+  await saveNode("notifications", id, {
+    ...existing,
     titleBn: document.getElementById("n_tBn").value.trim(),
     titleEn: document.getElementById("n_tEn").value.trim(),
     messageBn: document.getElementById("n_mBn").value.trim(),
     messageEn: document.getElementById("n_mEn").value.trim(),
-    targetRole: "ALL",
-    createdAt: Date.now()
+    targetRole: existing.targetRole || "ALL",
+    createdAt: existing.createdAt || Date.now(),
+    updatedAt: Date.now()
   });
 }
 

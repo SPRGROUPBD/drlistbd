@@ -6,6 +6,7 @@ import com.example.data.local.AdvertiserSession
 import com.example.ui.ads.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -14,6 +15,11 @@ import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.UUID
+
+data class RegisteredInstitutionClaims(
+    val institutionIds: Set<String> = emptySet(),
+    val normalizedBusinessNames: Set<String> = emptySet()
+)
 
 data class AdvertiserPortalDashboard(
     val account: AdAdvertiserAccount? = null,
@@ -98,6 +104,31 @@ object AdvertisingRemoteService {
         }
     }
 
+    private fun normalizeInstitutionKey(raw: String): String =
+        raw.trim().lowercase().replace(Regex("\\s+"), " ")
+
+    suspend fun fetchRegisteredInstitutionClaims(): Result<RegisteredInstitutionClaims> = withContext(Dispatchers.IO) {
+        try {
+            val allObj = getJsonObject(authedUrl("advertising/advertisers"))
+            val ids = mutableSetOf<String>()
+            val names = mutableSetOf<String>()
+            if (allObj != null) {
+                val keys = allObj.keys()
+                while (keys.hasNext()) {
+                    val o = allObj.optJSONObject(keys.next()) ?: continue
+                    val instId = o.optString("institutionId", "").trim()
+                    if (instId.isNotBlank()) ids.add(instId)
+                    val bizNorm = normalizeInstitutionKey(o.optString("businessName", ""))
+                    if (bizNorm.isNotBlank()) names.add(bizNorm)
+                }
+            }
+            Result.success(RegisteredInstitutionClaims(institutionIds = ids, normalizedBusinessNames = names))
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchRegisteredInstitutionClaims failed: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
     suspend fun registerAdvertiser(
         advertiserName: String,
         businessName: String,
@@ -106,7 +137,9 @@ object AdvertisingRemoteService {
         address: String,
         category: String,
         websiteUrl: String,
-        password: String
+        password: String,
+        institutionId: String = "",
+        institutionType: String = ""
     ): Result<AdvertiserSession> = withContext(Dispatchers.IO) {
         try {
             val cleanOwner = advertiserName.trim()
@@ -116,9 +149,12 @@ object AdvertisingRemoteService {
             val cleanAddress = address.trim()
             val cleanCategory = category.trim().ifBlank { "Healthcare" }
             val cleanWeb = websiteUrl.trim()
+            val cleanInstId = institutionId.trim()
+            val cleanInstType = institutionType.trim().uppercase()
+            val normBiz = normalizeInstitutionKey(cleanBiz)
 
             if (cleanOwner.length < 2) return@withContext Result.failure(IllegalArgumentException("Advertiser Name is required."))
-            if (cleanBiz.length < 2) return@withContext Result.failure(IllegalArgumentException("Business / Organization Name is required."))
+            if (cleanBiz.length < 2) return@withContext Result.failure(IllegalArgumentException("Please select your Institution / Organization."))
             if (cleanMobile.length < 10) return@withContext Result.failure(IllegalArgumentException("Enter a valid mobile number (01XXXXXXXXX)."))
             if (password.length < 6) return@withContext Result.failure(IllegalArgumentException("Password must be at least 6 characters."))
             if (cleanWeb.isNotBlank() && !AdvertisingValidators.isValidDestinationUrl(cleanWeb)) {
@@ -133,11 +169,16 @@ object AdvertisingRemoteService {
                     val o = existingAll.optJSONObject(k) ?: continue
                     val exMobile = normalizePhone(o.optString("mobile", ""))
                     val exEmail = o.optString("email", "").trim().lowercase()
+                    val exInstId = o.optString("institutionId", "").trim()
+                    val exBizNorm = normalizeInstitutionKey(o.optString("businessName", ""))
                     if (exMobile.isNotBlank() && exMobile == cleanMobile) {
                         return@withContext Result.failure(IllegalStateException("An advertiser account with this mobile number already exists."))
                     }
                     if (cleanEmail.isNotBlank() && exEmail == cleanEmail) {
                         return@withContext Result.failure(IllegalStateException("An advertiser account with this email already exists."))
+                    }
+                    if ((cleanInstId.isNotBlank() && exInstId == cleanInstId) || (normBiz.isNotBlank() && exBizNorm == normBiz)) {
+                        return@withContext Result.failure(IllegalStateException("This institution is already registered by another advertiser account."))
                     }
                 }
             }
@@ -158,6 +199,8 @@ object AdvertisingRemoteService {
                 put("category", cleanCategory.take(80))
                 put("photoUrl", "")
                 put("websiteUrl", cleanWeb.take(300))
+                put("institutionId", cleanInstId)
+                put("institutionType", cleanInstType)
                 put("salt", salt)
                 put("passwordHash", hash)
                 put("authProvider", "PASSWORD")
@@ -182,7 +225,9 @@ object AdvertisingRemoteService {
                     category = cleanCategory,
                     photoUrl = "",
                     websiteUrl = cleanWeb,
-                    authProvider = "PASSWORD"
+                    authProvider = "PASSWORD",
+                    institutionId = cleanInstId,
+                    institutionType = cleanInstType
                 )
             )
         } catch (e: Exception) {
@@ -216,7 +261,7 @@ object AdvertisingRemoteService {
                     val salt = o.optString("salt", "")
                     val expectedHash = o.optString("passwordHash", "")
                     if (salt.isBlank() || expectedHash.isBlank()) {
-                        return@withContext Result.failure(IllegalStateException("This account uses Google Sign-In. Please sign in with Google."))
+                        return@withContext Result.failure(IllegalStateException("Password not configured for this account. Please contact Admin."))
                     }
                     val actualHash = sha256Hex("$salt:$password")
                     if (actualHash != expectedHash) {
@@ -237,7 +282,9 @@ object AdvertisingRemoteService {
                             category = o.optString("category", "Healthcare"),
                             photoUrl = o.optString("photoUrl", ""),
                             websiteUrl = o.optString("websiteUrl", ""),
-                            authProvider = o.optString("authProvider", "PASSWORD")
+                            authProvider = o.optString("authProvider", "PASSWORD"),
+                            institutionId = o.optString("institutionId", ""),
+                            institutionType = o.optString("institutionType", "")
                         )
                     )
                 }
@@ -373,7 +420,9 @@ object AdvertisingRemoteService {
                     category = category.trim().ifBlank { "Healthcare" },
                     photoUrl = payload.optString("photoUrl", ""),
                     websiteUrl = websiteUrl.trim(),
-                    authProvider = payload.optString("authProvider", "PASSWORD")
+                    authProvider = payload.optString("authProvider", "PASSWORD"),
+                    institutionId = payload.optString("institutionId", ""),
+                    institutionType = payload.optString("institutionType", "")
                 )
             )
         } catch (e: Exception) {
@@ -417,6 +466,8 @@ object AdvertisingRemoteService {
                     category = it.optString("category", "Healthcare"),
                     photoUrl = it.optString("photoUrl", ""),
                     websiteUrl = it.optString("websiteUrl", ""),
+                    institutionId = it.optString("institutionId", ""),
+                    institutionType = it.optString("institutionType", ""),
                     status = it.optString("status", AdStatuses.ACTIVE),
                     authProvider = it.optString("authProvider", "PASSWORD"),
                     createdAt = it.optLong("createdAt", 0L)
@@ -454,12 +505,13 @@ object AdvertisingRemoteService {
         description: String,
         imageUrl: String,
         destinationUrl: String,
-        // Existing record reference for HOME_SLIDER
+        // Existing record reference(s) for HOME_SLIDER (supports multi-select doctors + institution)
         targetRecordType: String = "",
         targetRecordId: String = "",
         targetRecordTitle: String = "",
         targetRecordSubtitle: String = "",
         targetRecordPhotoUrl: String = "",
+        promotedTargets: List<PromotedTargetRef> = emptyList(),
         // Payment fields
         paymentMethod: AdPaymentMethod,
         senderMobile: String,
@@ -495,10 +547,36 @@ object AdvertisingRemoteService {
             val maxDays = pkg.maxCampaignDurationDays.coerceAtLeast(pkg.durationDays)
             val lockedDuration = campaignDurationDays.coerceIn(1, maxDays).takeIf { it > 0 } ?: pkg.durationDays
 
+            // Normalize multi-select targets for HOME_SLIDER
+            val cleanedTargets: List<PromotedTargetRef> = promotedTargets
+                .map {
+                    it.copy(
+                        recordType = SliderRecordTypes.normalize(it.recordType),
+                        recordId = it.recordId.trim()
+                    )
+                }
+                .filter { SliderRecordTypes.isSupported(it.recordType) && it.recordId.isNotBlank() }
+                .distinctBy { "${it.recordType}:${it.recordId}" }
+                .ifEmpty {
+                    val normSingle = SliderRecordTypes.normalize(targetRecordType)
+                    if (SliderRecordTypes.isSupported(normSingle) && targetRecordId.isNotBlank()) {
+                        listOf(
+                            PromotedTargetRef(
+                                recordType = normSingle,
+                                recordId = targetRecordId.trim(),
+                                title = targetRecordTitle.trim(),
+                                subtitle = targetRecordSubtitle.trim(),
+                                photoUrl = targetRecordPhotoUrl.trim()
+                            )
+                        )
+                    } else emptyList()
+                }
+            val primaryTarget = cleanedTargets.firstOrNull()
+
             // 2. Validate content
             if (normType == AdPackageTypes.HOME_SLIDER) {
-                if (!SliderRecordTypes.isSupported(targetRecordType) || targetRecordId.isBlank()) {
-                    return@withContext Result.failure(IllegalArgumentException("Please select an existing Doctor, Hospital, or Diagnostic Center for Home Slider."))
+                if (cleanedTargets.isEmpty()) {
+                    return@withContext Result.failure(IllegalArgumentException("Please select at least one Doctor or your Institution to promote in the Home Slider."))
                 }
             } else {
                 if (title.trim().length < 2) {
@@ -546,8 +624,23 @@ object AdvertisingRemoteService {
             val campaignId = "camp_${now}_${UUID.randomUUID().toString().take(6)}"
             val paymentId = "pay_${now}_${UUID.randomUUID().toString().take(6)}"
 
-            val resolvedTitle = title.trim().ifBlank { targetRecordTitle.ifBlank { session.businessName } }
-            val resolvedImg = imageUrl.trim().ifBlank { targetRecordPhotoUrl }
+            val multiSummaryTitle = when {
+                title.trim().isNotBlank() -> title.trim()
+                cleanedTargets.size > 1 -> "${session.businessName.ifBlank { primaryTarget?.title.orEmpty() }} (${cleanedTargets.size} items)"
+                else -> primaryTarget?.title?.ifBlank { session.businessName } ?: session.businessName
+            }
+            val resolvedImg = imageUrl.trim().ifBlank { primaryTarget?.photoUrl.orEmpty() }
+            val targetsJsonArray = JSONArray().apply {
+                cleanedTargets.forEach { t ->
+                    put(JSONObject().apply {
+                        put("recordType", t.recordType)
+                        put("recordId", t.recordId)
+                        put("title", t.title.take(160))
+                        put("subtitle", t.subtitle.take(240))
+                        put("photoUrl", t.photoUrl.take(500))
+                    })
+                }
+            }
 
             // 4. Write Campaign (Strictly PENDING until Admin verifies Payment AND approves Ad separately)
             val campaignJson = JSONObject().apply {
@@ -556,7 +649,7 @@ object AdvertisingRemoteService {
                 put("advertiserName", session.ownerName)
                 put("businessName", session.businessName)
                 put("contactMobile", session.mobile)
-                put("title", resolvedTitle.take(160))
+                put("title", multiSummaryTitle.take(160))
                 put("description", description.trim().take(500))
                 put("imageUrl", resolvedImg)
                 put("destinationUrl", destinationUrl.trim().take(300))
@@ -566,11 +659,14 @@ object AdvertisingRemoteService {
                 put("placement", effectivePlacement)
                 put("price", pkg.price) // Server-locked immutable price
                 put("durationDays", lockedDuration)
-                put("targetRecordType", SliderRecordTypes.normalize(targetRecordType))
-                put("targetRecordId", targetRecordId.trim())
-                put("targetRecordTitle", targetRecordTitle.take(160))
-                put("targetRecordSubtitle", targetRecordSubtitle.take(240))
-                put("targetRecordPhotoUrl", targetRecordPhotoUrl.take(500))
+                put("targetRecordType", primaryTarget?.recordType.orEmpty())
+                put("targetRecordId", primaryTarget?.recordId.orEmpty())
+                put("targetRecordTitle", (primaryTarget?.title ?: "").take(160))
+                put("targetRecordSubtitle", (primaryTarget?.subtitle ?: "").take(240))
+                put("targetRecordPhotoUrl", (primaryTarget?.photoUrl ?: "").take(500))
+                if (cleanedTargets.isNotEmpty()) {
+                    put("promotedTargets", targetsJsonArray)
+                }
                 put("paymentStatus", AdStatuses.PENDING)
                 put("approvalStatus", AdStatuses.PENDING)
                 put("campaignStatus", AdStatuses.PENDING)
@@ -594,8 +690,9 @@ object AdvertisingRemoteService {
                 val sliderJson = JSONObject().apply {
                     put("campaignId", campaignId)
                     put("advertiserId", session.id)
-                    put("targetRecordType", SliderRecordTypes.normalize(targetRecordType))
-                    put("targetRecordId", targetRecordId.trim())
+                    put("targetRecordType", primaryTarget?.recordType.orEmpty())
+                    put("targetRecordId", primaryTarget?.recordId.orEmpty())
+                    put("promotedTargets", targetsJsonArray)
                     put("approvalStatus", AdStatuses.PENDING)
                     put("paymentStatus", AdStatuses.PENDING)
                     put("campaignStatus", AdStatuses.PENDING)
@@ -850,40 +947,66 @@ object AdvertisingRemoteService {
         return list
     }
 
-    private fun parseCampaign(id: String, o: JSONObject): AdCampaignItem = AdCampaignItem(
-        id = id,
-        advertiserId = o.optString("advertiserId", "").trim(),
-        advertiserName = o.optString("advertiserName", "").trim(),
-        businessName = o.optString("businessName", "").trim(),
-        contactMobile = o.optString("contactMobile", "").trim(),
-        title = o.optString("title", "").trim(),
-        description = o.optString("description", "").trim(),
-        imageUrl = o.optString("imageUrl", "").trim(),
-        destinationUrl = o.optString("destinationUrl", "").trim(),
-        packageId = o.optString("packageId", "").trim(),
-        packageName = o.optString("packageName", "").trim(),
-        adType = AdPackageTypes.normalize(o.optString("adType", "")),
-        placement = AdPlacements.normalize(o.optString("placement", "")),
-        price = o.optDouble("price", 0.0),
-        durationDays = o.optInt("durationDays", 0),
-        targetRecordType = SliderRecordTypes.normalize(o.optString("targetRecordType", "")),
-        targetRecordId = o.optString("targetRecordId", "").trim(),
-        targetRecordTitle = o.optString("targetRecordTitle", "").trim(),
-        targetRecordSubtitle = o.optString("targetRecordSubtitle", "").trim(),
-        targetRecordPhotoUrl = o.optString("targetRecordPhotoUrl", "").trim(),
-        paymentStatus = o.optString("paymentStatus", AdStatuses.PENDING).trim().uppercase(),
-        approvalStatus = o.optString("approvalStatus", AdStatuses.PENDING).trim().uppercase(),
-        campaignStatus = o.optString("campaignStatus", AdStatuses.PENDING).trim().uppercase(),
-        startDate = o.optLong("startDate", 0L),
-        expiryDate = o.optLong("expiryDate", 0L),
-        activatedAt = o.optLong("activatedAt", 0L),
-        priorityOverride = o.optInt("priorityOverride", Int.MAX_VALUE),
-        renewalOfCampaignId = o.optString("renewalOfCampaignId", "").trim(),
-        impressionsCount = o.optLong("impressionsCount", 0L),
-        clicksCount = o.optLong("clicksCount", 0L),
-        createdAt = o.optLong("createdAt", 0L),
-        updatedAt = o.optLong("updatedAt", 0L)
-    )
+    private fun parseCampaign(id: String, o: JSONObject): AdCampaignItem {
+        val parsedTargets = mutableListOf<PromotedTargetRef>()
+        val targetsArr = o.optJSONArray("promotedTargets")
+        if (targetsArr != null) {
+            for (i in 0 until targetsArr.length()) {
+                val item = targetsArr.optJSONObject(i) ?: continue
+                val rType = SliderRecordTypes.normalize(item.optString("recordType", ""))
+                val rId = item.optString("recordId", "").trim()
+                if (SliderRecordTypes.isSupported(rType) && rId.isNotBlank()) {
+                    parsedTargets.add(
+                        PromotedTargetRef(
+                            recordType = rType,
+                            recordId = rId,
+                            title = item.optString("title", "").trim(),
+                            subtitle = item.optString("subtitle", "").trim(),
+                            photoUrl = item.optString("photoUrl", "").trim()
+                        )
+                    )
+                }
+            }
+        }
+        val rawImageUrl = o.optString("imageUrl", "").trim()
+            .ifBlank { o.optString("bannerUrl", "").trim() }
+            .ifBlank { o.optString("creativeUrl", "").trim() }
+        return AdCampaignItem(
+            id = id,
+            advertiserId = o.optString("advertiserId", "").trim(),
+            advertiserName = o.optString("advertiserName", "").trim(),
+            businessName = o.optString("businessName", "").trim(),
+            contactMobile = o.optString("contactMobile", "").trim(),
+            title = o.optString("title", "").trim(),
+            description = o.optString("description", "").trim(),
+            imageUrl = rawImageUrl,
+            destinationUrl = o.optString("destinationUrl", "").trim(),
+            packageId = o.optString("packageId", "").trim(),
+            packageName = o.optString("packageName", "").trim(),
+            adType = AdPackageTypes.normalize(o.optString("adType", "")),
+            placement = AdPlacements.normalize(o.optString("placement", "")),
+            price = o.optDouble("price", 0.0),
+            durationDays = o.optInt("durationDays", 0),
+            targetRecordType = SliderRecordTypes.normalize(o.optString("targetRecordType", "")),
+            targetRecordId = o.optString("targetRecordId", "").trim(),
+            targetRecordTitle = o.optString("targetRecordTitle", "").trim(),
+            targetRecordSubtitle = o.optString("targetRecordSubtitle", "").trim(),
+            targetRecordPhotoUrl = o.optString("targetRecordPhotoUrl", "").trim(),
+            promotedTargets = parsedTargets,
+            paymentStatus = o.optString("paymentStatus", AdStatuses.PENDING).trim().uppercase(),
+            approvalStatus = o.optString("approvalStatus", AdStatuses.PENDING).trim().uppercase(),
+            campaignStatus = o.optString("campaignStatus", AdStatuses.PENDING).trim().uppercase(),
+            startDate = o.optLong("startDate", 0L),
+            expiryDate = o.optLong("expiryDate", 0L),
+            activatedAt = o.optLong("activatedAt", 0L),
+            priorityOverride = o.optInt("priorityOverride", Int.MAX_VALUE),
+            renewalOfCampaignId = o.optString("renewalOfCampaignId", "").trim(),
+            impressionsCount = o.optLong("impressionsCount", 0L),
+            clicksCount = o.optLong("clicksCount", 0L),
+            createdAt = o.optLong("createdAt", 0L),
+            updatedAt = o.optLong("updatedAt", 0L)
+        )
+    }
 
     private fun parsePayments(root: JSONObject?): List<AdPaymentRecord> {
         if (root == null) return emptyList()

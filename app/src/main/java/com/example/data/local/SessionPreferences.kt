@@ -35,7 +35,9 @@ data class AdvertiserSession(
     val category: String = "",
     val photoUrl: String = "",
     val websiteUrl: String = "",
-    val authProvider: String = "LEGACY"
+    val authProvider: String = "LEGACY",
+    val institutionId: String = "",
+    val institutionType: String = ""
 ) {
     val isLoggedIn: Boolean get() = id.isNotBlank()
 }
@@ -65,6 +67,8 @@ class SessionPreferences(private val context: Context) {
     private val keyAdvPhoto = stringPreferencesKey("adv_session_photo")
     private val keyAdvWebsite = stringPreferencesKey("adv_session_website")
     private val keyAdvProvider = stringPreferencesKey("adv_session_provider")
+    private val keyAdvInstitutionId = stringPreferencesKey("adv_session_institution_id")
+    private val keyAdvInstitutionType = stringPreferencesKey("adv_session_institution_type")
 
     // Persisted fair ad rotation counters (survives app restart & offline sessions)
     private val keyRotationCountersJson = stringPreferencesKey("fair_rotation_counters_json")
@@ -112,7 +116,9 @@ class SessionPreferences(private val context: Context) {
             category = prefs[keyAdvCategory].orEmpty(),
             photoUrl = prefs[keyAdvPhoto].orEmpty(),
             websiteUrl = prefs[keyAdvWebsite].orEmpty(),
-            authProvider = prefs[keyAdvProvider].orEmpty().ifBlank { "LEGACY" }
+            authProvider = prefs[keyAdvProvider].orEmpty().ifBlank { "LEGACY" },
+            institutionId = prefs[keyAdvInstitutionId].orEmpty(),
+            institutionType = prefs[keyAdvInstitutionType].orEmpty()
         )
     }
 
@@ -239,6 +245,8 @@ class SessionPreferences(private val context: Context) {
                 prefs[keyAdvPhoto] = session.photoUrl
                 prefs[keyAdvWebsite] = session.websiteUrl
                 prefs[keyAdvProvider] = session.authProvider
+                prefs[keyAdvInstitutionId] = session.institutionId
+                prefs[keyAdvInstitutionType] = session.institutionType
             }
         }
     }
@@ -256,6 +264,8 @@ class SessionPreferences(private val context: Context) {
                 prefs.remove(keyAdvPhoto)
                 prefs.remove(keyAdvWebsite)
                 prefs.remove(keyAdvProvider)
+                prefs.remove(keyAdvInstitutionId)
+                prefs.remove(keyAdvInstitutionType)
             }
         }
     }

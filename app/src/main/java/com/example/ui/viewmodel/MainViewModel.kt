@@ -5,13 +5,10 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.auth.GoogleAuthManager
-import com.example.auth.GoogleUserAccount
 import com.example.data.local.*
 import com.example.data.model.*
 import com.example.data.remote.AdvertisingRemoteService
 import com.example.data.remote.FavoriteCategory
-import com.example.data.remote.FirebaseUserSyncService
 import com.example.data.repository.DirectoryRepository
 import com.example.i18n.AppLang
 import com.example.ui.ads.AdCampaignItem
@@ -115,22 +112,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val advertiserSession: StateFlow<AdvertiserSession> = repo.prefs.advertiserSession
         .safeStateIn(SharingStarted.Eagerly, AdvertiserSession())
 
-    // --- Visitor Google Authentication & UID-Scoped Multi-Device Favorites ---
-    val visitorAccount: StateFlow<GoogleUserAccount?> = GoogleAuthManager.currentUser
+    companion object {
+        private const val LOCAL_VISITOR_UID = "local_device"
+    }
 
-    private val _showVisitorSignInGate = MutableStateFlow(false)
-    val showVisitorSignInGate: StateFlow<Boolean> = _showVisitorSignInGate.asStateFlow()
-
-    private val _visitorAuthError = MutableStateFlow<String?>(null)
-    val visitorAuthError: StateFlow<String?> = _visitorAuthError.asStateFlow()
-
-    private var pendingFavoriteAction: Triple<FavoriteCategory, String, String>? = null
-
-    val favoriteDoctorIds: StateFlow<Set<String>> = visitorAccount
-        .flatMapLatest { user ->
-            if (user == null) flowOf(emptySet())
-            else repo.observeFavoritesForUser(user.uid)
-        }
+    // --- Local Device Favorites (No Sign-In Required) ---
+    val favoriteDoctorIds: StateFlow<Set<String>> = repo.observeFavoritesForUser(LOCAL_VISITOR_UID)
         .safeStateIn(SharingStarted.WhileSubscribed(5000), emptySet())
 
     private val _favoriteHospitalIds = MutableStateFlow<Set<String>>(emptySet())
@@ -253,24 +240,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .safeStateIn(SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
-        GoogleAuthManager.startObserving()
-
-        // Observe authenticated Google Visitor state & sync UID-scoped favorites across devices
+        // Load locally saved facility/chamber favorites immediately without requiring sign-in
         viewModelScope.launch(exceptionHandler) {
-            GoogleAuthManager.currentUser.collectLatest { user ->
-                runCatching {
-                    if (user != null) {
-                        val (cachedHosp, cachedDiag, cachedCham) = repo.prefs.loadCachedFacilityFavorites(user.uid)
-                        _favoriteHospitalIds.value = cachedHosp
-                        _favoriteDiagnosticIds.value = cachedDiag
-                        _favoriteChamberIds.value = cachedCham
-                        syncVisitorFavoritesFromCloud(user)
-                    } else {
-                        _favoriteHospitalIds.value = emptySet()
-                        _favoriteDiagnosticIds.value = emptySet()
-                        _favoriteChamberIds.value = emptySet()
-                    }
-                }
+            runCatching {
+                val (cachedHosp, cachedDiag, cachedCham) = repo.prefs.loadCachedFacilityFavorites(LOCAL_VISITOR_UID)
+                _favoriteHospitalIds.value = cachedHosp
+                _favoriteDiagnosticIds.value = cachedDiag
+                _favoriteChamberIds.value = cachedCham
             }
         }
 
@@ -325,7 +301,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     repo.syncFromAdminCloud()
                 }
                 refreshDynamicAdSystem()
-                visitorAccount.value?.let { syncVisitorFavoritesFromCloud(it) }
                 val latestAuthNow = repo.prefs.getAuthoritativeNowMs()
                 if (kotlin.math.abs(latestAuthNow - _authoritativeNowMs.value) >= 60_000L) {
                     _authoritativeNowMs.value = latestAuthNow
@@ -397,7 +372,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun refreshDynamicAdSystem() {
         if (_dynamicPackages.value.isNotEmpty()) _dynamicPackages.value = emptyList()
         if (_managedCampaigns.value.isNotEmpty()) _managedCampaigns.value = emptyList()
-        if (!ConnectivityMonitor.isOnline.value) return
         AdvertisingRemoteService.fetchPublicSnapshot()
             .onSuccess { snapshot ->
                 val mergedCounters = repo.prefs.loadRotationCounters() +
@@ -412,137 +386,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
     }
 
-    private suspend fun syncVisitorFavoritesFromCloud(user: GoogleUserAccount) {
-        if (!ConnectivityMonitor.isOnline.value) return
-        runCatching {
-            FirebaseUserSyncService.ensureVisitorAccount(user)
-            FirebaseUserSyncService.fetchUserFavorites(user.uid).onSuccess { snap ->
-                repo.replaceDoctorFavoritesForUser(user.uid, snap.doctorIds)
-                _favoriteHospitalIds.value = snap.hospitalIds
-                _favoriteDiagnosticIds.value = snap.diagnosticIds
-                _favoriteChamberIds.value = snap.chamberIds
-                repo.prefs.saveCachedFacilityFavorites(
-                    uid = user.uid,
-                    hospitals = snap.hospitalIds,
-                    diagnostics = snap.diagnosticIds,
-                    chambers = snap.chamberIds
-                )
-            }
-        }.onFailure { err ->
-            Log.w("MainViewModel", "Favorite cloud sync warning: ${err.message}")
-        }
-    }
-
-    fun dismissVisitorSignInGate() {
-        _showVisitorSignInGate.value = false
-        _visitorAuthError.value = null
-        pendingFavoriteAction = null
-    }
-
-    fun setVisitorAuthError(error: String?) {
-        _visitorAuthError.value = error
-    }
-
-    fun onVisitorSignedIn(account: GoogleUserAccount) {
-        _showVisitorSignInGate.value = false
-        _visitorAuthError.value = null
-        val pending = pendingFavoriteAction
-        pendingFavoriteAction = null
-        viewModelScope.launch(exceptionHandler) {
-            syncVisitorFavoritesFromCloud(account)
-            if (pending != null) {
-                executeAuthenticatedFavoriteToggle(account.uid, pending.first, pending.second, pending.third)
-            }
-            showMessage(
-                if (currentLang.value == AppLang.BN) "স্বাগতম, ${account.displayName}! প্রিয় তালিকা সিঙ্ক হয়েছে।"
-                else "Welcome, ${account.displayName}! Favorites synced."
-            )
-        }
-    }
-
-    fun signOutVisitor(context: Context) {
-        GoogleAuthManager.signOut(context, viewModelScope) {
-            viewModelScope.launch(exceptionHandler) {
-                repo.prefs.clearCachedFacilityFavorites()
-                _favoriteHospitalIds.value = emptySet()
-                _favoriteDiagnosticIds.value = emptySet()
-                _favoriteChamberIds.value = emptySet()
-                showMessage(
-                    if (currentLang.value == AppLang.BN) "সফলভাবে লগআউট সম্পন্ন হয়েছে।"
-                    else "Signed out securely."
-                )
-            }
-        }
-    }
-
-    fun syncVisitorFavoritesNow() {
-        val user = visitorAccount.value ?: return
-        viewModelScope.launch(exceptionHandler) {
-            try {
-                _isSyncing.value = true
-                syncVisitorFavoritesFromCloud(user)
-                showMessage(
-                    if (currentLang.value == AppLang.BN) "প্রিয় তালিকা অনলাইনে সিঙ্ক হয়েছে।"
-                    else "Favorites synced across devices."
-                )
-            } finally {
-                _isSyncing.value = false
-            }
-        }
-    }
-
     fun requestToggleFavorite(category: FavoriteCategory, itemId: String, label: String = "") {
         val cleanId = itemId.trim()
         if (cleanId.isEmpty()) return
-        val user = visitorAccount.value
-        if (user == null) {
-            pendingFavoriteAction = Triple(category, cleanId, label)
-            _visitorAuthError.value = null
-            _showVisitorSignInGate.value = true
-            return
-        }
         viewModelScope.launch(exceptionHandler) {
-            executeAuthenticatedFavoriteToggle(user.uid, category, cleanId, label)
+            executeLocalFavoriteToggle(LOCAL_VISITOR_UID, category, cleanId)
         }
     }
 
-    private suspend fun executeAuthenticatedFavoriteToggle(
+    private suspend fun executeLocalFavoriteToggle(
         uid: String,
         category: FavoriteCategory,
-        itemId: String,
-        label: String
+        itemId: String
     ) {
-        val nowSaved: Boolean
         when (category) {
             FavoriteCategory.DOCTOR -> {
                 val currentlyFav = itemId in favoriteDoctorIds.value
                 repo.toggleFavoriteForUser(uid, itemId, currentlyFav)
-                nowSaved = !currentlyFav
             }
             FavoriteCategory.HOSPITAL -> {
                 val cur = _favoriteHospitalIds.value
                 val next = if (itemId in cur) cur - itemId else cur + itemId
                 _favoriteHospitalIds.value = next
-                nowSaved = itemId in next
                 repo.prefs.saveCachedFacilityFavorites(uid, next, _favoriteDiagnosticIds.value, _favoriteChamberIds.value)
             }
             FavoriteCategory.DIAGNOSTIC -> {
                 val cur = _favoriteDiagnosticIds.value
                 val next = if (itemId in cur) cur - itemId else cur + itemId
                 _favoriteDiagnosticIds.value = next
-                nowSaved = itemId in next
                 repo.prefs.saveCachedFacilityFavorites(uid, _favoriteHospitalIds.value, next, _favoriteChamberIds.value)
             }
             FavoriteCategory.CHAMBER -> {
                 val cur = _favoriteChamberIds.value
                 val next = if (itemId in cur) cur - itemId else cur + itemId
                 _favoriteChamberIds.value = next
-                nowSaved = itemId in next
                 repo.prefs.saveCachedFacilityFavorites(uid, _favoriteHospitalIds.value, _favoriteDiagnosticIds.value, next)
             }
-        }
-        if (ConnectivityMonitor.isOnline.value) {
-            FirebaseUserSyncService.syncFavoriteItem(uid, category, itemId, nowSaved, label)
         }
     }
 
@@ -678,11 +557,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun logoutAdvertiser(context: Context? = null) {
-        val wasGoogle = advertiserSession.value.authProvider.equals("GOOGLE", ignoreCase = true)
         viewModelScope.launch(exceptionHandler) { repo.prefs.clearAdvertiserSession() }
-        if (wasGoogle && context != null) {
-            GoogleAuthManager.signOut(context, viewModelScope)
-        }
     }
 
     fun refreshDirectory() {

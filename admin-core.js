@@ -37,18 +37,37 @@ async function writeAuditLog(action, targetType, targetId, summary) {
   } catch (e) { console.warn("Audit log save failed", e); }
 }
 function renderAuditLogs() {
-  const logs = Object.values(dbState.audit_logs || {}).sort((a,b) => Number(b.timestamp||0)-Number(a.timestamp||0)).slice(0,150);
+  const logs = Object.entries(dbState.audit_logs || {})
+    .map(([id, l]) => ({ id, ...(l || {}) }))
+    .sort((a,b) => Number(b.timestamp||0)-Number(a.timestamp||0)).slice(0,150);
   return '<section class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">' +
+    '<div class="flex flex-wrap items-center justify-between gap-2 mb-4"><div>' +
     '<h3 class="font-bold text-base mb-1">Admin Audit Logs (' + logs.length + ')</h3>' +
-    '<p class="text-xs text-slate-500 mb-4">Admin activity history for directory, settings and account changes.</p>' +
+    '<p class="text-xs text-slate-500">Admin activity history for directory, settings and account changes.</p></div>' +
+    (logs.length ? '<button type="button" onclick="clearAllAuditLogs()" class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 text-xs font-bold hover:bg-rose-100">Clear All Logs</button>' : '') +
+    '</div>' +
     (logs.length ? '<div class="space-y-2">' + logs.map(l =>
-      '<div class="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap justify-between gap-2 text-xs">' +
+      '<div class="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap justify-between items-center gap-2 text-xs">' +
       '<div><b class="text-sky-800">' + esc(l.action) + '</b> — ' + esc(l.summary) +
       '<span class="text-slate-400 ml-2">by ' + esc(l.actor) + '</span></div>' +
-      '<span class="text-slate-500">' + formatDateOnly(l.timestamp) + ' ' +
-      (l.timestamp ? new Date(Number(l.timestamp)).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : "") + '</span></div>'
+      '<div class="flex items-center gap-2"><span class="text-slate-500">' + formatDateOnly(l.timestamp) + ' ' +
+      (l.timestamp ? new Date(Number(l.timestamp)).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : "") + '</span>' +
+      '<button type="button" onclick="deleteAuditLog(\'' + esc(l.id) + '\')" class="px-2 py-0.5 rounded bg-rose-50 text-rose-700 font-semibold hover:bg-rose-100">Delete</button></div></div>'
     ).join("") + '</div>' : '<p class="text-xs text-slate-400 py-6 text-center">No audit events recorded yet.</p>') +
     '</section>';
+}
+async function deleteAuditLog(id) {
+  if (!confirm("Delete this audit log entry?")) return;
+  await deleteNode("audit_logs", id);
+}
+async function clearAllAuditLogs() {
+  if (!confirm("Clear ALL audit log entries?")) return;
+  const res = await fetch(RTDB_BASE + "/audit_logs.json", { method: "DELETE" });
+  if (res.ok) {
+    dbState.audit_logs = {};
+    toast("All audit logs cleared!");
+    renderTab();
+  }
 }
 const SUB_ADMIN_PERMISSIONS = [
   {key:"addDoctor",label:"Add Doctor"},{key:"editDoctor",label:"Edit Doctor"},{key:"deleteDoctor",label:"Delete Doctor"},{key:"manageDoctorInfo",label:"Manage Doctor Information"},
@@ -66,8 +85,7 @@ const TAB_PERMISSION_RULES = {
   specialties:["manageDoctorInfo"], locations:["manageDoctorInfo","manageHospitalInfo","manageDiagnosticInfo"],
   ad_dashboard:["manageAds","viewDashboard"], ad_packages:["manageAds"], ad_advertisers:["manageAds"],
   ad_requests:["manageAds"], ad_payments:["manageAds"], ad_payment_methods:["manageAds"],
-  ad_home_slider:["manageAds"], ad_custom_slider:["manageAds"], ad_banners:["manageAds"],
-  ad_natives:["manageAds"], ad_popups:["manageAds"], ad_rotation:["manageAds"],
+  ad_custom_slider:["manageAds"], ad_rotation:["manageAds"],
   ad_history:["manageAds"], ad_reports:["manageAds","viewDashboard"], ad_settings:["manageAds"]
 };
 function getAdminSession() {
@@ -144,17 +162,87 @@ function renderVisitorsUsers() {
   for (const [id,u] of Object.entries(users)) merged.set(id,{...(u||{}),uid:(u&&u.uid)||id});
   for (const [id,v] of Object.entries(visitors)) merged.set(id,{...(merged.get(id)||{}),...(v||{}),uid:(v&&v.uid)||id});
   const q = visitorSearchText.trim().toLowerCase();
-  const rows = Array.from(merged.values()).filter(u => [u.uid,u.name,u.email,u.role,u.status].some(v => String(v||"").toLowerCase().includes(q)))
+  const rows = Array.from(merged.values()).filter(u => [u.uid,u.name,u.email,u.phone,u.role,u.status].some(v => String(v||"").toLowerCase().includes(q)))
     .sort((a,b) => Number(b.lastLoginAt||b.updatedAt||b.createdAt||0)-Number(a.lastLoginAt||a.updatedAt||a.createdAt||0));
-  return '<div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">' +
-    '<div class="flex flex-wrap items-center justify-between gap-3 mb-4"><div><h3 class="font-bold text-base">Visitors & Google Users (' + rows.length + ')</h3>' +
-    '<p class="text-xs text-slate-500">Google visitor profiles from Firebase users/visitors records.</p></div>' +
-    '<input class="input max-w-xs" placeholder="Search name, email or UID" value="' + esc(visitorSearchText) + '" oninput="visitorSearchText=this.value;renderTab()" /></div>' +
-    (rows.length ? '<div class="overflow-x-auto"><table class="w-full text-xs text-left"><thead><tr class="bg-slate-50 text-slate-600"><th class="p-3">User</th><th class="p-3">Email</th><th class="p-3">Role</th><th class="p-3">Status</th><th class="p-3">Created</th><th class="p-3">Last Login</th></tr></thead><tbody>' +
+  const editU = editing.visitorUser || null;
+  return '<div class="space-y-5">' +
+    '<div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">' +
+    '<h3 class="font-bold text-base mb-3">' + (editU ? "Edit Visitor / User" : "Add Visitor / User") + '</h3>' +
+    '<form onsubmit="submitVisitorUser(event)" class="grid grid-cols-1 md:grid-cols-3 gap-3">' +
+    '<input type="hidden" id="vu_uid" value="' + esc(editU && editU.uid || "") + '" />' +
+    '<input id="vu_name" required class="input" placeholder="Full Name *" value="' + esc(editU && editU.name || "") + '" />' +
+    '<input id="vu_email" type="email" class="input" placeholder="Email Address" value="' + esc(editU && editU.email || "") + '" />' +
+    '<input id="vu_phone" class="input" placeholder="Mobile Number" value="' + esc(editU && editU.phone || "") + '" />' +
+    '<select id="vu_role" class="input">' +
+    '<option value="visitor" ' + (!editU || editU.role==="visitor" ? "selected" : "") + '>Visitor</option>' +
+    '<option value="user" ' + (editU && editU.role==="user" ? "selected" : "") + '>User</option>' +
+    '<option value="advertiser" ' + (editU && editU.role==="advertiser" ? "selected" : "") + '>Advertiser</option>' +
+    '</select>' +
+    '<select id="vu_status" class="input">' +
+    '<option value="ACTIVE" ' + (!editU || editU.status==="ACTIVE" ? "selected" : "") + '>ACTIVE</option>' +
+    '<option value="INACTIVE" ' + (editU && editU.status==="INACTIVE" ? "selected" : "") + '>INACTIVE</option>' +
+    '</select>' +
+    '<div class="flex gap-2">' +
+    '<button type="submit" class="flex-1 py-2.5 px-4 rounded-xl bg-sky-600 text-white text-xs font-bold">' + (editU ? "Update User" : "Add User") + '</button>' +
+    (editU ? '<button type="button" onclick="editing={};renderTab()" class="px-3 py-2.5 rounded-xl bg-slate-100 text-xs font-semibold">Cancel</button>' : '') +
+    '</div></form></div>' +
+    '<div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">' +
+    '<div class="flex flex-wrap items-center justify-between gap-3 mb-4"><div><h3 class="font-bold text-base">Visitors &amp; Users (' + rows.length + ')</h3>' +
+    '<p class="text-xs text-slate-500">Add, edit, or delete visitor/user records stored in Firebase.</p></div>' +
+    '<input class="input max-w-xs" placeholder="Search name, email, phone or UID" value="' + esc(visitorSearchText) + '" oninput="visitorSearchText=this.value;renderTab()" /></div>' +
+    (rows.length ? '<div class="overflow-x-auto"><table class="w-full text-xs text-left"><thead><tr class="bg-slate-50 text-slate-600"><th class="p-3">User</th><th class="p-3">Email / Phone</th><th class="p-3">Role</th><th class="p-3">Status</th><th class="p-3">Created</th><th class="p-3">Actions</th></tr></thead><tbody>' +
       rows.map(u => '<tr class="border-t border-slate-100"><td class="p-3"><div class="font-bold">' + esc(u.name||"—") + '</div><div class="text-[10px] text-slate-400 font-mono">' + esc(u.uid) + '</div></td>' +
-      '<td class="p-3">' + esc(u.email||"—") + '</td><td class="p-3">' + esc(u.role||"visitor") + '</td><td class="p-3">' + statusBadgeHtml(u.status||"ACTIVE") +
-      '</td><td class="p-3 whitespace-nowrap">' + formatDateOnly(u.createdAt) + '</td><td class="p-3 whitespace-nowrap">' + formatDateOnly(u.lastLoginAt||u.updatedAt) + '</td></tr>').join("") +
-      '</tbody></table></div>' : '<div class="text-center py-10 text-xs text-slate-400">No visitor accounts found.</div>') + '</div>';
+      '<td class="p-3"><div>' + esc(u.email||"—") + '</div><div class="text-[10px] text-slate-400">' + esc(u.phone||"") + '</div></td>' +
+      '<td class="p-3">' + esc(u.role||"visitor") + '</td><td class="p-3">' + statusBadgeHtml(u.status||"ACTIVE") +
+      '</td><td class="p-3 whitespace-nowrap">' + formatDateOnly(u.createdAt) + '</td>' +
+      '<td class="p-3 whitespace-nowrap space-x-1">' +
+      '<button type="button" onclick="editVisitorUser(\'' + esc(u.uid) + '\')" class="px-2.5 py-1 rounded-lg bg-sky-50 text-sky-700 font-semibold">Edit</button>' +
+      '<button type="button" onclick="deleteVisitorUser(\'' + esc(u.uid) + '\')" class="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 font-semibold">Delete</button>' +
+      '</td></tr>').join("") +
+      '</tbody></table></div>' : '<div class="text-center py-10 text-xs text-slate-400">No visitor accounts found.</div>') + '</div></div>';
+}
+async function submitVisitorUser(e) {
+  e.preventDefault();
+  const id = (document.getElementById("vu_uid")?.value || "").trim() || uid("usr");
+  const existing = (rootState.visitors && rootState.visitors[id]) || (rootState.users && rootState.users[id]) || {};
+  const now = Date.now();
+  const payload = {
+    ...existing,
+    uid: id,
+    name: document.getElementById("vu_name").value.trim(),
+    email: document.getElementById("vu_email").value.trim(),
+    phone: document.getElementById("vu_phone").value.trim(),
+    role: document.getElementById("vu_role").value || "visitor",
+    status: document.getElementById("vu_status").value || "ACTIVE",
+    createdAt: existing.createdAt || now,
+    updatedAt: now
+  };
+  await fetch(RTDB_ROOT + "/visitors/" + id + ".json", { method: "PUT", headers: {"Content-Type":"application/json"}, body: JSON.stringify(payload) });
+  await fetch(RTDB_ROOT + "/users/" + id + ".json", { method: "PUT", headers: {"Content-Type":"application/json"}, body: JSON.stringify(payload) });
+  if (!rootState.visitors) rootState.visitors = {};
+  if (!rootState.users) rootState.users = {};
+  rootState.visitors[id] = payload;
+  rootState.users[id] = payload;
+  editing = {};
+  await writeAuditLog("SAVE_VISITOR_USER", "USER", id, "Saved user " + payload.name);
+  toast("User saved!");
+  renderTab();
+}
+function editVisitorUser(uidKey) {
+  const merged = { ...((rootState.users || {})[uidKey] || {}), ...((rootState.visitors || {})[uidKey] || {}), uid: uidKey };
+  editing = { visitorUser: merged };
+  renderTab();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+async function deleteVisitorUser(uidKey) {
+  if (!confirm("Delete user account " + uidKey + "?")) return;
+  await fetch(RTDB_ROOT + "/visitors/" + uidKey + ".json", { method: "DELETE" });
+  await fetch(RTDB_ROOT + "/users/" + uidKey + ".json", { method: "DELETE" });
+  if (rootState.visitors) delete rootState.visitors[uidKey];
+  if (rootState.users) delete rootState.users[uidKey];
+  await writeAuditLog("DELETE_VISITOR_USER", "USER", uidKey, "Deleted user " + uidKey);
+  toast("User deleted!");
+  renderTab();
 }
 function renderSubAdmins() {
   if (!isSuperAdmin()) return '<div class="p-6 rounded-2xl bg-rose-50 text-rose-700 text-sm font-bold">Only Super Admin can manage Sub Admins.</div>';

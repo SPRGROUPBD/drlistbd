@@ -33,17 +33,16 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.example.auth.GoogleUserAccount
 import com.example.data.local.AdvertiserSession
 import com.example.data.local.DiagnosticCenterEntity
 import com.example.data.local.HospitalEntity
 import com.example.data.model.DoctorFullProfile
 import com.example.data.remote.AdvertiserPortalDashboard
 import com.example.data.remote.AdvertisingRemoteService
+import com.example.data.remote.RegisteredInstitutionClaims
 import com.example.i18n.AppLang
 import com.example.i18n.tr
 import com.example.ui.ads.*
-import com.example.ui.components.ContinueWithGoogleButton
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
@@ -100,6 +99,8 @@ fun AdvertiserPortalScreen(
     if (!session.isLoggedIn) {
         AdvertiserAuthView(
             lang = lang,
+            hospitals = hospitals,
+            diagnosticCenters = diagnosticCenters,
             isOnline = isOnline,
             onAuthSuccess = { newSession ->
                 onLoginSuccess(newSession)
@@ -258,9 +259,24 @@ fun AdvertiserPortalScreen(
     }
 }
 
+private data class SavedInstitutionOption(
+    val id: String,
+    val type: String, // HOSPITAL | DIAGNOSTIC
+    val nameEn: String,
+    val nameBn: String,
+    val district: String,
+    val address: String
+) {
+    val displayTitle: String get() = nameEn.ifBlank { nameBn }
+    val normalizedKey: String get() = displayTitle.trim().lowercase().replace(Regex("\\s+"), " ")
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AdvertiserAuthView(
     lang: AppLang,
+    hospitals: List<HospitalEntity>,
+    diagnosticCenters: List<DiagnosticCenterEntity>,
     isOnline: Boolean,
     onAuthSuccess: (AdvertiserSession) -> Unit,
     onError: (String) -> Unit,
@@ -269,9 +285,14 @@ private fun AdvertiserAuthView(
     val scope = rememberCoroutineScope()
     var isRegister by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
-    var pendingGoogleUser by remember { mutableStateOf<GoogleUserAccount?>(null) }
 
     var businessName by remember { mutableStateOf("") }
+    var selectedInstitutionId by remember { mutableStateOf("") }
+    var selectedInstitutionType by remember { mutableStateOf("") }
+    var useCustomInstitution by remember { mutableStateOf(false) }
+    var institutionDropdownExpanded by remember { mutableStateOf(false) }
+    var claimedInstitutions by remember { mutableStateOf(RegisteredInstitutionClaims()) }
+
     var ownerName by remember { mutableStateOf("") }
     var mobile by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -280,70 +301,40 @@ private fun AdvertiserAuthView(
     var websiteUrl by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
-    if (pendingGoogleUser != null) {
-        val gUser = pendingGoogleUser!!
-        LazyColumn(
-            modifier = modifier.fillMaxSize().background(BackgroundIce),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                Surface(
-                    shape = RoundedCornerShape(22.dp),
-                    color = SurfaceWhite,
-                    border = BorderStroke(1.dp, OutlineSoft),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            text = tr(lang, "অ্যাডভার্টাইজার প্রোফাইল সম্পূর্ণ করুন", "Complete Business Registration"),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                        OutlinedTextField(value = ownerName, onValueChange = { ownerName = it }, label = { Text(tr(lang, "পূর্ণ নাম *", "Full Name *")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = businessName, onValueChange = { businessName = it }, label = { Text(tr(lang, "ব্যবসা / প্রতিষ্ঠানের নাম *", "Business / Organization *")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = mobile, onValueChange = { mobile = it }, label = { Text(tr(lang, "মোবাইল নম্বর *", "Mobile (01XXXXXXXXX) *")) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text(tr(lang, "ঠিকানা *", "Address *")) }, modifier = Modifier.fillMaxWidth())
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            OutlinedButton(onClick = { pendingGoogleUser = null }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                                Text(tr(lang, "বাতিল", "Cancel"))
-                            }
-                            Button(
-                                enabled = !busy && isOnline,
-                                onClick = {
-                                    scope.launch {
-                                        busy = true
-                                        val res = AdvertisingRemoteService.ensureGoogleAdvertiserAccount(
-                                            uid = gUser.uid,
-                                            ownerName = ownerName,
-                                            email = gUser.email,
-                                            businessName = businessName,
-                                            mobile = mobile,
-                                            address = address,
-                                            category = category,
-                                            websiteUrl = websiteUrl,
-                                            photoUrl = gUser.photoUrl
-                                        )
-                                        busy = false
-                                        res.onSuccess {
-                                            pendingGoogleUser = null
-                                            onAuthSuccess(it)
-                                        }.onFailure { onError(it.message ?: "Registration failed") }
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue),
-                                modifier = Modifier.weight(1.4f).heightIn(min = 48.dp)
-                            ) {
-                                if (busy) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
-                                else Text(tr(lang, "নিবন্ধন সম্পূর্ণ করুন", "Complete Registration"))
-                            }
-                        }
-                    }
-                }
-            }
+    val savedInstitutions = remember(hospitals, diagnosticCenters) {
+        val list = mutableListOf<SavedInstitutionOption>()
+        hospitals.forEach { h ->
+            list.add(
+                SavedInstitutionOption(
+                    id = h.id,
+                    type = "HOSPITAL",
+                    nameEn = h.nameEn.removePrefix("[DEMO] ").trim(),
+                    nameBn = h.nameBn.removePrefix("[DEMO] ").trim(),
+                    district = h.district,
+                    address = h.address
+                )
+            )
         }
-        return
+        diagnosticCenters.forEach { d ->
+            list.add(
+                SavedInstitutionOption(
+                    id = d.id,
+                    type = "DIAGNOSTIC",
+                    nameEn = d.nameEn.removePrefix("[DEMO] ").trim(),
+                    nameBn = d.nameBn.removePrefix("[DEMO] ").trim(),
+                    district = d.district,
+                    address = d.address
+                )
+            )
+        }
+        list.sortedBy { it.displayTitle.lowercase() }
+    }
+
+    LaunchedEffect(isRegister, isOnline) {
+        if (isRegister && isOnline) {
+            AdvertisingRemoteService.fetchRegisteredInstitutionClaims()
+                .onSuccess { claimedInstitutions = it }
+        }
     }
 
     LazyColumn(
@@ -380,41 +371,145 @@ private fun AdvertiserAuthView(
                         }
                     }
 
-                    ContinueWithGoogleButton(
-                        label = tr(lang, "Google দিয়ে অ্যাডভার্টাইজার লগইন", "Continue with Google"),
-                        enabled = isOnline && !busy,
-                        onSuccess = { gUser ->
-                            scope.launch {
-                                busy = true
-                                val existing = AdvertisingRemoteService.fetchGoogleAdvertiserIfExists(gUser.uid)
-                                busy = false
-                                if (existing != null) onAuthSuccess(existing)
-                                else {
-                                    ownerName = gUser.displayName
-                                    email = gUser.email
-                                    pendingGoogleUser = gUser
-                                }
-                            }
-                        },
-                        onError = onError,
-                        testTagName = "adv_google_signin_btn"
-                    )
-
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        HorizontalDivider(modifier = Modifier.weight(1f))
-                        Text(tr(lang, "অথবা", "OR"), style = MaterialTheme.typography.labelSmall, color = TextMuted)
-                        HorizontalDivider(modifier = Modifier.weight(1f))
-                    }
-
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = !isRegister, onClick = { isRegister = false }, label = { Text(tr(lang, "লগইন", "Login")) }, modifier = Modifier.weight(1f))
-                        FilterChip(selected = isRegister, onClick = { isRegister = true }, label = { Text(tr(lang, "রেজিস্ট্রেশন", "Register")) }, modifier = Modifier.weight(1f))
+                        FilterChip(
+                            selected = !isRegister,
+                            onClick = { isRegister = false },
+                            label = { Text(tr(lang, "লগইন", "Login")) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = isRegister,
+                            onClick = { isRegister = true },
+                            label = { Text(tr(lang, "রেজিস্ট্রেশন", "Register")) },
+                            modifier = Modifier.weight(1f)
+                        )
                     }
 
                     if (isRegister) {
-                        OutlinedTextField(value = ownerName, onValueChange = { ownerName = it }, label = { Text(tr(lang, "পূর্ণ নাম *", "Advertiser Name *")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = businessName, onValueChange = { businessName = it }, label = { Text(tr(lang, "ব্যবসা / প্রতিষ্ঠানের নাম *", "Business / Organization Name *")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(
+                            value = ownerName,
+                            onValueChange = { ownerName = it },
+                            label = { Text(tr(lang, "পূর্ণ নাম *", "Advertiser Name *")) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        // Saved Institution Dropdown (prevents duplicate claims on the same institution)
+                        ExposedDropdownMenuBox(
+                            expanded = institutionDropdownExpanded,
+                            onExpandedChange = { institutionDropdownExpanded = !institutionDropdownExpanded },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            val selectedLabel = when {
+                                useCustomInstitution -> tr(lang, "অন্যান্য / নতুন প্রতিষ্ঠান", "Other / Custom Business")
+                                selectedInstitutionId.isNotBlank() -> businessName
+                                else -> ""
+                            }
+                            OutlinedTextField(
+                                value = selectedLabel,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text(tr(lang, "সংরক্ষিত প্রতিষ্ঠান নির্বাচন করুন *", "Select Saved Institution *")) },
+                                placeholder = { Text(tr(lang, "হাসপাতাল বা ডায়াগনস্টিক বাছুন...", "Choose saved Hospital or Diagnostic...")) },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = institutionDropdownExpanded) },
+                                modifier = Modifier
+                                    .menuAnchor()
+                                    .fillMaxWidth()
+                                    .testTag("adv_saved_institution_dropdown")
+                            )
+                            ExposedDropdownMenu(
+                                expanded = institutionDropdownExpanded,
+                                onDismissRequest = { institutionDropdownExpanded = false }
+                            ) {
+                                savedInstitutions.forEach { inst ->
+                                    val isClaimed = inst.id in claimedInstitutions.institutionIds ||
+                                        inst.normalizedKey in claimedInstitutions.normalizedBusinessNames ||
+                                        inst.nameBn.trim().lowercase() in claimedInstitutions.normalizedBusinessNames
+                                    val typeTag = if (inst.type == "HOSPITAL") {
+                                        tr(lang, "হাসপাতাল", "Hospital")
+                                    } else {
+                                        tr(lang, "ডায়াগনস্টিক", "Diagnostic")
+                                    }
+                                    DropdownMenuItem(
+                                        enabled = !isClaimed,
+                                        text = {
+                                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                Text(
+                                                    text = tr(lang, inst.nameBn.ifBlank { inst.nameEn }, inst.displayTitle),
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = if (isClaimed) TextMuted else TextPrimary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = if (isClaimed) {
+                                                        tr(lang, "$typeTag • ইতিমধ্যে নিবন্ধিত (অন্য অ্যাকাউন্টে যুক্ত)", "$typeTag • Already Registered")
+                                                    } else {
+                                                        "$typeTag • ${inst.district}"
+                                                    },
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = if (isClaimed) RoseAlert else MedicalTealDark
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            useCustomInstitution = false
+                                            selectedInstitutionId = inst.id
+                                            selectedInstitutionType = inst.type
+                                            businessName = inst.displayTitle
+                                            category = if (inst.type == "HOSPITAL") "Hospital" else "Diagnostic Center"
+                                            if (address.isBlank() && inst.address.isNotBlank()) {
+                                                address = listOf(inst.address, inst.district).filter { it.isNotBlank() }.joinToString(", ")
+                                            }
+                                            institutionDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = tr(lang, "+ অন্যান্য / নতুন প্রতিষ্ঠানের নাম লিখুন", "+ Other / Custom Institution"),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MedicalBlueDark
+                                        )
+                                    },
+                                    onClick = {
+                                        useCustomInstitution = true
+                                        selectedInstitutionId = ""
+                                        selectedInstitutionType = "CUSTOM"
+                                        businessName = ""
+                                        institutionDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+
+                        if (useCustomInstitution) {
+                            OutlinedTextField(
+                                value = businessName,
+                                onValueChange = { businessName = it },
+                                label = { Text(tr(lang, "ব্যবসা / প্রতিষ্ঠানের নাম *", "Business / Organization Name *")) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else if (selectedInstitutionId.isNotBlank()) {
+                            Text(
+                                text = tr(
+                                    lang,
+                                    "নির্বাচিত প্রতিষ্ঠান: $businessName (একটি প্রতিষ্ঠান কেবল একটি অ্যাকাউন্টেই যুক্ত থাকবে)",
+                                    "Linked Institution: $businessName (exclusively reserved for your account)"
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EmeraldAvailable,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
+
                     OutlinedTextField(
                         value = mobile,
                         onValueChange = { mobile = it },
@@ -450,7 +545,9 @@ private fun AdvertiserAuthView(
                                         address = address,
                                         category = category,
                                         websiteUrl = websiteUrl,
-                                        password = password
+                                        password = password,
+                                        institutionId = selectedInstitutionId,
+                                        institutionType = selectedInstitutionType
                                     )
                                 } else {
                                     AdvertisingRemoteService.loginAdvertiser(mobile, password)
@@ -507,14 +604,23 @@ private fun CreateCampaignAndPaymentTab(
         mutableStateOf(renewingCampaign?.destinationUrl ?: session.websiteUrl)
     }
 
-    // Special Home Slider existing record selection
-    var targetRecordType by remember(renewingCampaign?.id) {
-        mutableStateOf(renewingCampaign?.targetRecordType?.takeIf { it.isNotBlank() } ?: SliderRecordTypes.DOCTOR)
+    // Special Home Slider multi-select targets (institution doctors + advertiser's own institution)
+    var selectedTargets by remember(renewingCampaign?.id) {
+        val initial = when {
+            renewingCampaign != null && renewingCampaign.promotedTargets.isNotEmpty() -> renewingCampaign.promotedTargets
+            renewingCampaign != null && renewingCampaign.targetRecordId.isNotBlank() -> listOf(
+                PromotedTargetRef(
+                    recordType = renewingCampaign.targetRecordType,
+                    recordId = renewingCampaign.targetRecordId,
+                    title = renewingCampaign.targetRecordTitle,
+                    subtitle = renewingCampaign.targetRecordSubtitle,
+                    photoUrl = renewingCampaign.targetRecordPhotoUrl
+                )
+            )
+            else -> emptyList()
+        }
+        mutableStateOf(initial)
     }
-    var targetRecordId by remember(renewingCampaign?.id) { mutableStateOf(renewingCampaign?.targetRecordId.orEmpty()) }
-    var targetRecordTitle by remember(renewingCampaign?.id) { mutableStateOf(renewingCampaign?.targetRecordTitle.orEmpty()) }
-    var targetRecordSubtitle by remember(renewingCampaign?.id) { mutableStateOf(renewingCampaign?.targetRecordSubtitle.orEmpty()) }
-    var targetRecordPhotoUrl by remember(renewingCampaign?.id) { mutableStateOf(renewingCampaign?.targetRecordPhotoUrl.orEmpty()) }
 
     // Payment details
     var selectedMethod by remember(activePaymentMethods) { mutableStateOf(activePaymentMethods.firstOrNull()) }
@@ -642,19 +748,16 @@ private fun CreateCampaignAndPaymentTab(
                         if (AdPackageTypes.normalize(pkg.adType) == AdPackageTypes.HOME_SLIDER) {
                             HomeSliderExistingRecordPicker(
                                 lang = lang,
+                                session = session,
                                 doctors = doctors,
                                 hospitals = hospitals,
                                 diagnostics = diagnosticCenters,
-                                selectedRecordType = targetRecordType,
-                                selectedRecordId = targetRecordId,
-                                onSelectRecord = { rec ->
-                                    targetRecordType = rec.recordType
-                                    targetRecordId = rec.recordId
-                                    targetRecordTitle = rec.title
-                                    targetRecordSubtitle = rec.subtitle
-                                    targetRecordPhotoUrl = rec.photoUrl
-                                    if (title.isBlank()) title = rec.title
-                                    if (imageUrl.isBlank()) imageUrl = rec.photoUrl
+                                selectedTargets = selectedTargets,
+                                onSelectionChange = { updated ->
+                                    selectedTargets = updated
+                                    val first = updated.firstOrNull()
+                                    if (first != null && title.isBlank()) title = first.title
+                                    if (first != null && imageUrl.isBlank()) imageUrl = first.photoUrl
                                 }
                             )
                         } else {
@@ -689,8 +792,9 @@ private fun CreateCampaignAndPaymentTab(
                                 Text(tr(lang, "ফোন থেকে ছবি আপলোড করুন", "Upload Ad Image from Gallery"))
                             }
                             if (imageUrl.isNotBlank()) {
+                                val previewModel = remember(imageUrl) { decodeAdImageModel(imageUrl) }
                                 AsyncImage(
-                                    model = imageUrl,
+                                    model = previewModel ?: imageUrl,
                                     contentDescription = "Ad preview",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
@@ -821,6 +925,7 @@ private fun CreateCampaignAndPaymentTab(
                                 val dur = durationInput.toIntOrNull() ?: pkg.durationDays
                                 scope.launch {
                                     submitting = true
+                                    val primaryTarget = selectedTargets.firstOrNull()
                                     val res = AdvertisingRemoteService.submitCampaignWithPayment(
                                         session = session,
                                         packageId = pkg.id,
@@ -830,11 +935,12 @@ private fun CreateCampaignAndPaymentTab(
                                         description = description,
                                         imageUrl = imageUrl,
                                         destinationUrl = destinationUrl,
-                                        targetRecordType = targetRecordType,
-                                        targetRecordId = targetRecordId,
-                                        targetRecordTitle = targetRecordTitle,
-                                        targetRecordSubtitle = targetRecordSubtitle,
-                                        targetRecordPhotoUrl = targetRecordPhotoUrl,
+                                        targetRecordType = primaryTarget?.recordType.orEmpty(),
+                                        targetRecordId = primaryTarget?.recordId.orEmpty(),
+                                        targetRecordTitle = primaryTarget?.title.orEmpty(),
+                                        targetRecordSubtitle = primaryTarget?.subtitle.orEmpty(),
+                                        targetRecordPhotoUrl = primaryTarget?.photoUrl.orEmpty(),
+                                        promotedTargets = selectedTargets,
                                         paymentMethod = method,
                                         senderMobile = senderMobile,
                                         trxId = trxId,

@@ -196,7 +196,7 @@ fun DirectoriesScreen(
                                 onViewDoctors = { onSelectFacility(h.nameEn.removePrefix("[DEMO] ")) },
                                 onCardClick = { detailHospital = h }
                             )
-                            if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx)) {
+                            if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, list.size)) {
                                 val slot = AdvertisingRotationEngine.nativeSlotForCardIndex(idx)
                                 val nativeHospital = remember(adCampaigns, adPlacementSettings, slot, hospitalRotationBase, nowMs / 60_000L) {
                                     AdvertisingRotationEngine.selectNativeAdForSlot(
@@ -249,7 +249,7 @@ fun DirectoriesScreen(
                                 onViewDoctors = { onSelectFacility(dc.nameEn.removePrefix("[DEMO] ")) },
                                 onCardClick = { detailDiagnostic = dc }
                             )
-                            if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx)) {
+                            if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, list.size)) {
                                 val slot = AdvertisingRotationEngine.nativeSlotForCardIndex(idx)
                                 val nativeDiagnostic = remember(adCampaigns, adPlacementSettings, slot, diagnosticRotationBase, nowMs / 60_000L) {
                                     AdvertisingRotationEngine.selectNativeAdForSlot(

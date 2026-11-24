@@ -143,12 +143,22 @@ data class AdAdvertiserAccount(
     val category: String = "Healthcare",
     val photoUrl: String = "",
     val websiteUrl: String = "",
+    val institutionId: String = "",
+    val institutionType: String = "",
     val status: String = AdStatuses.ACTIVE,
     val authProvider: String = "PASSWORD",
     val createdAt: Long = 0L
 ) {
     val isActive: Boolean get() = status.equals(AdStatuses.ACTIVE, ignoreCase = true)
 }
+
+data class PromotedTargetRef(
+    val recordType: String, // doctor | hospital | diagnostic
+    val recordId: String,
+    val title: String = "",
+    val subtitle: String = "",
+    val photoUrl: String = ""
+)
 
 data class AdCampaignItem(
     val id: String,
@@ -166,12 +176,13 @@ data class AdCampaignItem(
     val placement: String = "",
     val price: Double = 0.0,
     val durationDays: Int = 0,
-    // Existing record reference ONLY for HOME_SLIDER (never duplicates directory records)
+    // Existing record reference(s) for HOME_SLIDER (supports multi-select doctors + institution)
     val targetRecordType: String = "", // doctor | hospital | diagnostic
     val targetRecordId: String = "",
     val targetRecordTitle: String = "",
     val targetRecordSubtitle: String = "",
     val targetRecordPhotoUrl: String = "",
+    val promotedTargets: List<PromotedTargetRef> = emptyList(),
     // Separated Verification & Approval Lifecycle
     val paymentStatus: String = AdStatuses.PENDING,  // PENDING | VERIFIED | REJECTED
     val approvalStatus: String = AdStatuses.PENDING, // PENDING | APPROVED | REJECTED
@@ -358,9 +369,11 @@ object AdvertisingValidators {
         if (campaign.expiryDate > 0L && nowMs > campaign.expiryDate) return false
 
         return if (AdPackageTypes.normalize(campaign.adType) == AdPackageTypes.HOME_SLIDER) {
-            SliderRecordTypes.isSupported(campaign.targetRecordType) && campaign.targetRecordId.isNotBlank()
+            campaign.promotedTargets.any {
+                SliderRecordTypes.isSupported(it.recordType) && it.recordId.isNotBlank()
+            } || (SliderRecordTypes.isSupported(campaign.targetRecordType) && campaign.targetRecordId.isNotBlank())
         } else {
-            campaign.imageUrl.isNotBlank()
+            campaign.imageUrl.isNotBlank() || campaign.title.isNotBlank() || campaign.businessName.isNotBlank()
         }
     }
 

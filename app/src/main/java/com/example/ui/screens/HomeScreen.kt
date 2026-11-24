@@ -46,8 +46,13 @@ import com.example.data.seed.SeedData
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
+import com.example.ui.ads.AdCampaignItem
+import com.example.ui.ads.AdPlacements
+import com.example.ui.ads.AdvertisingRotationEngine
 import com.example.ui.ads.ManagedNativeBannerAd
+import com.example.ui.ads.NativeAd300x100Card
 import com.example.ui.ads.NativeSponsorAdCard
+import com.example.ui.ads.PlacementGlobalSettings
 import com.example.ui.ads.PlacementRateCardEngine
 import com.example.ui.ads.PlacementSponsorSlot
 import com.example.ui.ads.ResolvedHomeSliderSlide
@@ -92,6 +97,12 @@ fun HomeScreen(
     homeSliderAutoSlideMs: Long = 4000L,
     onHomeSliderVisible: (ResolvedHomeSliderSlide) -> Unit = {},
     onHomeSliderClick: (ResolvedHomeSliderSlide) -> Unit = {},
+    adCampaigns: List<AdCampaignItem> = emptyList(),
+    adPlacementSettings: PlacementGlobalSettings = PlacementGlobalSettings(),
+    doctorListRotationBase: Long = 0L,
+    hospitalRotationBase: Long = 0L,
+    onNativeAdImpression: (AdCampaignItem, String) -> Unit = { _, _ -> },
+    onNativeAdClick: (AdCampaignItem, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -683,38 +694,29 @@ fun HomeScreen(
                     modifier = Modifier.padding(horizontal = 14.dp)
                 )
 
-                if (SponsorCampaignSelector.shouldInsertNativeAfterDoctorCard(index) && adConfig.adsEnabled) {
-                    val slot = 1 + SponsorCampaignSelector.nativeSlotIndexForDoctorCard(index)
-                    val hasDirectNative = remember(sponsors, adConfig, slot, nowMs / 60_000L) {
-                        adConfig.nativeSponsorEnabled &&
-                            SponsorCampaignSelector.selectNativeSponsorForSlot(
-                                sponsors = sponsors,
-                                pageKey = SponsorCampaignSelector.PAGE_HOME,
-                                slotIndex = slot,
-                                nowMs = nowMs
-                            ) != null
-                    }
-                    if (hasDirectNative) {
-                        NativeSponsorAdCard(
-                            sponsors = sponsors,
-                            adConfig = adConfig,
-                            pageKey = SponsorCampaignSelector.PAGE_HOME,
-                            slotIndex = slot,
-                            isOnline = isOnline,
+                // Dynamic Native Banner Ads (300x100) inside "জনপ্রিয় ডাক্তারবৃন্দ" (Popular Doctors)
+                if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(index, popularDoctors.size)) {
+                    val nativeSlot = AdvertisingRotationEngine.nativeSlotForCardIndex(index)
+                    val nativeDoctorAd = remember(adCampaigns, adPlacementSettings, nativeSlot, doctorListRotationBase, nowMs / 60_000L) {
+                        AdvertisingRotationEngine.selectNativeAdForSlot(
+                            campaigns = adCampaigns,
+                            placementTarget = AdPlacements.DOCTOR_LIST,
+                            slotIndex = nativeSlot,
+                            baseOffset = doctorListRotationBase,
                             nowMs = nowMs,
-                            lang = lang,
-                            onSponsorDisplayed = onSponsorDisplayed,
-                            onSponsorClicked = onSponsorClicked,
-                            enforce300x200 = true,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)
+                            settings = adPlacementSettings
                         )
-                    } else if (isOnline && adConfig.nativeBannerEnabled) {
-                        ManagedNativeBannerAd(
-                            adConfig = adConfig,
-                            isOnline = isOnline,
-                            refreshKey = "home_dir_native_$slot",
-                            enforce300x200 = true,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)
+                    }
+                    if (nativeDoctorAd != null) {
+                        Spacer(Modifier.height(10.dp))
+                        NativeAd300x100Card(
+                            campaign = nativeDoctorAd,
+                            queueKey = AdvertisingRotationEngine.QUEUE_DOCTOR_NATIVE,
+                            slotIndex = nativeSlot,
+                            lang = lang,
+                            onVisibleImpression = onNativeAdImpression,
+                            onClicked = onNativeAdClick,
+                            modifier = Modifier.padding(horizontal = 14.dp)
                         )
                     }
                 }
@@ -777,6 +779,28 @@ fun HomeScreen(
                                 }
                             }
                         }
+                    }
+                    val nativeHospitalHomeAd = remember(adCampaigns, adPlacementSettings, hospitalRotationBase, nowMs / 60_000L) {
+                        AdvertisingRotationEngine.selectNativeAdForSlot(
+                            campaigns = adCampaigns,
+                            placementTarget = AdPlacements.HOSPITAL_LIST,
+                            slotIndex = 0,
+                            baseOffset = hospitalRotationBase,
+                            nowMs = nowMs,
+                            settings = adPlacementSettings
+                        )
+                    }
+                    if (nativeHospitalHomeAd != null) {
+                        Spacer(Modifier.height(4.dp))
+                        NativeAd300x100Card(
+                            campaign = nativeHospitalHomeAd,
+                            queueKey = AdvertisingRotationEngine.QUEUE_HOSPITAL_NATIVE,
+                            slotIndex = 0,
+                            lang = lang,
+                            onVisibleImpression = onNativeAdImpression,
+                            onClicked = onNativeAdClick,
+                            modifier = Modifier.padding(horizontal = 14.dp)
+                        )
                     }
                 }
             }

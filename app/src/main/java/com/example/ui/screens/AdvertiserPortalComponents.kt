@@ -27,6 +27,7 @@ import com.example.data.local.AdvertiserSession
 import com.example.data.local.DiagnosticCenterEntity
 import com.example.data.local.HospitalEntity
 import com.example.data.model.DoctorFullProfile
+import com.example.data.model.FacilityDoctorMatcher
 import com.example.data.remote.AdvertisingRemoteService
 import com.example.i18n.AppLang
 import com.example.i18n.tr
@@ -284,7 +285,21 @@ private fun CampaignStatusCard(
                 }
             }
 
-            if (campaign.targetRecordId.isNotBlank()) {
+            if (campaign.promotedTargets.size > 1) {
+                val names = campaign.promotedTargets.joinToString(", ") { it.title.ifBlank { it.recordId } }
+                Text(
+                    text = tr(
+                        lang,
+                        "নির্বাচিত স্লাইডার আইটেম (${campaign.promotedTargets.size}টি): $names",
+                        "Promoted Slider Items (${campaign.promotedTargets.size}): $names"
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MedicalBlueDark,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            } else if (campaign.targetRecordId.isNotBlank()) {
                 Text(
                     text = tr(
                         lang,
@@ -548,37 +563,128 @@ internal fun AdvertiserProfileSettingsTab(
 }
 
 /**
- * Special Home Slider Record Picker (Section 4A):
- * Allows Advertiser to select ONLY an existing Doctor, Hospital, or Diagnostic Center record:
- * Select Category -> Search by Name -> Choose Existing Record -> Preview Card -> Confirm Reference ID.
+ * Home Slider Multi-Select Promotion Picker:
+ * - Automatically finds the advertiser's own saved institution (Hospital / Diagnostic Center)
+ *   and allows checking it to promote alongside its doctors.
+ * - Automatically lists all saved Doctors belonging to the advertiser's institution with multi-select checkboxes.
+ * - Includes an optional expandable "Browse All Directory Records" section so advertisers can also pick any saved doctor/facility.
  */
 @Composable
 internal fun HomeSliderExistingRecordPicker(
     lang: AppLang,
+    session: AdvertiserSession,
     doctors: List<DoctorFullProfile>,
     hospitals: List<HospitalEntity>,
     diagnostics: List<DiagnosticCenterEntity>,
-    selectedRecordType: String,
-    selectedRecordId: String,
-    onSelectRecord: (ValidatedRecordTarget) -> Unit
+    selectedTargets: List<PromotedTargetRef>,
+    onSelectionChange: (List<PromotedTargetRef>) -> Unit
 ) {
-    var recordType by remember(selectedRecordType) {
-        mutableStateOf(
-            selectedRecordType.takeIf { SliderRecordTypes.isSupported(it) } ?: SliderRecordTypes.DOCTOR
-        )
+    val selectedKeys = remember(selectedTargets) {
+        selectedTargets.map { "${SliderRecordTypes.normalize(it.recordType)}:${it.recordId}" }.toSet()
     }
+
+    fun toggleTarget(ref: PromotedTargetRef) {
+        val key = "${SliderRecordTypes.normalize(ref.recordType)}:${ref.recordId}"
+        val next = if (key in selectedKeys) {
+            selectedTargets.filterNot { "${SliderRecordTypes.normalize(it.recordType)}:${it.recordId}" == key }
+        } else {
+            selectedTargets + ref.copy(recordType = SliderRecordTypes.normalize(ref.recordType))
+        }
+        onSelectionChange(next)
+    }
+
+    // 1. Resolve Advertiser's own saved institution (Hospital or Diagnostic Center)
+    val ownHospital = remember(session.institutionId, session.businessName, hospitals) {
+        val instId = session.institutionId.trim()
+        val bizNorm = session.businessName.trim().lowercase()
+        hospitals.firstOrNull { instId.isNotBlank() && it.id == instId }
+            ?: hospitals.firstOrNull { h ->
+                bizNorm.isNotBlank() && (
+                    h.nameEn.removePrefix("[DEMO] ").trim().equals(bizNorm, ignoreCase = true) ||
+                        h.nameBn.removePrefix("[DEMO] ").trim().equals(bizNorm, ignoreCase = true) ||
+                        h.nameEn.lowercase().contains(bizNorm) ||
+                        bizNorm.contains(h.nameEn.removePrefix("[DEMO] ").trim().lowercase()).and(h.nameEn.length >= 4)
+                    )
+            }
+    }
+    val ownDiagnostic = remember(session.institutionId, session.businessName, diagnostics, ownHospital) {
+        if (ownHospital != null) null
+        else {
+            val instId = session.institutionId.trim()
+            val bizNorm = session.businessName.trim().lowercase()
+            diagnostics.firstOrNull { instId.isNotBlank() && it.id == instId }
+                ?: diagnostics.firstOrNull { d ->
+                    bizNorm.isNotBlank() && (
+                        d.nameEn.removePrefix("[DEMO] ").trim().equals(bizNorm, ignoreCase = true) ||
+                            d.nameBn.removePrefix("[DEMO] ").trim().equals(bizNorm, ignoreCase = true) ||
+                            d.nameEn.lowercase().contains(bizNorm) ||
+                            bizNorm.contains(d.nameEn.removePrefix("[DEMO] ").trim().lowercase()).and(d.nameEn.length >= 4)
+                        )
+                }
+        }
+    }
+
+    val ownInstitutionTarget = remember(ownHospital, ownDiagnostic) {
+        when {
+            ownHospital != null -> PromotedTargetRef(
+                recordType = SliderRecordTypes.HOSPITAL,
+                recordId = ownHospital.id,
+                title = ownHospital.nameEn.ifBlank { ownHospital.nameBn },
+                subtitle = listOf(ownHospital.address, ownHospital.district).filter { it.isNotBlank() }.joinToString(", "),
+                photoUrl = ownHospital.imageUrl
+            )
+            ownDiagnostic != null -> PromotedTargetRef(
+                recordType = SliderRecordTypes.DIAGNOSTIC,
+                recordId = ownDiagnostic.id,
+                title = ownDiagnostic.nameEn.ifBlank { ownDiagnostic.nameBn },
+                subtitle = listOf(ownDiagnostic.address, ownDiagnostic.district).filter { it.isNotBlank() }.joinToString(", "),
+                photoUrl = ownDiagnostic.imageUrl
+            )
+            else -> null
+        }
+    }
+
+    // 2. Automatically filter all saved Doctors belonging to this advertiser's institution
+    val institutionDoctors = remember(doctors, ownHospital, ownDiagnostic, session.businessName) {
+        val primaryName = ownHospital?.nameEn?.removePrefix("[DEMO] ")
+            ?: ownDiagnostic?.nameEn?.removePrefix("[DEMO] ")
+            ?: session.businessName
+        val altName = ownHospital?.nameBn?.removePrefix("[DEMO] ")
+            ?: ownDiagnostic?.nameBn?.removePrefix("[DEMO] ")
+            ?: ""
+        if (primaryName.isBlank() && altName.isBlank()) emptyList()
+        else doctors.filter { doc ->
+            FacilityDoctorMatcher.matchesFacility(doc, primaryName, altName)
+        }.map { d ->
+            PromotedTargetRef(
+                recordType = SliderRecordTypes.DOCTOR,
+                recordId = d.doctor.id,
+                title = d.doctor.fullNameEn.ifBlank { d.doctor.fullNameBn },
+                subtitle = listOfNotNull(
+                    d.specialty?.nameEn?.ifBlank { d.specialty.nameBn },
+                    d.doctor.qualification,
+                    d.doctor.currentHospital
+                ).filter { it.isNotBlank() }.joinToString(" • "),
+                photoUrl = d.doctor.photoUrl
+            )
+        }
+    }
+
+    var showOtherDirectory by remember { mutableStateOf(institutionDoctors.isEmpty() && ownInstitutionTarget == null) }
+    var recordType by remember { mutableStateOf(SliderRecordTypes.DOCTOR) }
     var searchQuery by remember { mutableStateOf("") }
 
-    val matchingItems = remember(recordType, searchQuery, doctors, hospitals, diagnostics) {
+    val otherDirectoryItems = remember(recordType, searchQuery, doctors, hospitals, diagnostics) {
         val q = searchQuery.trim().lowercase()
         when (recordType) {
             SliderRecordTypes.DOCTOR -> doctors.filter { d ->
                 q.isEmpty() ||
                     d.doctor.fullNameEn.lowercase().contains(q) ||
                     d.doctor.fullNameBn.lowercase().contains(q) ||
-                    d.doctor.currentHospital.lowercase().contains(q)
-            }.take(25).map { d ->
-                ValidatedRecordTarget(
+                    d.doctor.currentHospital.lowercase().contains(q) ||
+                    d.chambers.any { it.chamber.facilityName.lowercase().contains(q) }
+            }.take(20).map { d ->
+                PromotedTargetRef(
                     recordType = SliderRecordTypes.DOCTOR,
                     recordId = d.doctor.id,
                     title = d.doctor.fullNameEn.ifBlank { d.doctor.fullNameBn },
@@ -595,8 +701,8 @@ internal fun HomeSliderExistingRecordPicker(
                     h.nameEn.lowercase().contains(q) ||
                     h.nameBn.lowercase().contains(q) ||
                     h.district.lowercase().contains(q)
-            }.take(25).map { h ->
-                ValidatedRecordTarget(
+            }.take(20).map { h ->
+                PromotedTargetRef(
                     recordType = SliderRecordTypes.HOSPITAL,
                     recordId = h.id,
                     title = h.nameEn.ifBlank { h.nameBn },
@@ -609,8 +715,8 @@ internal fun HomeSliderExistingRecordPicker(
                     dc.nameEn.lowercase().contains(q) ||
                     dc.nameBn.lowercase().contains(q) ||
                     dc.district.lowercase().contains(q)
-            }.take(25).map { dc ->
-                ValidatedRecordTarget(
+            }.take(20).map { dc ->
+                PromotedTargetRef(
                     recordType = SliderRecordTypes.DIAGNOSTIC,
                     recordId = dc.id,
                     title = dc.nameEn.ifBlank { dc.nameBn },
@@ -621,25 +727,19 @@ internal fun HomeSliderExistingRecordPicker(
         }
     }
 
-    val selectedTarget = remember(selectedRecordType, selectedRecordId, doctors, hospitals, diagnostics) {
-        AdvertisingValidators.validateAndResolveDirectoryRecord(
-            recordType = selectedRecordType,
-            recordId = selectedRecordId,
-            doctors = doctors,
-            hospitals = hospitals,
-            diagnostics = diagnostics
-        )
-    }
-
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = MedicalBlueLight.copy(alpha = 0.3f),
+        color = MedicalBlueLight.copy(alpha = 0.28f),
         border = BorderStroke(1.dp, MedicalBlue.copy(alpha = 0.35f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
-                text = tr(lang, "হোম স্লাইডার: বিদ্যমান রেকর্ড নির্বাচন করুন *", "Home Slider: Select Existing Record *"),
+                text = tr(
+                    lang,
+                    "হোম স্লাইডার: প্রতিষ্ঠান ও ডাক্তার নির্বাচন করুন (একাধিক) *",
+                    "Home Slider: Select Your Institution & Doctors (Multi-Select) *"
+                ),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MedicalBlueDark
@@ -647,111 +747,301 @@ internal fun HomeSliderExistingRecordPicker(
             Text(
                 text = tr(
                     lang,
-                    "কেবলমাত্র ডাটাবেজে সংরক্ষিত ডাক্তার, হাসপাতাল বা ডায়াগনস্টিক সেন্টার নির্বাচন করা যাবে।",
-                    "You can promote an existing saved Doctor, Hospital, or Diagnostic Center directly (no duplicate record is created)."
+                    "আপনার প্রতিষ্ঠানের সংরক্ষিত ডাক্তারবৃন্দ থেকে একাধিক ডাক্তার এবং আপনার প্রতিষ্ঠান একসাথে সিলেক্ট করে পেমেন্ট জমা দিন।",
+                    "Select one or more saved doctors from your institution alongside your institution itself, then submit payment once."
                 ),
                 style = MaterialTheme.typography.labelSmall,
                 color = TextSecondary
             )
 
-            // 1. Select Category
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                listOf(
-                    SliderRecordTypes.DOCTOR to tr(lang, "ডাক্তার", "Doctor"),
-                    SliderRecordTypes.HOSPITAL to tr(lang, "হাসপাতাল", "Hospital"),
-                    SliderRecordTypes.DIAGNOSTIC to tr(lang, "ডায়াগনস্টিক", "Diagnostic")
-                ).forEach { (typeKey, label) ->
-                    FilterChip(
-                        selected = recordType == typeKey,
-                        onClick = { recordType = typeKey },
-                        label = { Text(label, maxLines = 1) },
-                        modifier = Modifier.weight(1f)
-                    )
+            // Section A: Advertiser's Own Saved Institution
+            if (ownInstitutionTarget != null) {
+                val isInstChosen = "${ownInstitutionTarget.recordType}:${ownInstitutionTarget.recordId}" in selectedKeys
+                Text(
+                    text = tr(lang, "আপনার প্রতিষ্ঠান (স্লাইডারে যুক্ত করুন)", "Your Saved Institution (Add to Slider)"),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MedicalTealDark
+                )
+                MultiSelectTargetRow(
+                    target = ownInstitutionTarget,
+                    badge = if (ownInstitutionTarget.recordType == SliderRecordTypes.HOSPITAL) tr(lang, "হাসপাতাল", "Hospital") else tr(lang, "ডায়াগনস্টিক", "Diagnostic"),
+                    checked = isInstChosen,
+                    onToggle = { toggleTarget(ownInstitutionTarget) }
+                )
+            }
+
+            // Section B: Saved Doctors of This Advertiser's Institution
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = tr(
+                        lang,
+                        "আপনার প্রতিষ্ঠানের ডাক্তারবৃন্দ (${institutionDoctors.size})",
+                        "Your Institution's Doctors (${institutionDoctors.size})"
+                    ),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MedicalBlueDark
+                )
+                if (institutionDoctors.isNotEmpty()) {
+                    val allDocsSelected = institutionDoctors.all { "${it.recordType}:${it.recordId}" in selectedKeys }
+                    TextButton(
+                        onClick = {
+                            if (allDocsSelected) {
+                                val docIds = institutionDoctors.map { "${it.recordType}:${it.recordId}" }.toSet()
+                                onSelectionChange(selectedTargets.filterNot { "${SliderRecordTypes.normalize(it.recordType)}:${it.recordId}" in docIds })
+                            } else {
+                                val existingKeys = selectedKeys
+                                val toAdd = institutionDoctors.filterNot { "${it.recordType}:${it.recordId}" in existingKeys }
+                                onSelectionChange(selectedTargets + toAdd)
+                            }
+                        }
+                    ) {
+                        Text(
+                            text = if (allDocsSelected) tr(lang, "সব বাদ দিন", "Unselect All") else tr(lang, "সব ডাক্তার বাছুন", "Select All Doctors"),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 
-            // 2. Search by Name
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text(tr(lang, "নাম দিয়ে খুঁজুন...", "Search existing record by name...")) },
-                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            // 3. Matching Existing Records
-            if (matchingItems.isEmpty()) {
-                Text(
-                    text = tr(lang, "কোনো মিল পাওয়া যায়নি।", "No matching saved records found."),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
+            if (institutionDoctors.isEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = SurfaceWhite,
+                    border = BorderStroke(1.dp, OutlineSoft),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = tr(
+                            lang,
+                            "আপনার প্রতিষ্ঠানের নামে এখনও কোনো ডাক্তার যুক্ত পাওয়া যায়নি। নিচ থেকে ডিরেক্টরির যেকোনো ডাক্তার বা প্রতিষ্ঠান সিলেক্ট করতে পারেন।",
+                            "No doctors matched your institution name yet. Use the directory browser below to select saved doctors or facilities."
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    matchingItems.take(6).forEach { item ->
-                        val isChosen = item.recordType == selectedRecordType && item.recordId == selectedRecordId
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isChosen) MedicalTealLight else SurfaceWhite,
-                            border = BorderStroke(
-                                if (isChosen) 1.5.dp else 1.dp,
-                                if (isChosen) MedicalTeal else OutlineSoft
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onSelectRecord(item) }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                if (item.photoUrl.isNotBlank()) {
-                                    AsyncImage(
-                                        model = item.photoUrl,
-                                        contentDescription = item.title,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(BackgroundIce)
-                                    )
-                                }
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(item.title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(item.subtitle, style = MaterialTheme.typography.labelSmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                                if (isChosen) {
-                                    Icon(Icons.Rounded.CheckCircle, contentDescription = "Selected", tint = MedicalTealDark)
-                                }
+                    institutionDoctors.forEach { docTarget ->
+                        val isChosen = "${docTarget.recordType}:${docTarget.recordId}" in selectedKeys
+                        MultiSelectTargetRow(
+                            target = docTarget,
+                            badge = tr(lang, "ডাক্তার", "Doctor"),
+                            checked = isChosen,
+                            onToggle = { toggleTarget(docTarget) }
+                        )
+                    }
+                }
+            }
+
+            // Section C: Toggleable Full Directory Search (Doctors / Hospitals / Diagnostics)
+            OutlinedButton(
+                onClick = { showOtherDirectory = !showOtherDirectory },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = if (showOtherDirectory) Icons.Rounded.ExpandLess else Icons.Rounded.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = if (showOtherDirectory) {
+                        tr(lang, "অন্যান্য ডিরেক্টরি তালিকা লুকান", "Hide Full Directory Browser")
+                    } else {
+                        tr(lang, "আরও ডাক্তার বা প্রতিষ্ঠান খুঁজুন", "Browse More Doctors / Facilities")
+                    }
+                )
+            }
+
+            if (showOtherDirectory) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    listOf(
+                        SliderRecordTypes.DOCTOR to tr(lang, "ডাক্তার", "Doctor"),
+                        SliderRecordTypes.HOSPITAL to tr(lang, "হাসপাতাল", "Hospital"),
+                        SliderRecordTypes.DIAGNOSTIC to tr(lang, "ডায়াগনস্টিক", "Diagnostic")
+                    ).forEach { (typeKey, label) ->
+                        FilterChip(
+                            selected = recordType == typeKey,
+                            onClick = { recordType = typeKey },
+                            label = { Text(label, maxLines = 1) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text(tr(lang, "নাম দিয়ে খুঁজুন...", "Search existing record by name...")) },
+                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (otherDirectoryItems.isEmpty()) {
+                    Text(
+                        text = tr(lang, "কোনো মিল পাওয়া যায়নি।", "No matching saved records found."),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        otherDirectoryItems.take(8).forEach { item ->
+                            val isChosen = "${item.recordType}:${item.recordId}" in selectedKeys
+                            val badgeText = when (item.recordType) {
+                                SliderRecordTypes.DOCTOR -> tr(lang, "ডাক্তার", "Doctor")
+                                SliderRecordTypes.HOSPITAL -> tr(lang, "হাসপাতাল", "Hospital")
+                                else -> tr(lang, "ডায়াগনস্টিক", "Diagnostic")
                             }
+                            MultiSelectTargetRow(
+                                target = item,
+                                badge = badgeText,
+                                checked = isChosen,
+                                onToggle = { toggleTarget(item) }
+                            )
                         }
                     }
                 }
             }
 
-            // 4. Live Slider Card Preview
-            if (selectedTarget != null) {
+            // Section D: Live Summary of All Selected Items
+            if (selectedTargets.isNotEmpty()) {
+                val docCount = selectedTargets.count { it.recordType == SliderRecordTypes.DOCTOR }
+                val facCount = selectedTargets.size - docCount
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = SurfaceWhite,
                     border = BorderStroke(1.dp, EmeraldAvailable),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = tr(lang, "নির্বাচিত রেকর্ড প্রিভিউ (ID: ${selectedTarget.recordId})", "Confirmed Record Preview (ID: ${selectedTarget.recordId})"),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = EmeraldAvailable
-                        )
-                        Text(selectedTarget.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = TextPrimary)
-                        if (selectedTarget.subtitle.isNotBlank()) {
-                            Text(selectedTarget.subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = tr(
+                                    lang,
+                                    "নির্বাচিত (${selectedTargets.size}টি): $docCount ডাক্তার, $facCount প্রতিষ্ঠান",
+                                    "Selected (${selectedTargets.size}): $docCount Doctor(s), $facCount Institution(s)"
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = EmeraldAvailable
+                            )
+                            TextButton(onClick = { onSelectionChange(emptyList()) }) {
+                                Text(tr(lang, "মুছুন", "Clear"), style = MaterialTheme.typography.labelSmall, color = RoseAlert)
+                            }
+                        }
+                        selectedTargets.forEach { sel ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "• ${sel.title.ifBlank { sel.recordId }}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = { toggleTarget(sel) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Rounded.Close, contentDescription = "Remove", tint = RoseAlert, modifier = Modifier.size(16.dp))
+                                }
+                            }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MultiSelectTargetRow(
+    target: PromotedTargetRef,
+    badge: String,
+    checked: Boolean,
+    onToggle: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (checked) MedicalTealLight else SurfaceWhite,
+        border = BorderStroke(
+            if (checked) 1.5.dp else 1.dp,
+            if (checked) MedicalTeal else OutlineSoft
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Checkbox(
+                checked = checked,
+                onCheckedChange = { onToggle() }
+            )
+            if (target.photoUrl.isNotBlank()) {
+                val imgModel = remember(target.photoUrl) { decodeAdImageModel(target.photoUrl) }
+                AsyncImage(
+                    model = imgModel ?: target.photoUrl,
+                    contentDescription = target.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(BackgroundIce)
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = target.title,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (target.subtitle.isNotBlank()) {
+                    Text(
+                        text = target.subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = if (checked) MedicalTeal.copy(alpha = 0.2f) else MedicalBlueLight
+            ) {
+                Text(
+                    text = badge,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (checked) MedicalTealDark else MedicalBlueDark,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
             }
         }
     }

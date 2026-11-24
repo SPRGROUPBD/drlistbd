@@ -31,7 +31,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.example.auth.GoogleAuthManager
 import com.example.data.model.GlobalSearchType
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
@@ -42,11 +41,9 @@ import com.example.ui.ads.AppOpenPopup300x200Dialog
 import com.example.ui.ads.BottomBanner300x50Bar
 import com.example.ui.ads.ConnectivityMonitor
 import com.example.ui.ads.SliderRecordTypes
-import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.GlobalTopAppBar
 import com.example.ui.components.NotificationCenterBottomSheet
 import com.example.ui.components.SyncStatusBottomSheet
-import com.example.ui.components.VisitorGoogleSignInGateDialog
 import com.example.ui.screens.*
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MainViewModel
@@ -114,18 +111,10 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
     val sponsors by vm.sponsors.collectAsStateWithLifecycle()
     val placementRateCards by vm.placementRateCards.collectAsStateWithLifecycle()
     val advertiserSession by vm.advertiserSession.collectAsStateWithLifecycle()
-    val visitorAccount by vm.visitorAccount.collectAsStateWithLifecycle()
-    val showVisitorSignInGate by vm.showVisitorSignInGate.collectAsStateWithLifecycle()
-    val visitorAuthError by vm.visitorAuthError.collectAsStateWithLifecycle()
     val authoritativeNowMs by vm.authoritativeNowMs.collectAsStateWithLifecycle()
     val isOnline by vm.isOnline.collectAsStateWithLifecycle()
     var showSplash by remember { mutableStateOf(true) }
     val appContext = LocalContext.current
-    val authScope = rememberCoroutineScope()
-
-    LaunchedEffect(Unit) {
-        GoogleAuthManager.attemptAutoSignIn(appContext, authScope)
-    }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -245,7 +234,13 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
         BottomTabItem(Routes.ABOUT_US, AppStrings.navAbout(lang), Icons.Rounded.Info, Icons.Outlined.Info, "nav_about")
     )
 
-    val showMainChrome = currentRoute in mainTabs.map { it.route }
+    // Keep Bottom Navigation Bar / Navigation Rail visible on ALL screens (including About Us, Info, Advertiser Portal, Doctor Profile)
+    val showMainChrome = true
+    val selectedTabRoute = when {
+        currentRoute == Routes.DOCTOR_PROFILE || currentRoute.startsWith("doctor_profile") -> Routes.FIND_DOCTORS
+        currentRoute == Routes.INFO || currentRoute.startsWith("info") || currentRoute == Routes.ADVERTISER_PORTAL -> Routes.ABOUT_US
+        else -> currentRoute
+    }
     val unreadCount = notifications.count { !it.isRead }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -309,8 +304,13 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
                 )
             },
             bottomBar = {
-                val showBottomAd = currentRoute != Routes.ADVERTISER_PORTAL && !currentRoute.startsWith("info")
-                val activeBottomBanner = remember(adSnapshot, authoritativeNowMs / 60_000L, showBottomAd) {
+                val showBottomAd = currentRoute != Routes.ADVERTISER_PORTAL
+                val activeBottomBanner = remember(
+                    adSnapshot.campaigns,
+                    adSnapshot.placementSettings,
+                    authoritativeNowMs / 60_000L,
+                    showBottomAd
+                ) {
                     if (!showBottomAd) null
                     else AdvertisingRotationEngine.selectBottomBanner(
                         campaigns = adSnapshot.campaigns,
@@ -339,7 +339,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
                             containerColor = navBg
                         ) {
                             mainTabs.forEach { tab ->
-                                val selected = currentRoute == tab.route
+                                val selected = selectedTabRoute == tab.route
                                 NavigationBarItem(
                                     selected = selected,
                                     onClick = { navigateToTab(tab.route) },
@@ -378,7 +378,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
                         containerColor = if (isDark) androidx.compose.ui.graphics.Color(0xFF0A121C) else LightSurfaceWhite
                     ) {
                         mainTabs.forEach { tab ->
-                            val selected = currentRoute == tab.route
+                            val selected = selectedTabRoute == tab.route
                             NavigationRailItem(
                                 selected = selected,
                                 onClick = { navigateToTab(tab.route) },
@@ -402,6 +402,8 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
                 ) {
                     composable(Routes.HOME) {
                         val homeSliderBase = remember { vm.getAdvertisingQueueBase(AdvertisingRotationEngine.QUEUE_HOME_SLIDER) }
+                        val homeDoctorNativeBase = remember { vm.getAdvertisingQueueBase(AdvertisingRotationEngine.QUEUE_DOCTOR_NATIVE) }
+                        val homeHospitalNativeBase = remember { vm.getAdvertisingQueueBase(AdvertisingRotationEngine.QUEUE_HOSPITAL_NATIVE) }
                         var sliderVisitRecorded by remember { mutableStateOf(false) }
                         val homeSliderSlides = remember(
                             adSnapshot,
@@ -496,7 +498,16 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
                                         navigateToTab(Routes.FACILITIES)
                                     }
                                 }
-                            }
+                            },
+                            adCampaigns = adSnapshot.campaigns,
+                            adPlacementSettings = adSnapshot.placementSettings,
+                            doctorListRotationBase = homeDoctorNativeBase,
+                            hospitalRotationBase = homeHospitalNativeBase,
+                            onNativeAdImpression = { camp, q ->
+                                vm.logAdvertisingImpression(camp, q)
+                                vm.advanceNativePlacementQueue(q, camp.id)
+                            },
+                            onNativeAdClick = vm::logAdvertisingClick
                         )
                     }
 
@@ -607,15 +618,10 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
                             onSponsorDisplayed = vm::recordSponsorDisplay,
                             onSponsorClicked = vm::recordSponsorClick,
                             isSyncing = isSyncing,
-                            visitorAccount = visitorAccount,
                             favoriteDoctors = favDocs,
                             favoriteHospitals = favHospitals,
                             favoriteDiagnostics = favDiagnostics,
                             favoriteChambers = favChambers,
-                            onGoogleSignInSuccess = vm::onVisitorSignedIn,
-                            onGoogleSignInError = vm::showMessage,
-                            onVisitorSignOut = { vm.signOutVisitor(appContext) },
-                            onSyncFavorites = vm::syncVisitorFavoritesNow,
                             onRefreshDirectory = vm::refreshDirectory,
                             onToggleFavorite = vm::toggleFavorite,
                             onToggleHospitalFavorite = vm::toggleHospitalFavorite,
@@ -723,18 +729,6 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
                 onVisibleImpression = vm::logAdvertisingImpression,
                 onClicked = vm::logAdvertisingClick,
                 onDismiss = { activeAppOpenPopup = null }
-            )
-        }
-
-        // Visitor Google Sign-In Gate Dialog (triggered when unauthenticated visitor taps Save/Favorite)
-        if (showVisitorSignInGate) {
-            VisitorGoogleSignInGateDialog(
-                lang = lang,
-                isOnline = isOnline,
-                errorMessage = visitorAuthError,
-                onAuthSuccess = vm::onVisitorSignedIn,
-                onAuthError = vm::setVisitorAuthError,
-                onDismiss = vm::dismissVisitorSignInGate
             )
         }
 

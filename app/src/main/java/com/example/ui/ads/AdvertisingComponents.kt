@@ -42,6 +42,23 @@ import com.example.i18n.tr
 import com.example.ui.theme.*
 import kotlinx.coroutines.delay
 
+import android.util.Base64
+
+internal fun decodeAdImageModel(rawUrl: String): Any? {
+    val clean = rawUrl.trim()
+    if (clean.isBlank()) return null
+    if (clean.startsWith("data:image/", ignoreCase = true)) {
+        val commaIdx = clean.indexOf(',')
+        if (commaIdx > 0 && commaIdx < clean.length - 1) {
+            return runCatching {
+                Base64.decode(clean.substring(commaIdx + 1), Base64.DEFAULT)
+            }.getOrNull()
+        }
+        return null
+    }
+    return clean
+}
+
 private fun openAdUrl(context: Context, rawUrl: String, lang: AppLang) {
     val clean = rawUrl.trim()
     if (clean.isEmpty()) return
@@ -138,9 +155,10 @@ fun HomeSliderCarouselSection(
                     .testTag("home_slider_card_$page")
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    if (slide.imageUrl.isNotBlank() && !imageFailed) {
+                    val slideModel = remember(slide.imageUrl) { decodeAdImageModel(slide.imageUrl) }
+                    if (slideModel != null && !imageFailed) {
                         AsyncImage(
-                            model = slide.imageUrl,
+                            model = slideModel,
                             contentDescription = slide.title,
                             contentScale = ContentScale.Crop,
                             onError = { imageFailed = true },
@@ -295,19 +313,18 @@ fun NativeAd300x100Card(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var imageLoaded by remember(campaign.id, campaign.imageUrl) { mutableStateOf(false) }
+    val imageModel = remember(campaign.imageUrl) { decodeAdImageModel(campaign.imageUrl) }
     var imageFailed by remember(campaign.id, campaign.imageUrl) { mutableStateOf(false) }
     var impressionLogged by remember(campaign.id, queueKey, slotIndex) { mutableStateOf(false) }
     var isVisible by remember(campaign.id, queueKey, slotIndex) { mutableStateOf(false) }
+    val showFallback = imageModel == null || imageFailed
 
-    LaunchedEffect(imageLoaded, isVisible, campaign.id, queueKey, slotIndex) {
-        if (imageLoaded && isVisible && !impressionLogged) {
+    LaunchedEffect(isVisible, campaign.id, queueKey, slotIndex) {
+        if (isVisible && !impressionLogged) {
             impressionLogged = true
             onVisibleImpression(campaign, queueKey)
         }
     }
-
-    if (imageFailed || campaign.imageUrl.isBlank()) return
 
     Box(
         modifier = modifier
@@ -318,7 +335,7 @@ fun NativeAd300x100Card(
                 val w = coords.size.width.toFloat()
                 if (h > 0f && w > 0f) {
                     val ratio = (bounds.height / h) * (bounds.width / w)
-                    isVisible = ratio >= 0.5f
+                    isVisible = ratio >= 0.4f
                 }
             }
             .testTag("native_ad_300x100_${queueKey}_$slotIndex"),
@@ -327,10 +344,11 @@ fun NativeAd300x100Card(
         Surface(
             shape = RoundedCornerShape(14.dp),
             color = SurfaceWhite,
-            border = BorderStroke(1.dp, MedicalBlue.copy(alpha = 0.25f)),
+            border = BorderStroke(1.dp, MedicalBlue.copy(alpha = 0.28f)),
             shadowElevation = 2.dp,
             modifier = Modifier
-                .width(300.dp)
+                .fillMaxWidth()
+                .widthIn(max = 360.dp)
                 .height(100.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .clickable {
@@ -339,27 +357,36 @@ fun NativeAd300x100Card(
                 }
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                AsyncImage(
-                    model = campaign.imageUrl,
-                    contentDescription = campaign.title.ifBlank { campaign.businessName },
-                    contentScale = ContentScale.Crop,
-                    onSuccess = { imageLoaded = true },
-                    onError = { imageFailed = true },
-                    modifier = Modifier.fillMaxSize()
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color.Black.copy(alpha = 0.22f),
-                                    Color.Transparent,
-                                    Color.Black.copy(alpha = 0.72f)
+                if (!showFallback) {
+                    AsyncImage(
+                        model = imageModel,
+                        contentDescription = campaign.title.ifBlank { campaign.businessName },
+                        contentScale = ContentScale.Crop,
+                        onError = { imageFailed = true },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.Black.copy(alpha = 0.22f),
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.72f)
+                                    )
                                 )
                             )
-                        )
-                )
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.horizontalGradient(listOf(MedicalBlueDark, MedicalTealDark))
+                            )
+                    )
+                }
                 Surface(
                     shape = RoundedCornerShape(bottomEnd = 8.dp),
                     color = Color.Black.copy(alpha = 0.65f),
@@ -377,24 +404,25 @@ fun NativeAd300x100Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomStart)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = campaign.title.ifBlank { campaign.businessName },
+                            text = campaign.title.ifBlank { campaign.businessName.ifBlank { tr(lang, "স্পন্সরড বিজ্ঞাপন", "Sponsored Ad") } },
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        if (campaign.businessName.isNotBlank()) {
+                        val sub = campaign.businessName.ifBlank { campaign.description }
+                        if (sub.isNotBlank()) {
                             Text(
-                                text = campaign.businessName,
+                                text = sub,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color.White.copy(alpha = 0.88f),
+                                color = Color.White.copy(alpha = 0.9f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -415,8 +443,9 @@ fun NativeAd300x100Card(
 }
 
 /**
- * Section 6: Bottom Banner Advertisement — 300×50 PX (300dp × 50dp)
+ * Section 6: Bottom Banner Advertisement — 300×50 PX (responsive width up to 360dp × 52dp)
  * Only ONE banner visible at the bottom of applicable screens.
+ * Supports HTTP/HTTPS URLs, Base64 gallery uploads, and graceful branded fallback.
  */
 @Composable
 fun BottomBanner300x50Bar(
@@ -427,62 +456,102 @@ fun BottomBanner300x50Bar(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var imageLoaded by remember(campaign.id, campaign.imageUrl) { mutableStateOf(false) }
+    val imageModel = remember(campaign.imageUrl) { decodeAdImageModel(campaign.imageUrl) }
     var imageFailed by remember(campaign.id, campaign.imageUrl) { mutableStateOf(false) }
     var impressionLogged by remember(campaign.id) { mutableStateOf(false) }
     var isVisible by remember(campaign.id) { mutableStateOf(false) }
+    val showFallback = imageModel == null || imageFailed
+    val isDark = LocalIsDarkTheme.current
 
-    LaunchedEffect(imageLoaded, isVisible, campaign.id) {
-        if (imageLoaded && isVisible && !impressionLogged) {
+    LaunchedEffect(isVisible, campaign.id) {
+        if (isVisible && !impressionLogged) {
             impressionLogged = true
             onVisibleImpression(campaign, AdvertisingRotationEngine.QUEUE_BOTTOM_BANNER)
         }
     }
 
-    if (imageFailed || campaign.imageUrl.isBlank()) return
-
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .background(SurfaceWhite)
-            .padding(vertical = 3.dp)
+            .background(if (isDark) Color(0xFF0A121C) else LightSurfaceWhite)
+            .padding(horizontal = 12.dp, vertical = 4.dp)
             .onGloballyPositioned { coords ->
                 val bounds = coords.boundsInWindow()
                 val h = coords.size.height.toFloat()
                 val w = coords.size.width.toFloat()
                 if (h > 0f && w > 0f) {
                     val ratio = (bounds.height / h) * (bounds.width / w)
-                    isVisible = ratio >= 0.5f
+                    isVisible = ratio >= 0.4f
                 }
             }
             .testTag("bottom_banner_300x50"),
         contentAlignment = Alignment.Center
     ) {
         Surface(
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(10.dp),
             color = SurfaceWhite,
-            border = BorderStroke(1.dp, OutlineSoft),
+            border = BorderStroke(1.dp, MedicalBlue.copy(alpha = 0.25f)),
+            shadowElevation = 2.dp,
             modifier = Modifier
-                .width(300.dp)
-                .height(50.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .fillMaxWidth()
+                .widthIn(max = 360.dp)
+                .height(52.dp)
+                .clip(RoundedCornerShape(10.dp))
                 .clickable {
                     onClicked(campaign, AdvertisingRotationEngine.QUEUE_BOTTOM_BANNER)
                     openAdUrl(context, campaign.destinationUrl, lang)
                 }
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                AsyncImage(
-                    model = campaign.imageUrl,
-                    contentDescription = campaign.title.ifBlank { campaign.businessName },
-                    contentScale = ContentScale.Crop,
-                    onSuccess = { imageLoaded = true },
-                    onError = { imageFailed = true },
-                    modifier = Modifier.fillMaxSize()
-                )
+                if (!showFallback) {
+                    AsyncImage(
+                        model = imageModel,
+                        contentDescription = campaign.title.ifBlank { campaign.businessName },
+                        contentScale = ContentScale.Crop,
+                        onError = { imageFailed = true },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Brush.horizontalGradient(listOf(MedicalBlueDark, MedicalTealDark)))
+                            .padding(start = 42.dp, end = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = campaign.title.ifBlank { campaign.businessName.ifBlank { tr(lang, "স্পন্সরড বিজ্ঞাপন", "Sponsored Banner") } },
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (campaign.businessName.isNotBlank() && campaign.businessName != campaign.title) {
+                                Text(
+                                    text = campaign.businessName,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White.copy(alpha = 0.88f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        if (campaign.destinationUrl.isNotBlank()) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
                 Surface(
                     shape = RoundedCornerShape(bottomEnd = 6.dp),
-                    color = Color.Black.copy(alpha = 0.6f),
+                    color = Color.Black.copy(alpha = 0.65f),
                     modifier = Modifier.align(Alignment.TopStart)
                 ) {
                     Text(
@@ -592,8 +661,9 @@ fun AppOpenPopup300x200Dialog(
                             onDismiss()
                         }
                 ) {
+                    val popupModel = remember(campaign.imageUrl) { decodeAdImageModel(campaign.imageUrl) }
                     AsyncImage(
-                        model = campaign.imageUrl,
+                        model = popupModel ?: campaign.imageUrl,
                         contentDescription = campaign.title.ifBlank { campaign.businessName },
                         contentScale = ContentScale.Crop,
                         onSuccess = { imageLoaded = true },

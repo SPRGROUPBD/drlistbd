@@ -69,21 +69,24 @@ object AdvertisingRotationEngine {
     }
 
     /**
-     * Exact Native Insertion Rule (Section 5):
-     * Display 300x100 ad after every 3 content cards -> index 2, 5, 8, ...
+     * Native Insertion Rule:
+     * Display 300x100 ad after every 3 content cards (index 2, 5, 8, ...),
+     * and if the section currently has only 1-2 items, display 1 native ad after the last item.
      */
-    fun shouldInsertNativeAfterCard(contentCardIndex: Int): Boolean =
-        contentCardIndex >= 2 && (contentCardIndex + 1) % 3 == 0
+    fun shouldInsertNativeAfterCard(contentCardIndex: Int, totalCount: Int = Int.MAX_VALUE): Boolean {
+        if (contentCardIndex >= 2 && (contentCardIndex + 1) % 3 == 0) return true
+        return totalCount in 1..2 && contentCardIndex == totalCount - 1
+    }
 
     fun nativeSlotForCardIndex(contentCardIndex: Int): Int =
-        ((contentCardIndex + 1) / 3) - 1
+        if (contentCardIndex < 2) 0 else ((contentCardIndex + 1) / 3) - 1
 
     /**
      * Independent Round-Robin selection for Native 300x100 slots on:
      * Doctor List, Hospital List, Diagnostic Center List, Favorite List.
-     * - Strictly 1 ad per slot
-     * - Independent rotation per placement
-     * - Verified + Approved + Active + Non-Expired only
+     * - Prioritizes campaigns matching the exact placement (or ALL/blank placement).
+     * - If none match the specific placement, falls back to any eligible active NATIVE_300x100 campaign
+     *   so native ads remain reliably visible in Popular Doctors, Hospitals, and Diagnostics.
      */
     fun selectNativeAdForSlot(
         campaigns: List<AdCampaignItem>,
@@ -104,23 +107,28 @@ object AdvertisingRotationEngine {
         }
         if (!enabledForPlacement) return null
 
-        val eligible = campaigns
+        val allActiveNative = campaigns
             .filter { campaign ->
                 AdPackageTypes.normalize(campaign.adType) == AdPackageTypes.NATIVE_300x100 &&
-                    AdPlacements.normalize(campaign.placement) == normPlacement &&
                     AdvertisingValidators.isCampaignEligible(campaign, nowMs)
             }
             .sortedWith(compareBy<AdCampaignItem> { it.createdAt }.thenBy { it.advertiserId }.thenBy { it.id })
 
-        if (eligible.isEmpty()) return null
-        val idx = Math.floorMod(baseOffset.coerceAtLeast(0L) + slotIndex.coerceAtLeast(0).toLong(), eligible.size.toLong()).toInt()
-        return eligible[idx]
+        if (allActiveNative.isEmpty()) return null
+
+        val exactOrAll = allActiveNative.filter { campaign ->
+            val p = AdPlacements.normalize(campaign.placement)
+            p == normPlacement || p.isBlank() || p == "ALL" || p == "ALL_LISTS"
+        }
+        val pool = if (exactOrAll.isNotEmpty()) exactOrAll else allActiveNative
+        val idx = Math.floorMod(baseOffset.coerceAtLeast(0L) + slotIndex.coerceAtLeast(0).toLong(), pool.size.toLong()).toInt()
+        return pool[idx]
     }
 
     /**
      * Bottom Banner 300x50 selection (Section 6):
      * - Only ONE banner visible at a time
-     * - Only Bottom Banner package eligible
+     * - Only Bottom Banner package eligible (or BOTTOM_ALL_SCREENS placement)
      * - Prioritizes earliest activated eligible campaign (`activatedAt ASC`),
      *   respecting optional manual admin `priorityOverride` if set.
      * - Automatically switches to next eligible when earliest expires or is paused.
@@ -134,7 +142,9 @@ object AdvertisingRotationEngine {
 
         return campaigns
             .filter { campaign ->
-                AdPackageTypes.normalize(campaign.adType) == AdPackageTypes.BOTTOM_BANNER_300x50 &&
+                val isBannerType = AdPackageTypes.normalize(campaign.adType) == AdPackageTypes.BOTTOM_BANNER_300x50
+                val isBottomPlacement = AdPlacements.normalize(campaign.placement) == AdPlacements.BOTTOM_ALL_SCREENS
+                (isBannerType || isBottomPlacement) &&
                     AdvertisingValidators.isCampaignEligible(campaign, nowMs)
             }
             .sortedWith(
@@ -176,7 +186,7 @@ object AdvertisingRotationEngine {
     /**
      * Builds Home Slider Slides combining:
      * - Section 4A: Approved Advertiser Campaigns linked ONLY to existing Doctor / Hospital / Diagnostic records
-     *   (rotates starting order cleanly using `QUEUE_HOME_SLIDER` round-robin counter).
+     *   (supports both single target and multi-selected promotedTargets: multiple Doctors + Advertiser's Institution).
      * - Section 4B: Admin Custom Sliders sorted by `order ASC`.
      * - Section 4C: Respects Admin toggle `settings.customSliderPosition` (BEFORE or AFTER advertiser sliders).
      */
@@ -213,39 +223,57 @@ object AdvertisingRotationEngine {
             )
 
         // Resolve authentic existing Doctor / Hospital / Diagnostic details WITHOUT creating/editing any record
-        val resolvedAdvSlides = eligibleAdvertiserRaw.mapNotNull { campaign ->
+        val resolvedAdvSlides = eligibleAdvertiserRaw.flatMap { campaign ->
             val idxEntry = indexByCampaign[campaign.id]
-            val recType = idxEntry?.targetRecordType?.takeIf { it.isNotBlank() } ?: campaign.targetRecordType
-            val recId = idxEntry?.targetRecordId?.takeIf { it.isNotBlank() } ?: campaign.targetRecordId
-            val target = AdvertisingValidators.validateAndResolveDirectoryRecord(
-                recordType = recType,
-                recordId = recId,
-                doctors = doctors,
-                hospitals = hospitals,
-                diagnostics = diagnostics
-            ) ?: return@mapNotNull null
-
-            val categoryBadge = when (target.recordType) {
-                SliderRecordTypes.DOCTOR -> "Sponsored Doctor"
-                SliderRecordTypes.HOSPITAL -> "Sponsored Hospital"
-                SliderRecordTypes.DIAGNOSTIC -> "Sponsored Diagnostic"
-                else -> "Sponsored"
+            val targetRefs: List<PromotedTargetRef> = if (campaign.promotedTargets.isNotEmpty()) {
+                campaign.promotedTargets
+            } else {
+                val recType = idxEntry?.targetRecordType?.takeIf { it.isNotBlank() } ?: campaign.targetRecordType
+                val recId = idxEntry?.targetRecordId?.takeIf { it.isNotBlank() } ?: campaign.targetRecordId
+                if (recType.isNotBlank() && recId.isNotBlank()) {
+                    listOf(
+                        PromotedTargetRef(
+                            recordType = recType,
+                            recordId = recId,
+                            title = campaign.targetRecordTitle,
+                            subtitle = campaign.targetRecordSubtitle,
+                            photoUrl = campaign.targetRecordPhotoUrl
+                        )
+                    )
+                } else emptyList()
             }
 
-            ResolvedHomeSliderSlide(
-                slideId = "adv_slide_${campaign.id}",
-                isCustomAdminSlider = false,
-                campaignId = campaign.id,
-                advertiserId = campaign.advertiserId,
-                title = target.title,
-                subtitle = target.subtitle,
-                description = campaign.description.ifBlank { target.subtitle },
-                imageUrl = target.photoUrl.ifBlank { campaign.imageUrl },
-                categoryBadge = categoryBadge,
-                targetRecordType = target.recordType,
-                targetRecordId = target.recordId,
-                destinationUrl = campaign.destinationUrl
-            )
+            targetRefs.mapIndexedNotNull { targetIdx, ref ->
+                val target = AdvertisingValidators.validateAndResolveDirectoryRecord(
+                    recordType = ref.recordType,
+                    recordId = ref.recordId,
+                    doctors = doctors,
+                    hospitals = hospitals,
+                    diagnostics = diagnostics
+                ) ?: return@mapIndexedNotNull null
+
+                val categoryBadge = when (target.recordType) {
+                    SliderRecordTypes.DOCTOR -> "Sponsored Doctor"
+                    SliderRecordTypes.HOSPITAL -> "Sponsored Hospital"
+                    SliderRecordTypes.DIAGNOSTIC -> "Sponsored Diagnostic"
+                    else -> "Sponsored"
+                }
+
+                ResolvedHomeSliderSlide(
+                    slideId = "adv_slide_${campaign.id}_${target.recordType}_${target.recordId}_$targetIdx",
+                    isCustomAdminSlider = false,
+                    campaignId = campaign.id,
+                    advertiserId = campaign.advertiserId,
+                    title = target.title,
+                    subtitle = target.subtitle,
+                    description = campaign.description.ifBlank { target.subtitle },
+                    imageUrl = target.photoUrl.ifBlank { campaign.imageUrl },
+                    categoryBadge = categoryBadge,
+                    targetRecordType = target.recordType,
+                    targetRecordId = target.recordId,
+                    destinationUrl = campaign.destinationUrl
+                )
+            }
         }
 
         // Rotate advertiser slider starting position fairly (`Adv1 -> Adv2 -> Adv3`)

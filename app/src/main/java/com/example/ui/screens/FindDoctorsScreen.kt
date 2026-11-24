@@ -318,7 +318,7 @@ fun FindDoctorsScreen(
                         onClick = { onDoctorClick(doc.doctor.id) }
                     )
                     // Display 1 Native Ad (300x100) after every 3 Doctor Cards via independent DOCTOR_LIST queue
-                    if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(index)) {
+                    if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(index, pagedDoctors.size)) {
                         val nativeSlot = AdvertisingRotationEngine.nativeSlotForCardIndex(index)
                         val nativeAd = remember(adCampaigns, adPlacementSettings, nativeSlot, doctorListRotationBase, nowMs / 60_000L) {
                             AdvertisingRotationEngine.selectNativeAdForSlot(
