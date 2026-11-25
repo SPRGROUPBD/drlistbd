@@ -27,6 +27,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.BuildConfig
 import com.example.R
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
@@ -124,6 +125,28 @@ fun SplashScreen(
                 text = tr(lang, "তথ্য লোড হচ্ছে...", "Loading directory..."),
                 style = MaterialTheme.typography.labelMedium,
                 color = Color.White.copy(alpha = 0.8f)
+            )
+        }
+
+        Surface(
+            shape = RoundedCornerShape(999.dp),
+            color = Color.White.copy(alpha = 0.16f),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 24.dp)
+                .alpha(alpha.value)
+                .testTag("splash_app_version")
+        ) {
+            Text(
+                text = tr(
+                    lang,
+                    "ভার্সন ${BuildConfig.VERSION_NAME}",
+                    "Version ${BuildConfig.VERSION_NAME}"
+                ),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White.copy(alpha = 0.95f),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
             )
         }
     }
