@@ -106,7 +106,7 @@ dependencies {
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)
-  // Custom Direct Sponsor Ads use Firebase; no third-party ad SDKs are included.
+  implementation(libs.play.services.ads)
   // implementation(libs.converter.moshi)
   // implementation(libs.firebase.ai)
   // Uncomment to use Firestore:

@@ -44,6 +44,11 @@
         android:theme="@style/Theme.MyApplication"
         android:usesCleartextTraffic="true">
 
+        <!-- Google AdMob SDK Application ID (Official Google Test App ID; live Banner/Native Unit IDs configured via Admin Panel) -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

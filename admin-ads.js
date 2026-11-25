@@ -10,13 +10,20 @@ const AD_PACKAGE_TYPES = [
 
 const AD_PLACEMENTS = [
   { key: "HOME_TOP_SLIDER", label: "Home Screen Top Slider", forType: "HOME_SLIDER" },
-  { key: "DOCTOR_LIST", label: "Doctor List (After every 3 cards)", forType: "NATIVE_300x100" },
+  { key: "ALL_NATIVE_LISTS", label: "All Native Lists (Doctors, Hospitals, Diagnostics & Home Popular Doctors)", forType: "NATIVE_300x100" },
+  { key: "DOCTOR_LIST", label: "Doctor List & Home Popular Doctors (After every 3 cards)", forType: "NATIVE_300x100" },
   { key: "HOSPITAL_LIST", label: "Hospital List (After every 3 cards)", forType: "NATIVE_300x100" },
   { key: "DIAGNOSTIC_LIST", label: "Diagnostic Center List (After every 3 cards)", forType: "NATIVE_300x100" },
   { key: "FAVORITE_LIST", label: "Favorite List (After every 3 cards)", forType: "NATIVE_300x100" },
-  { key: "BOTTOM_ALL_SCREENS", label: "Fixed Bottom Banner (Applicable Screens)", forType: "BOTTOM_BANNER_300x50" },
+  { key: "BOTTOM_ALL_SCREENS", label: "Fixed Bottom Banner (10s Auto Rotation)", forType: "BOTTOM_BANNER_300x50" },
   { key: "APP_LAUNCH", label: "App Launch Popup (Once Per Session)", forType: "APP_OPEN_POPUP_300x200" }
 ];
+
+const ADMOB_OFFICIAL_TEST_IDS = {
+  appId: "ca-app-pub-3940256099942544~3347511713",
+  bannerUnitId: "ca-app-pub-3940256099942544/6300978111",
+  nativeUnitId: "ca-app-pub-3940256099942544/2247696110"
+};
 
 const ROTATION_QUEUE_LABELS = [
   { key: "home_slider", label: "Home Slider Rotation Queue" },
@@ -32,6 +39,16 @@ let adState = {
   packages: {},
   advertisers: {},
   campaigns: {},
+  bottomBanners: {},
+  admob: {
+    enabled: true,
+    testMode: true,
+    appId: ADMOB_OFFICIAL_TEST_IDS.appId,
+    bannerEnabled: true,
+    bannerUnitId: ADMOB_OFFICIAL_TEST_IDS.bannerUnitId,
+    nativeEnabled: true,
+    nativeUnitId: ADMOB_OFFICIAL_TEST_IDS.nativeUnitId
+  },
   payments: {},
   trxIndex: {},
   paymentMethods: {},
@@ -108,6 +125,11 @@ async function loadAdvertisingData() {
     adState.packages = a.packages && typeof a.packages === "object" ? a.packages : {};
     adState.advertisers = a.advertisers && typeof a.advertisers === "object" ? a.advertisers : {};
     adState.campaigns = a.campaigns && typeof a.campaigns === "object" ? a.campaigns : {};
+    adState.bottomBanners = a.bottomBanners && typeof a.bottomBanners === "object" ? a.bottomBanners : {};
+    adState.admob = {
+      ...adState.admob,
+      ...(a.admob && typeof a.admob === "object" ? a.admob : {})
+    };
     adState.payments = a.payments && typeof a.payments === "object" ? a.payments : {};
     adState.trxIndex = a.trxIndex && typeof a.trxIndex === "object" ? a.trxIndex : {};
     adState.paymentMethods = a.paymentMethods && typeof a.paymentMethods === "object" ? a.paymentMethods : {};
@@ -120,6 +142,51 @@ async function loadAdvertisingData() {
   } catch (err) {
     console.warn("loadAdvertisingData warning:", err);
   }
+}
+
+function handleAdImageFileUpload(fileInput, targetInputId, onReadyCallback, maxWidth = 960) {
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  if (!file) return;
+  const allowed = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"];
+  if (!allowed.includes((file.type || "").toLowerCase())) {
+    fileInput.value = "";
+    return alert("Invalid image format! Please upload PNG, JPG, WEBP, or GIF.");
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    fileInput.value = "";
+    return alert("Image file is too large (max 5MB allowed).");
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxWidth / Math.max(img.width || 1, img.height || 1));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+      const target = document.getElementById(targetInputId);
+      if (target) target.value = dataUrl;
+      if (typeof onReadyCallback === "function") onReadyCallback(dataUrl);
+      toast("Image uploaded & optimized for fast app loading!");
+    };
+    img.onerror = () => alert("Could not read image file. Try another PNG/JPG image.");
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function getEffectiveBottomBannerStatus(b, nowMs = Date.now()) {
+  if (!b) return "INACTIVE";
+  const st = String(b.status || "ACTIVE").toUpperCase();
+  if (st !== "ACTIVE") return "INACTIVE";
+  const start = Number(b.startDate || 0);
+  const exp = Number(b.expiryDate || 0);
+  if (exp > 0 && nowMs > exp) return "EXPIRED";
+  if (start > 0 && nowMs < start) return "SCHEDULED";
+  return "ACTIVE";
 }
 
 function getEffectiveCampaignStatus(c, nowMs = Date.now()) {
@@ -196,10 +263,11 @@ function getAdTabTitle(tabKey) {
     ad_payments: "Payment Verification",
     ad_payment_methods: "Payment Methods",
     ad_custom_slider: "Custom Slider Management",
+    ad_bottom_banners: "Bottom Banner Advertisement",
     ad_rotation: "Rotation Management",
     ad_history: "Campaign History",
     ad_reports: "Advertisement Reports & CSV",
-    ad_settings: "Advertisement Settings"
+    ad_settings: "Advertisement & AdMob Settings"
   };
   return map[tabKey] || null;
 }
@@ -210,6 +278,7 @@ function updateAdNavBadges() {
   const activeCount = campaigns.filter(c => getEffectiveCampaignStatus(c, now) === "ACTIVE").length;
   const pendingCampCount = campaigns.filter(c => getEffectiveCampaignStatus(c, now) === "PENDING").length;
   const pendingPayCount = Object.values(adState.payments || {}).filter(p => String(p.status || "PENDING").toUpperCase() === "PENDING").length;
+  const activeBottomBanners = Object.values(adState.bottomBanners || {}).filter(b => getEffectiveBottomBannerStatus(b, now) === "ACTIVE").length;
 
   const setB = (id, count) => {
     const el = document.getElementById(id);
@@ -220,6 +289,7 @@ function updateAdNavBadges() {
   setB("navBadgeActiveAds", activeCount);
   setB("navBadgePendingAds", pendingCampCount);
   setB("navBadgePayments", pendingPayCount);
+  setB("navBadgeBottomBanners", activeBottomBanners);
 }
 
 function renderAdvertisingTab(tabKey) {
@@ -231,6 +301,7 @@ function renderAdvertisingTab(tabKey) {
     case "ad_payments": return renderAdPayments();
     case "ad_payment_methods": return renderAdPaymentMethods();
     case "ad_custom_slider": return renderAdCustomSlider();
+    case "ad_bottom_banners": return renderAdBottomBanners();
     case "ad_rotation": return renderAdRotation();
     case "ad_history": return renderAdHistory();
     case "ad_reports": return renderAdReports();
@@ -369,9 +440,9 @@ function renderAdDashboard() {
           <h4 class="font-bold text-sm mb-2">Quick Actions</h4>
           <div class="grid grid-cols-2 gap-2">
             <button onclick="switchTab('ad_packages')" class="p-3 rounded-xl bg-sky-50 text-sky-900 text-xs font-bold text-left hover:bg-sky-100">+ Create Ad Package</button>
-            <button onclick="switchTab('ad_payment_methods')" class="p-3 rounded-xl bg-teal-50 text-teal-900 text-xs font-bold text-left hover:bg-teal-100">Manage Payment Methods</button>
+            <button onclick="switchTab('ad_bottom_banners')" class="p-3 rounded-xl bg-emerald-50 text-emerald-900 text-xs font-bold text-left hover:bg-emerald-100">+ Bottom Banner Ad (10s)</button>
             <button onclick="switchTab('ad_custom_slider')" class="p-3 rounded-xl bg-indigo-50 text-indigo-900 text-xs font-bold text-left hover:bg-indigo-100">+ Add Custom Home Slider</button>
-            <button onclick="sweepAndRefreshAds()" class="p-3 rounded-xl bg-slate-100 text-slate-800 text-xs font-bold text-left hover:bg-slate-200">Sweep Expired Ads</button>
+            <button onclick="switchTab('ad_settings')" class="p-3 rounded-xl bg-amber-50 text-amber-900 text-xs font-bold text-left hover:bg-amber-100">AdMob Banner &amp; Native IDs</button>
           </div>
         </div>
       </div>
@@ -443,11 +514,10 @@ function renderAdPackages() {
             <input id="pkg_img" type="url" class="input" placeholder="https://..." value="${esc(edit ? (edit.imageUrl || "") : "")}" />
           </div>
           <div>
-            <label class="block text-xs font-semibold mb-1">Status *</label>
+            <label class="block text-xs font-semibold mb-1">Package Status *</label>
             <select id="pkg_status" class="input">
-              <option value="ACTIVE" ${!edit || edit.status === "ACTIVE" ? "selected" : ""}>ACTIVE</option>
-              <option value="PAUSED" ${edit && edit.status === "PAUSED" ? "selected" : ""}>PAUSED</option>
-              <option value="INACTIVE" ${edit && edit.status === "INACTIVE" ? "selected" : ""}>INACTIVE</option>
+              <option value="ACTIVE" ${!edit || edit.status === "ACTIVE" ? "selected" : ""}>ACTIVE (Visible &amp; Selectable in App)</option>
+              <option value="INACTIVE" ${edit && edit.status !== "ACTIVE" ? "selected" : ""}>INACTIVE (Hidden from New Bookings)</option>
             </select>
           </div>
           <button type="submit" class="w-full py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold">${edit ? "Update Package" : "Save Package"}</button>
@@ -456,8 +526,9 @@ function renderAdPackages() {
       </div>
 
       <div class="xl:col-span-7 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-        <h3 class="font-bold text-base mb-3">All Advertising Packages (${pkgList.length})</h3>
-        ${pkgList.length === 0 ? `<p class="text-xs text-slate-400 py-8 text-center">No packages created yet. Create packages for Home Slider, Native 300x100, Bottom Banner 300x50, and App Open Popup 300x200.</p>` : `
+        <h3 class="font-bold text-base mb-1">All Advertising Packages (${pkgList.length})</h3>
+        <p class="text-xs text-slate-500 mb-3">Existing advertiser bookings remain preserved automatically if a package is deactivated or deleted.</p>
+        ${pkgList.length === 0 ? `<p class="text-xs text-slate-400 py-8 text-center">No packages created yet. Create unlimited packages for Home Slider, Native 300x100, and App Open Popup 300x200.</p>` : `
           <div class="space-y-3">
             ${pkgList.map(p => `
               <div class="border border-slate-200 rounded-xl p-3.5 flex flex-wrap justify-between gap-3">
@@ -467,13 +538,13 @@ function renderAdPackages() {
                     ${adStatusPill(p.status)}
                   </div>
                   <div class="text-xs text-sky-800 font-semibold mt-1">${esc(p.adType)} &bull; ${esc(p.placement)}</div>
-                  <div class="text-xs text-slate-600 mt-0.5">Price: <b>৳${Number(p.price || 0).toLocaleString()}</b> &bull; Duration: <b>${p.durationDays} days</b> (Max ${p.maxCampaignDurationDays}d)</div>
+                  <div class="text-xs text-slate-600 mt-0.5">Price: <b>৳${Number(p.price || 0).toLocaleString()}</b> &bull; Duration: <b>${p.durationDays} days</b> (Max ${p.maxCampaignDurationDays || p.durationDays}d)</div>
                   ${p.description ? `<p class="text-[11px] text-slate-500 mt-1">${esc(p.description)}</p>` : ""}
                 </div>
                 <div class="flex flex-col items-end gap-1.5 text-xs">
                   <div class="flex gap-1.5">
                     <button onclick="editAdPackage('${esc(p.id)}')" class="px-2.5 py-1 rounded-lg bg-sky-50 text-sky-700 font-semibold">Edit</button>
-                    <button onclick="cyclePackageStatus('${esc(p.id)}')" class="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 font-semibold">${p.status === "ACTIVE" ? "Pause" : "Activate"}</button>
+                    <button onclick="cyclePackageStatus('${esc(p.id)}')" class="px-2.5 py-1 rounded-lg ${p.status === "ACTIVE" ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"} font-semibold">${p.status === "ACTIVE" ? "Deactivate" : "Activate"}</button>
                     <button onclick="deleteAdPackage('${esc(p.id)}')" class="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 font-semibold">Delete</button>
                   </div>
                   <span class="text-[10px] text-slate-400">Created ${formatDateOnly(p.createdAt)}</span>
@@ -497,25 +568,38 @@ async function submitAdPackage(e) {
   e.preventDefault();
   const id = document.getElementById("pkg_id").value || uid("pkg");
   const old = adState.packages[id] || {};
+  const name = document.getElementById("pkg_name").value.trim();
+  const adType = document.getElementById("pkg_type").value;
+  const placement = document.getElementById("pkg_placement").value;
+  const price = Number(document.getElementById("pkg_price").value || 0);
+  const durationDays = parseInt(document.getElementById("pkg_days").value || "0", 10);
+  const maxCampaignDurationDays = Math.max(durationDays || 1, parseInt(document.getElementById("pkg_max_days").value || String(durationDays || 30), 10));
+
+  if (name.length < 2) return alert("Package Name is required.");
+  if (!adType) return alert("Advertisement Type is required.");
+  if (!placement) return alert("Advertisement Placement is required.");
+  if (isNaN(price) || price < 0) return alert("Enter a valid package price (0 or more).");
+  if (isNaN(durationDays) || durationDays < 1) return alert("Package Duration must be at least 1 day.");
+
   const now = Date.now();
   const payload = {
     id,
-    name: document.getElementById("pkg_name").value.trim(),
+    name,
     description: document.getElementById("pkg_desc").value.trim(),
-    adType: document.getElementById("pkg_type").value,
-    placement: document.getElementById("pkg_placement").value,
-    price: Number(document.getElementById("pkg_price").value || 0),
-    durationDays: Math.max(1, parseInt(document.getElementById("pkg_days").value || "30", 10)),
-    maxCampaignDurationDays: Math.max(1, parseInt(document.getElementById("pkg_max_days").value || "365", 10)),
+    adType,
+    placement,
+    price,
+    durationDays,
+    maxCampaignDurationDays,
     imageUrl: document.getElementById("pkg_img").value.trim(),
-    status: document.getElementById("pkg_status").value || "ACTIVE",
+    status: document.getElementById("pkg_status").value === "INACTIVE" ? "INACTIVE" : "ACTIVE",
     createdAt: old.createdAt || now,
     updatedAt: now
   };
   await rtdbAdPut(`advertising/packages/${id}`, payload);
   adState.packages[id] = payload;
   editing = {};
-  await writeAuditLog("SAVE_AD_PACKAGE", "AD_PACKAGE", id, `Saved package ${payload.name} (৳${payload.price})`);
+  await writeAuditLog("SAVE_AD_PACKAGE", "AD_PACKAGE", id, `Saved package ${payload.name} (৳${payload.price}, ${payload.status})`);
   toast("Package saved!");
   renderTab();
 }
@@ -530,18 +614,20 @@ function editAdPackage(id) {
 async function cyclePackageStatus(id) {
   const p = adState.packages[id];
   if (!p) return;
-  const next = p.status === "ACTIVE" ? "PAUSED" : "ACTIVE";
+  const next = p.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
   const updated = { ...p, status: next, updatedAt: Date.now() };
   await rtdbAdPut(`advertising/packages/${id}`, updated);
   adState.packages[id] = updated;
-  toast(`Package ${next}`);
+  await writeAuditLog("TOGGLE_AD_PACKAGE", "AD_PACKAGE", id, `Set package ${p.name} to ${next}`);
+  toast(`Package marked ${next}`);
   renderTab();
 }
 
 async function deleteAdPackage(id) {
-  if (!confirm("Delete this advertising package? Existing campaigns keep their snapshot price/duration.")) return;
+  if (!confirm("Delete this advertising package? Existing advertiser bookings will remain preserved.")) return;
   await rtdbAdDelete(`advertising/packages/${id}`);
   delete adState.packages[id];
+  await writeAuditLog("DELETE_AD_PACKAGE", "AD_PACKAGE", id, `Deleted package ${id}`);
   toast("Package deleted.");
   renderTab();
 }
