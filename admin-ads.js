@@ -129,10 +129,38 @@ async function loadAdvertisingData() {
     adState.campaigns = a.campaigns && typeof a.campaigns === "object" ? a.campaigns : {};
     adState.bottomBanners = a.bottomBanners && typeof a.bottomBanners === "object" ? a.bottomBanners : {};
     const remoteAdMob = a.admob && typeof a.admob === "object" ? a.admob : {};
+    const parsedPlacements = remoteAdMob.placements && typeof remoteAdMob.placements === "object" ? { ...remoteAdMob.placements } : {};
+    // Auto-surface legacy bannerUnitId / nativeUnitId if placements have not been explicitly managed yet
+    if (!remoteAdMob.placementsManaged && Object.keys(parsedPlacements).length === 0) {
+      const legacyBanner = String(remoteAdMob.bannerUnitId || "").trim();
+      const legacyNative = String(remoteAdMob.nativeUnitId || "").trim();
+      if (legacyBanner) {
+        parsedPlacements["amp_legacy_banner"] = {
+          id: "amp_legacy_banner",
+          label: "Bottom Banner (Primary)",
+          adFormat: "BANNER",
+          placement: "BOTTOM_ALL_SCREENS",
+          adUnitId: legacyBanner,
+          status: remoteAdMob.bannerEnabled === false ? "INACTIVE" : "ACTIVE",
+          createdAt: Number(remoteAdMob.updatedAt || Date.now())
+        };
+      }
+      if (legacyNative) {
+        parsedPlacements["amp_legacy_native"] = {
+          id: "amp_legacy_native",
+          label: "Native Ad (All Lists)",
+          adFormat: "NATIVE",
+          placement: "ALL_NATIVE_LISTS",
+          adUnitId: legacyNative,
+          status: remoteAdMob.nativeEnabled === false ? "INACTIVE" : "ACTIVE",
+          createdAt: Number(remoteAdMob.updatedAt || Date.now()) + 1
+        };
+      }
+    }
     adState.admob = {
       ...adState.admob,
       ...remoteAdMob,
-      placements: remoteAdMob.placements && typeof remoteAdMob.placements === "object" ? remoteAdMob.placements : {}
+      placements: parsedPlacements
     };
     adState.payments = a.payments && typeof a.payments === "object" ? a.payments : {};
     adState.trxIndex = a.trxIndex && typeof a.trxIndex === "object" ? a.trxIndex : {};
@@ -2413,17 +2441,18 @@ function isOfficialTestAdMobUnitId(unitId) {
   return String(unitId || "").trim().startsWith("ca-app-pub-3940256099942544/");
 }
 
-function syncAdMobPrimaryFieldsFromPlacements(admobObj) {
+function syncAdMobPrimaryFieldsFromPlacements(admobObj, markManaged = true) {
   const placementsMap = admobObj.placements && typeof admobObj.placements === "object" ? admobObj.placements : {};
   const list = Object.values(placementsMap).filter(p => p && String(p.status || "ACTIVE").toUpperCase() === "ACTIVE");
   const firstBanner = list.find(p => String(p.adFormat || "").toUpperCase() === "BANNER" && String(p.adUnitId || "").trim());
   const firstNative = list.find(p => String(p.adFormat || "").toUpperCase() === "NATIVE" && String(p.adUnitId || "").trim());
+  const isManaged = markManaged || Boolean(admobObj.placementsManaged) || Object.keys(placementsMap).length > 0;
   return {
     ...admobObj,
     placements: placementsMap,
-    placementsManaged: true,
-    bannerUnitId: firstBanner ? String(firstBanner.adUnitId).trim() : "",
-    nativeUnitId: firstNative ? String(firstNative.adUnitId).trim() : "",
+    placementsManaged: isManaged,
+    bannerUnitId: firstBanner ? String(firstBanner.adUnitId).trim() : (isManaged ? "" : String(admobObj.bannerUnitId || "").trim()),
+    nativeUnitId: firstNative ? String(firstNative.adUnitId).trim() : (isManaged ? "" : String(admobObj.nativeUnitId || "").trim()),
     updatedAt: Date.now()
   };
 }
@@ -2432,21 +2461,49 @@ function syncAdMobPrimaryFieldsFromPlacements(admobObj) {
 function renderAdMobManagement() {
   const am = adState.admob || {};
   const placementsList = Object.entries(am.placements || {})
+    .filter(([, p]) => p && typeof p === "object")
     .map(([id, p]) => ({ id, ...p }))
-    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    .sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0));
   const ed = editing.type === "admob_placement" ? editing.item : null;
   const selectedFormat = (ed && ed.adFormat) || "BANNER";
   const formatPlacements = ADMOB_PLACEMENT_OPTIONS.filter(p => p.format === selectedFormat);
-  const activeCount = placementsList.filter(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE").length;
+  const activePlacements = placementsList.filter(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE");
+  const activeCount = activePlacements.length;
+  const activeBannerCount = activePlacements.filter(p => String(p.adFormat || "").toUpperCase() === "BANNER").length;
+  const activeNativeCount = activePlacements.filter(p => String(p.adFormat || "").toUpperCase() === "NATIVE").length;
 
   return `
     <div class="space-y-5">
+      <!-- Live Sync Summary Strip -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <div class="text-[11px] text-slate-500 font-semibold">AdMob Status</div>
+          <div class="text-lg font-extrabold mt-0.5 ${am.enabled !== false ? "text-emerald-700" : "text-rose-700"}">${am.enabled !== false ? "ENABLED" : "DISABLED"}</div>
+          <div class="text-[10px] text-slate-400 mt-0.5">${am.testMode === true ? "Force Test Mode ON" : "Live Placements Active"}</div>
+        </div>
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <div class="text-[11px] text-slate-500 font-semibold">Active Banner IDs</div>
+          <div class="text-lg font-extrabold text-sky-700 mt-0.5">${activeBannerCount}</div>
+          <div class="text-[10px] text-slate-400 mt-0.5">${am.bannerEnabled !== false ? "Banner Enabled" : "Banner Paused"}</div>
+        </div>
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <div class="text-[11px] text-slate-500 font-semibold">Active Native IDs</div>
+          <div class="text-lg font-extrabold text-indigo-700 mt-0.5">${activeNativeCount}</div>
+          <div class="text-[10px] text-slate-400 mt-0.5">${am.nativeEnabled !== false ? "Native Enabled" : "Native Paused"}</div>
+        </div>
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <div class="text-[11px] text-slate-500 font-semibold">Last Synced</div>
+          <div class="text-xs font-bold text-slate-800 mt-1">${am.updatedAt ? new Date(Number(am.updatedAt)).toLocaleString() : "Not saved yet"}</div>
+          <button type="button" onclick="reloadAdMobFromFirebase()" class="mt-1.5 text-[11px] font-bold text-teal-700 hover:underline">↻ Reload from Firebase</button>
+        </div>
+      </div>
+
       <!-- Section 1: AdMob App ID & Global Mode Control (Add / Edit / Delete) -->
       <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 class="font-bold text-base text-slate-900">1. Google AdMob App ID &amp; Live Sync Control</h3>
-            <p class="text-xs text-slate-500 mt-0.5">Add, edit, or delete your AdMob App ID and toggle live/test mode. Changes sync automatically to the Android app within seconds.</p>
+            <p class="text-xs text-slate-500 mt-0.5">Add, edit, or delete your AdMob App ID and toggle live/test mode. Changes sync automatically to the Android app within 10 seconds.</p>
           </div>
           <div class="flex flex-wrap gap-2">
             <button type="button" onclick="addOfficialAdMobTestPlacements()" class="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold hover:bg-amber-100">
@@ -2457,7 +2514,7 @@ function renderAdMobManagement() {
 
         <form onsubmit="saveAdMobAppConfig(event)" class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
           <div class="lg:col-span-5">
-            <label class="block text-xs font-semibold mb-1">AdMob App ID (ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY)</label>
+            <label class="block text-xs font-semibold mb-1">AdMob App ID (uses <code class="px-1 bg-slate-100 rounded">~</code> — ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY)</label>
             <input id="am_app_id" class="input font-mono text-xs" placeholder="ca-app-pub-3940256099942544~3347511713" value="${esc(am.appId || "")}" />
           </div>
           <div class="lg:col-span-2">
@@ -2467,14 +2524,14 @@ function renderAdMobManagement() {
             </label>
           </div>
           <div class="lg:col-span-2">
-            <label class="flex items-center justify-between p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 cursor-pointer">
-              <span class="text-xs font-bold text-amber-900">Test Mode</span>
+            <label class="flex items-center justify-between p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 cursor-pointer" title="When checked, overrides your custom Placement IDs with Google's official Test IDs">
+              <span class="text-xs font-bold text-amber-900">Force Test</span>
               <input type="checkbox" id="am_test_mode" ${am.testMode === true ? "checked" : ""} />
             </label>
           </div>
           <div class="lg:col-span-3 flex gap-2">
             <button type="submit" class="flex-1 py-2.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold">
-              ${am.appId ? "Update App ID" : "Add App ID"}
+              ${am.appId ? "Update App ID" : "Save App ID"}
             </button>
             ${am.appId ? `<button type="button" onclick="deleteAdMobAppId()" class="py-2.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold">Delete</button>` : ""}
           </div>
@@ -2491,10 +2548,10 @@ function renderAdMobManagement() {
           </div>
         </form>
 
-        <div class="p-3 rounded-xl ${am.testMode ? "bg-amber-50 border-amber-200 text-amber-900" : "bg-emerald-50 border-emerald-200 text-emerald-900"} border text-xs">
-          ${am.testMode
-            ? "<b>Test Mode is ON:</b> Android app is currently serving Google Official Test Banner &amp; Native ads. Turn OFF Test Mode or add any live Placement ID below to switch automatically to your live AdMob IDs."
-            : `<b>Live Mode is ACTIVE:</b> Android app automatically syncs and renders the <b>${activeCount}</b> active Placement ID(s) listed below. Any Add, Edit, Toggle, or Delete updates the app automatically.`
+        <div class="p-3 rounded-xl ${am.testMode === true ? "bg-amber-50 border-amber-200 text-amber-900" : "bg-emerald-50 border-emerald-200 text-emerald-900"} border text-xs">
+          ${am.testMode === true
+            ? "<b>Force Test Mode is ON:</b> Android app is currently serving Google Official Test Banner &amp; Native ads. Uncheck <b>Force Test</b> or save any Placement ID below to use your configured Placement IDs."
+            : `<b>Live Placement Mode is ACTIVE:</b> Android app automatically syncs and renders the <b>${activeCount}</b> active Placement ID(s) listed below. Any Add, Edit, Toggle, or Delete updates the app automatically.`
           }
         </div>
       </div>
@@ -2503,7 +2560,7 @@ function renderAdMobManagement() {
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm h-fit">
           <h3 class="font-bold text-base mb-1">${ed ? "Edit AdMob Placement ID" : "Add AdMob Placement ID"}</h3>
-          <p class="text-xs text-slate-500 mb-3">Configure Banner or Native Ad Unit IDs for any screen placement. Saved IDs take effect automatically in the app.</p>
+          <p class="text-xs text-slate-500 mb-3">Configure Banner or Native Ad Unit IDs (uses <code class="px-1 bg-slate-100 rounded">/</code>) for any screen placement. Saved IDs take effect automatically in the app.</p>
 
           <form onsubmit="submitAdMobPlacement(event)" class="space-y-3">
             <input type="hidden" id="amp_id" value="${esc(ed ? ed.id : "")}" />
@@ -2594,11 +2651,11 @@ function renderAdMobManagement() {
                     </td>
                     <td class="py-2.5 pr-3 text-slate-700">${esc(admobPlacementLabel(p.placement))}</td>
                     <td class="py-2.5 pr-3 font-mono text-[11px] text-slate-800 break-all">${esc(p.adUnitId)}</td>
-                    <td class="py-2.5 pr-3">${adStatusBadge(isAct ? "ACTIVE" : "INACTIVE")}</td>
+                    <td class="py-2.5 pr-3">${adStatusPill(isAct ? "ACTIVE" : "INACTIVE")}</td>
                     <td class="py-2.5 whitespace-nowrap space-x-1">
-                      <button onclick="editAdMobPlacement('${p.id}')" class="px-2 py-1 rounded bg-sky-100 text-sky-800 font-semibold">Edit</button>
-                      <button onclick="toggleAdMobPlacementStatus('${p.id}')" class="px-2 py-1 rounded ${isAct ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"} font-semibold">${isAct ? "Deactivate" : "Activate"}</button>
-                      <button onclick="deleteAdMobPlacement('${p.id}')" class="px-2 py-1 rounded bg-rose-100 text-rose-800 font-semibold">Delete</button>
+                      <button type="button" onclick="editAdMobPlacement('${esc(p.id)}')" class="px-2 py-1 rounded bg-sky-100 text-sky-800 font-semibold">Edit</button>
+                      <button type="button" onclick="toggleAdMobPlacementStatus('${esc(p.id)}')" class="px-2 py-1 rounded ${isAct ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"} font-semibold">${isAct ? "Deactivate" : "Activate"}</button>
+                      <button type="button" onclick="deleteAdMobPlacement('${esc(p.id)}')" class="px-2 py-1 rounded bg-rose-100 text-rose-800 font-semibold">Delete</button>
                     </td>
                   </tr>
                 `;
@@ -2609,6 +2666,18 @@ function renderAdMobManagement() {
       </div>
     </div>
   `;
+}
+
+async function reloadAdMobFromFirebase() {
+  try {
+    await loadAdvertisingData();
+    updateAdNavBadges();
+    renderTab();
+    toast("AdMob configuration reloaded from Firebase!");
+  } catch (err) {
+    console.error("reloadAdMobFromFirebase failed:", err);
+    alert("Failed to reload AdMob config: " + (err && err.message ? err.message : err));
+  }
 }
 
 function onAdMobFormatChange() {
@@ -2637,85 +2706,108 @@ function fillSingleTestUnitId(format) {
 
 async function saveAdMobAppConfig(e) {
   e.preventDefault();
-  const appId = (document.getElementById("am_app_id")?.value || "").trim();
-  if (appId && !/^ca-app-pub-\d{10,20}~\d{6,15}$/i.test(appId)) {
-    return alert("Invalid AdMob App ID format. Expected: ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY");
+  try {
+    const appId = (document.getElementById("am_app_id")?.value || "").replace(/\s+/g, "");
+    if (appId) {
+      if (appId.includes("/")) {
+        return alert("আপনি Ad Unit / Placement ID ('/') দিয়েছেন! App ID-তে '~' থাকতে হবে। উদাহরণ: ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY");
+      }
+      if (!/^ca-app-pub-\d{6,25}~\d{6,20}$/i.test(appId)) {
+        return alert("Invalid AdMob App ID format. Expected: ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY");
+      }
+    }
+    const updated = syncAdMobPrimaryFieldsFromPlacements({
+      ...(adState.admob || {}),
+      enabled: Boolean(document.getElementById("am_enabled")?.checked),
+      testMode: Boolean(document.getElementById("am_test_mode")?.checked),
+      appId,
+      bannerEnabled: Boolean(document.getElementById("am_banner_enabled")?.checked),
+      nativeEnabled: Boolean(document.getElementById("am_native_enabled")?.checked)
+    }, false);
+    await rtdbAdPut("advertising/admob", updated);
+    adState.admob = updated;
+    updateAdNavBadges();
+    await writeAuditLog("UPDATE_ADMOB_APP_CONFIG", "ADMOB", "admob", `Saved AdMob App ID (${appId || "cleared"}) | enabled=${updated.enabled} | testMode=${updated.testMode}`);
+    toast("AdMob App ID & settings saved and synced!");
+    renderTab();
+  } catch (err) {
+    console.error("saveAdMobAppConfig error:", err);
+    alert("Failed to save AdMob App ID: " + (err && err.message ? err.message : err));
   }
-  const updated = syncAdMobPrimaryFieldsFromPlacements({
-    ...(adState.admob || {}),
-    enabled: Boolean(document.getElementById("am_enabled")?.checked),
-    testMode: Boolean(document.getElementById("am_test_mode")?.checked),
-    appId,
-    bannerEnabled: Boolean(document.getElementById("am_banner_enabled")?.checked),
-    nativeEnabled: Boolean(document.getElementById("am_native_enabled")?.checked)
-  });
-  await rtdbAdPut("advertising/admob", updated);
-  adState.admob = updated;
-  updateAdNavBadges();
-  await writeAuditLog("UPDATE_ADMOB_APP_CONFIG", "ADMOB", "admob", `Saved AdMob App ID (${appId || "cleared"}) | enabled=${updated.enabled} | testMode=${updated.testMode}`);
-  toast("AdMob App ID & settings saved and synced!");
-  renderTab();
 }
 
 async function deleteAdMobAppId() {
   if (!confirm("Delete the saved AdMob App ID?")) return;
-  const updated = syncAdMobPrimaryFieldsFromPlacements({
-    ...(adState.admob || {}),
-    appId: ""
-  });
-  await rtdbAdPut("advertising/admob", updated);
-  adState.admob = updated;
-  await writeAuditLog("DELETE_ADMOB_APP_ID", "ADMOB", "admob", "Deleted AdMob App ID");
-  toast("AdMob App ID deleted!");
-  renderTab();
+  try {
+    const updated = syncAdMobPrimaryFieldsFromPlacements({
+      ...(adState.admob || {}),
+      appId: ""
+    }, false);
+    await rtdbAdPut("advertising/admob", updated);
+    adState.admob = updated;
+    updateAdNavBadges();
+    await writeAuditLog("DELETE_ADMOB_APP_ID", "ADMOB", "admob", "Deleted AdMob App ID");
+    toast("AdMob App ID deleted!");
+    renderTab();
+  } catch (err) {
+    console.error("deleteAdMobAppId error:", err);
+    alert("Failed to delete AdMob App ID: " + (err && err.message ? err.message : err));
+  }
 }
 
 async function submitAdMobPlacement(e) {
   e.preventDefault();
-  const id = (document.getElementById("amp_id")?.value || "").trim() || uid("amp");
-  const label = (document.getElementById("amp_label")?.value || "").trim();
-  const adFormat = (document.getElementById("amp_format")?.value || "BANNER").toUpperCase();
-  const placement = (document.getElementById("amp_placement")?.value || (adFormat === "BANNER" ? "BOTTOM_ALL_SCREENS" : "ALL_NATIVE_LISTS")).toUpperCase();
-  const adUnitId = (document.getElementById("amp_unit_id")?.value || "").trim();
-  const status = (document.getElementById("amp_status")?.value || "ACTIVE").toUpperCase() === "INACTIVE" ? "INACTIVE" : "ACTIVE";
+  try {
+    const id = (document.getElementById("amp_id")?.value || "").trim() || uid("amp");
+    const label = (document.getElementById("amp_label")?.value || "").trim();
+    const adFormat = (document.getElementById("amp_format")?.value || "BANNER").toUpperCase();
+    const placement = (document.getElementById("amp_placement")?.value || (adFormat === "BANNER" ? "BOTTOM_ALL_SCREENS" : "ALL_NATIVE_LISTS")).toUpperCase();
+    const adUnitId = (document.getElementById("amp_unit_id")?.value || "").replace(/\s+/g, "");
+    const status = (document.getElementById("amp_status")?.value || "ACTIVE").toUpperCase() === "INACTIVE" ? "INACTIVE" : "ACTIVE";
 
-  if (label.length < 2) return alert("Placement Label is required.");
-  if (!/^ca-app-pub-\d{10,20}\/\d{6,15}$/i.test(adUnitId)) {
-    return alert("Invalid AdMob Placement / Ad Unit ID format. Expected: ca-app-pub-XXXXXXXXXXXXXXXX/YYYYYYYYYY");
+    if (label.length < 2) return alert("Placement Label is required.");
+    if (adUnitId.includes("~")) {
+      return alert("আপনি App ID ('~') দিয়েছেন! Placement / Ad Unit ID-তে '/' থাকতে হবে। উদাহরণ: ca-app-pub-XXXXXXXXXXXXXXXX/YYYYYYYYYY");
+    }
+    if (!/^ca-app-pub-\d{6,25}\/\d{6,20}$/i.test(adUnitId)) {
+      return alert("Invalid AdMob Placement / Ad Unit ID format. Expected: ca-app-pub-XXXXXXXXXXXXXXXX/YYYYYYYYYY");
+    }
+
+    const now = Date.now();
+    const oldPlacements = { ...((adState.admob && adState.admob.placements) || {}) };
+    const prev = oldPlacements[id] || {};
+    oldPlacements[id] = {
+      id,
+      label,
+      adFormat,
+      placement,
+      adUnitId,
+      status,
+      createdAt: prev.createdAt || now,
+      updatedAt: now
+    };
+
+    // Always switch Force Test Mode OFF when managing placements so the placements table is the exact source of truth
+    const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
+      ...(adState.admob || {}),
+      enabled: true,
+      testMode: false,
+      bannerEnabled: adFormat === "BANNER" ? true : (adState.admob?.bannerEnabled !== false),
+      nativeEnabled: adFormat === "NATIVE" ? true : (adState.admob?.nativeEnabled !== false),
+      placements: oldPlacements
+    }, true);
+
+    await rtdbAdPut("advertising/admob", nextAdMob);
+    adState.admob = nextAdMob;
+    editing = {};
+    updateAdNavBadges();
+    await writeAuditLog("SAVE_ADMOB_PLACEMENT", "ADMOB", id, `Saved AdMob ${adFormat} placement "${label}" (${placement}) -> ${adUnitId}`);
+    toast("AdMob Placement ID saved & synced! App will auto-update.");
+    renderTab();
+  } catch (err) {
+    console.error("submitAdMobPlacement error:", err);
+    alert("Failed to save AdMob Placement ID: " + (err && err.message ? err.message : err));
   }
-
-  const now = Date.now();
-  const oldPlacements = { ...((adState.admob && adState.admob.placements) || {}) };
-  const prev = oldPlacements[id] || {};
-  oldPlacements[id] = {
-    id,
-    label,
-    adFormat,
-    placement,
-    adUnitId,
-    status,
-    createdAt: prev.createdAt || now,
-    updatedAt: now
-  };
-
-  // If Admin enters a real live Ad Unit ID (not Google's test ID), automatically switch Test Mode OFF so it goes live immediately
-  const isLiveUnit = !isOfficialTestAdMobUnitId(adUnitId);
-  const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
-    ...(adState.admob || {}),
-    enabled: true,
-    testMode: isLiveUnit ? false : Boolean(adState.admob && adState.admob.testMode === true && !Object.values(oldPlacements).some(p => !isOfficialTestAdMobUnitId(p.adUnitId))),
-    bannerEnabled: adFormat === "BANNER" ? true : (adState.admob?.bannerEnabled !== false),
-    nativeEnabled: adFormat === "NATIVE" ? true : (adState.admob?.nativeEnabled !== false),
-    placements: oldPlacements
-  });
-
-  await rtdbAdPut("advertising/admob", nextAdMob);
-  adState.admob = nextAdMob;
-  editing = {};
-  updateAdNavBadges();
-  await writeAuditLog("SAVE_ADMOB_PLACEMENT", "ADMOB", id, `Saved AdMob ${adFormat} placement "${label}" (${placement}) -> ${adUnitId}`);
-  toast(isLiveUnit ? "Live AdMob Placement ID saved! App will auto-update." : "AdMob Placement ID saved & synced!");
-  renderTab();
 }
 
 function editAdMobPlacement(id) {
@@ -2723,83 +2815,101 @@ function editAdMobPlacement(id) {
   if (!item) return;
   editing = { type: "admob_placement", item: { id, ...item } };
   renderTab();
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 async function toggleAdMobPlacementStatus(id) {
-  const oldPlacements = { ...((adState.admob && adState.admob.placements) || {}) };
-  const item = oldPlacements[id];
-  if (!item) return;
-  const nextStatus = String(item.status || "ACTIVE").toUpperCase() === "ACTIVE" ? "INACTIVE" : "ACTIVE";
-  oldPlacements[id] = { ...item, status: nextStatus, updatedAt: Date.now() };
-  const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
-    ...(adState.admob || {}),
-    placements: oldPlacements
-  });
-  await rtdbAdPut("advertising/admob", nextAdMob);
-  adState.admob = nextAdMob;
-  updateAdNavBadges();
-  await writeAuditLog("TOGGLE_ADMOB_PLACEMENT", "ADMOB", id, `Set AdMob placement "${item.label}" to ${nextStatus}`);
-  toast(`Placement marked ${nextStatus}! App will auto-update.`);
-  renderTab();
+  try {
+    const oldPlacements = { ...((adState.admob && adState.admob.placements) || {}) };
+    const item = oldPlacements[id];
+    if (!item) return;
+    const nextStatus = String(item.status || "ACTIVE").toUpperCase() === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+    oldPlacements[id] = { ...item, status: nextStatus, updatedAt: Date.now() };
+    const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
+      ...(adState.admob || {}),
+      testMode: false,
+      placements: oldPlacements
+    }, true);
+    await rtdbAdPut("advertising/admob", nextAdMob);
+    adState.admob = nextAdMob;
+    updateAdNavBadges();
+    await writeAuditLog("TOGGLE_ADMOB_PLACEMENT", "ADMOB", id, `Set AdMob placement "${item.label}" to ${nextStatus}`);
+    toast(`Placement marked ${nextStatus}! App will auto-update.`);
+    renderTab();
+  } catch (err) {
+    console.error("toggleAdMobPlacementStatus error:", err);
+    alert("Failed to update placement status: " + (err && err.message ? err.message : err));
+  }
 }
 
 async function deleteAdMobPlacement(id) {
-  const oldPlacements = { ...((adState.admob && adState.admob.placements) || {}) };
-  const item = oldPlacements[id];
-  if (!item) return;
-  if (!confirm(`Delete AdMob placement "${item.label}" (${item.adUnitId})?`)) return;
-  delete oldPlacements[id];
-  const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
-    ...(adState.admob || {}),
-    placements: oldPlacements
-  });
-  await rtdbAdPut("advertising/admob", nextAdMob);
-  adState.admob = nextAdMob;
-  if (editing.type === "admob_placement" && editing.item && editing.item.id === id) editing = {};
-  updateAdNavBadges();
-  await writeAuditLog("DELETE_ADMOB_PLACEMENT", "ADMOB", id, `Deleted AdMob placement "${item.label}"`);
-  toast("AdMob Placement ID deleted! App will auto-update.");
-  renderTab();
+  try {
+    const oldPlacements = { ...((adState.admob && adState.admob.placements) || {}) };
+    const item = oldPlacements[id];
+    if (!item) return;
+    if (!confirm(`Delete AdMob placement "${item.label}" (${item.adUnitId})?`)) return;
+    delete oldPlacements[id];
+    const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
+      ...(adState.admob || {}),
+      testMode: false,
+      placements: oldPlacements
+    }, true);
+    await rtdbAdPut("advertising/admob", nextAdMob);
+    adState.admob = nextAdMob;
+    if (editing.type === "admob_placement" && editing.item && editing.item.id === id) editing = {};
+    updateAdNavBadges();
+    await writeAuditLog("DELETE_ADMOB_PLACEMENT", "ADMOB", id, `Deleted AdMob placement "${item.label}"`);
+    toast("AdMob Placement ID deleted! App will auto-update.");
+    renderTab();
+  } catch (err) {
+    console.error("deleteAdMobPlacement error:", err);
+    alert("Failed to delete placement: " + (err && err.message ? err.message : err));
+  }
 }
 
 async function addOfficialAdMobTestPlacements() {
-  const now = Date.now();
-  const oldPlacements = { ...((adState.admob && adState.admob.placements) || {}) };
-  oldPlacements["amp_test_banner"] = {
-    id: "amp_test_banner",
-    label: "Google Test Bottom Banner",
-    adFormat: "BANNER",
-    placement: "BOTTOM_ALL_SCREENS",
-    adUnitId: ADMOB_OFFICIAL_TEST_IDS.bannerUnitId,
-    status: "ACTIVE",
-    createdAt: oldPlacements["amp_test_banner"]?.createdAt || now,
-    updatedAt: now
-  };
-  oldPlacements["amp_test_native"] = {
-    id: "amp_test_native",
-    label: "Google Test Native (All Lists)",
-    adFormat: "NATIVE",
-    placement: "ALL_NATIVE_LISTS",
-    adUnitId: ADMOB_OFFICIAL_TEST_IDS.nativeUnitId,
-    status: "ACTIVE",
-    createdAt: oldPlacements["amp_test_native"]?.createdAt || (now + 1),
-    updatedAt: now
-  };
-  const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
-    ...(adState.admob || {}),
-    enabled: true,
-    testMode: false,
-    appId: (adState.admob && adState.admob.appId) || ADMOB_OFFICIAL_TEST_IDS.appId,
-    bannerEnabled: true,
-    nativeEnabled: true,
-    placements: oldPlacements
-  });
-  await rtdbAdPut("advertising/admob", nextAdMob);
-  adState.admob = nextAdMob;
-  updateAdNavBadges();
-  await writeAuditLog("ADD_ADMOB_TEST_PLACEMENTS", "ADMOB", "admob", "Added official Google AdMob Test Banner & Native placements");
-  toast("Official Google Test Banner & Native Placement IDs added!");
-  renderTab();
+  try {
+    const now = Date.now();
+    const oldPlacements = { ...((adState.admob && adState.admob.placements) || {}) };
+    oldPlacements["amp_test_banner"] = {
+      id: "amp_test_banner",
+      label: "Google Test Bottom Banner",
+      adFormat: "BANNER",
+      placement: "BOTTOM_ALL_SCREENS",
+      adUnitId: ADMOB_OFFICIAL_TEST_IDS.bannerUnitId,
+      status: "ACTIVE",
+      createdAt: oldPlacements["amp_test_banner"]?.createdAt || now,
+      updatedAt: now
+    };
+    oldPlacements["amp_test_native"] = {
+      id: "amp_test_native",
+      label: "Google Test Native (All Lists)",
+      adFormat: "NATIVE",
+      placement: "ALL_NATIVE_LISTS",
+      adUnitId: ADMOB_OFFICIAL_TEST_IDS.nativeUnitId,
+      status: "ACTIVE",
+      createdAt: oldPlacements["amp_test_native"]?.createdAt || (now + 1),
+      updatedAt: now
+    };
+    const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
+      ...(adState.admob || {}),
+      enabled: true,
+      testMode: false,
+      appId: (adState.admob && adState.admob.appId) || ADMOB_OFFICIAL_TEST_IDS.appId,
+      bannerEnabled: true,
+      nativeEnabled: true,
+      placements: oldPlacements
+    }, true);
+    await rtdbAdPut("advertising/admob", nextAdMob);
+    adState.admob = nextAdMob;
+    updateAdNavBadges();
+    await writeAuditLog("ADD_ADMOB_TEST_PLACEMENTS", "ADMOB", "admob", "Added official Google AdMob Test Banner & Native placements");
+    toast("Official Google Test Banner & Native Placement IDs added!");
+    renderTab();
+  } catch (err) {
+    console.error("addOfficialAdMobTestPlacements error:", err);
+    alert("Failed to add test placements: " + (err && err.message ? err.message : err));
+  }
 }
 
 // 15. ADVERTISEMENT SETTINGS

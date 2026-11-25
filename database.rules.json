@@ -226,6 +226,16 @@
         ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))"
       },
 
+      "admob": {
+        ".read": true,
+        ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))"
+      },
+
+      "bottomBanners": {
+        ".read": true,
+        ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))"
+      },
+
       "rotation": {
         ".read": true,
         "$queueKey": {

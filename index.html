@@ -1026,7 +1026,7 @@ async function loadAllData(options = {}) {
     // Stop Auto Sync button immediately once new data finishes loading — never force-refresh the page
     if (typeof updateGlobalSyncUi === "function") updateGlobalSyncUi("SUCCESS", nowMs);
     if (typeof refreshGlobalNotificationsUi === "function") refreshGlobalNotificationsUi();
-    if (!silent && dataChanged) {
+    if (!silent) {
       renderTab();
     }
   } catch (err) {
