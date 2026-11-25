@@ -4,6 +4,13 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,6 +43,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.example.i18n.AppLang
 import com.example.i18n.tr
@@ -59,7 +69,7 @@ internal fun decodeAdImageModel(rawUrl: String): Any? {
     return clean
 }
 
-private fun openAdUrl(context: Context, rawUrl: String, lang: AppLang) {
+internal fun openAdUrl(context: Context, rawUrl: String, lang: AppLang) {
     val clean = rawUrl.trim()
     if (clean.isEmpty()) return
     val normalized = if (
@@ -443,6 +453,297 @@ fun NativeAd300x100Card(
 }
 
 /**
+ * Unified Native Ad slot used across Doctor List, Hospital List, Diagnostic Center List,
+ * Home Screen "জনপ্রিয় ডাক্তারবৃন্দ" (Popular Doctors), and Favorite List.
+ * - Renders an active Admin/Advertiser 300x100 Native Ad when available.
+ * - Automatically displays Google AdMob Native Ad (Official Test Native Ad or Admin's live AdMob Native Unit ID)
+ *   when enabled and either no custom native campaign is active or alternating slots prevent duplicates.
+ * - Completely hides (0dp) if neither an active custom native ad nor AdMob Native is active.
+ */
+@Composable
+fun NativeAdSlotOrAdMob(
+    campaigns: List<AdCampaignItem>,
+    placementTarget: String,
+    queueKey: String,
+    slotIndex: Int,
+    baseOffset: Long,
+    nowMs: Long,
+    placementSettings: PlacementGlobalSettings,
+    admobConfig: AdMobRemoteConfig,
+    lang: AppLang,
+    onVisibleImpression: (AdCampaignItem, String) -> Unit,
+    onClicked: (AdCampaignItem, String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val normPlacement = remember(placementTarget) { AdPlacements.normalize(placementTarget) }
+    val placementEnabled = when (normPlacement) {
+        AdPlacements.DOCTOR_LIST -> placementSettings.doctorNativeEnabled
+        AdPlacements.HOSPITAL_LIST -> placementSettings.hospitalNativeEnabled
+        AdPlacements.DIAGNOSTIC_LIST -> placementSettings.diagnosticNativeEnabled
+        AdPlacements.FAVORITE_LIST -> placementSettings.favoriteNativeEnabled
+        else -> true
+    }
+
+    val customNative = remember(campaigns, placementSettings, normPlacement, slotIndex, baseOffset, nowMs / 60_000L) {
+        AdvertisingRotationEngine.selectNativeAdForSlot(
+            campaigns = campaigns,
+            placementTarget = normPlacement,
+            slotIndex = slotIndex,
+            baseOffset = baseOffset,
+            nowMs = nowMs,
+            settings = placementSettings
+        )
+    }
+
+    val activeCustomCount = remember(campaigns, placementSettings, normPlacement, nowMs / 60_000L) {
+        if (!placementSettings.adsEnabled || !placementEnabled) 0
+        else campaigns.count {
+            AdPackageTypes.normalize(it.adType) == AdPackageTypes.NATIVE_300x100 &&
+                AdvertisingValidators.isCampaignEligible(it, nowMs)
+        }
+    }
+
+    val admobNativeUnitId = remember(admobConfig, normPlacement, slotIndex) {
+        admobConfig.nativeUnitIdForSlot(normPlacement, slotIndex)
+    }
+
+    // Avoid consecutive duplicates when only 1 custom native campaign exists and AdMob Native is active
+    val preferAdMobForSlot = placementSettings.adsEnabled && !admobNativeUnitId.isNullOrBlank() && placementEnabled && (
+        customNative == null || (activeCustomCount == 1 && slotIndex % 2 == 1)
+        )
+
+    when {
+        preferAdMobForSlot && !admobNativeUnitId.isNullOrBlank() -> {
+            Spacer(Modifier.height(10.dp))
+            AdMobNativeAdCard(
+                adUnitId = admobNativeUnitId,
+                lang = lang,
+                slotKey = "${queueKey}_$slotIndex",
+                modifier = modifier
+            )
+        }
+        customNative != null -> {
+            Spacer(Modifier.height(10.dp))
+            NativeAd300x100Card(
+                campaign = customNative,
+                queueKey = queueKey,
+                slotIndex = slotIndex,
+                lang = lang,
+                onVisibleImpression = onVisibleImpression,
+                onClicked = onClicked,
+                modifier = modifier
+            )
+        }
+        else -> Unit
+    }
+}
+
+/**
+ * 10-Second Auto-Rotating Bottom Banner Bar:
+ * - Supports Admin Promotional Bottom Banners, Advertiser Bottom Banners, and Google AdMob Banner Ads.
+ * - If 0 active banners: hidden completely (0dp).
+ * - If 1 active banner: displays continuously without unnecessary timer/rotation.
+ * - If >1 active banners: automatically rotates every 10,000 ms (10s) with smooth fade+slide transition,
+ *   pausing when backgrounded and cleaning up cleanly on dispose to prevent memory leaks.
+ */
+@Composable
+fun RotatingBottomBannerBar(
+    banners: List<BottomBannerDisplayItem>,
+    lang: AppLang,
+    onVisibleImpression: (BottomBannerDisplayItem) -> Unit,
+    onClicked: (BottomBannerDisplayItem) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (banners.isEmpty()) return
+
+    var currentIndex by remember(banners.map { it.id }) { mutableIntStateOf(0) }
+    var isForeground by remember { mutableStateOf(true) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> isForeground = true
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> isForeground = false
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(banners.size, isForeground) {
+        if (banners.size > 1 && isForeground) {
+            while (true) {
+                delay(10_000L)
+                if (isForeground && banners.size > 1) {
+                    currentIndex = (currentIndex + 1) % banners.size
+                }
+            }
+        }
+    }
+
+    val safeIndex = currentIndex.coerceIn(0, banners.lastIndex)
+    val activeItem = banners[safeIndex]
+
+    if (banners.size == 1) {
+        SingleBottomBannerItem(
+            item = activeItem,
+            lang = lang,
+            onVisibleImpression = onVisibleImpression,
+            onClicked = onClicked,
+            modifier = modifier
+        )
+    } else {
+        AnimatedContent(
+            targetState = activeItem,
+            transitionSpec = {
+                (fadeIn(animationSpec = tween(350)) + slideInVertically(animationSpec = tween(350)) { it / 3 }) togetherWith
+                    (fadeOut(animationSpec = tween(250)) + slideOutVertically(animationSpec = tween(250)) { -it / 3 })
+            },
+            label = "bottom_banner_rotation",
+            modifier = modifier.fillMaxWidth()
+        ) { item ->
+            SingleBottomBannerItem(
+                item = item,
+                lang = lang,
+                onVisibleImpression = onVisibleImpression,
+                onClicked = onClicked
+            )
+        }
+    }
+}
+
+@Composable
+private fun SingleBottomBannerItem(
+    item: BottomBannerDisplayItem,
+    lang: AppLang,
+    onVisibleImpression: (BottomBannerDisplayItem) -> Unit,
+    onClicked: (BottomBannerDisplayItem) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (item.isAdMobBanner) {
+        AdMobBannerAdView(
+            adUnitId = item.admobUnitId,
+            modifier = modifier
+        )
+        return
+    }
+
+    val context = LocalContext.current
+    val imageModel = remember(item.imageUrl) { decodeAdImageModel(item.imageUrl) }
+    var imageFailed by remember(item.id, item.imageUrl) { mutableStateOf(false) }
+    var impressionLogged by remember(item.id) { mutableStateOf(false) }
+    var isVisible by remember(item.id) { mutableStateOf(false) }
+    val showFallback = imageModel == null || imageFailed
+    val isDark = LocalIsDarkTheme.current
+
+    LaunchedEffect(isVisible, item.id) {
+        if (isVisible && !impressionLogged) {
+            impressionLogged = true
+            onVisibleImpression(item)
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(if (isDark) Color(0xFF0A121C) else LightSurfaceWhite)
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .onGloballyPositioned { coords ->
+                val bounds = coords.boundsInWindow()
+                val h = coords.size.height.toFloat()
+                val w = coords.size.width.toFloat()
+                if (h > 0f && w > 0f) {
+                    val ratio = (bounds.height / h) * (bounds.width / w)
+                    isVisible = ratio >= 0.4f
+                }
+            }
+            .testTag("bottom_banner_300x50"),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = SurfaceWhite,
+            border = BorderStroke(1.dp, MedicalBlue.copy(alpha = 0.25f)),
+            shadowElevation = 2.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 360.dp)
+                .height(52.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable {
+                    onClicked(item)
+                    if (item.destinationUrl.isNotBlank()) {
+                        openAdUrl(context, item.destinationUrl, lang)
+                    }
+                }
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (!showFallback) {
+                    AsyncImage(
+                        model = imageModel,
+                        contentDescription = item.title,
+                        contentScale = ContentScale.Crop,
+                        onError = { imageFailed = true },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Brush.horizontalGradient(listOf(MedicalBlueDark, MedicalTealDark)))
+                            .padding(start = 48.dp, end = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = item.title.ifBlank { tr(lang, "বিজ্ঞাপন", "Sponsored Banner") },
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (item.subtitle.isNotBlank() && item.subtitle != item.title) {
+                                Text(
+                                    text = item.subtitle,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White.copy(alpha = 0.88f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        if (item.destinationUrl.isNotBlank()) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(bottomEnd = 6.dp),
+                    color = Color.Black.copy(alpha = 0.65f),
+                    modifier = Modifier.align(Alignment.TopStart)
+                ) {
+                    Text(
+                        text = if (item.isAdminPromo) tr(lang, "অফার", "Promo") else tr(lang, "বিজ্ঞাপন", "Ad"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
  * Section 6: Bottom Banner Advertisement — 300×50 PX (responsive width up to 360dp × 52dp)
  * Only ONE banner visible at the bottom of applicable screens.
  * Supports HTTP/HTTPS URLs, Base64 gallery uploads, and graceful branded fallback.
@@ -580,21 +881,22 @@ fun AppOpenPopup300x200Dialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    var imageLoaded by remember(campaign.id) { mutableStateOf(false) }
-    var imageFailed by remember(campaign.id) { mutableStateOf(false) }
+    val popupModel = remember(campaign.imageUrl) { decodeAdImageModel(campaign.imageUrl) }
+    var imageFailed by remember(campaign.id, campaign.imageUrl) { mutableStateOf(false) }
     var impressionLogged by remember(campaign.id) { mutableStateOf(false) }
+    val showFallback = popupModel == null || imageFailed
 
-    LaunchedEffect(imageFailed) {
-        if (imageFailed) onDismiss()
-    }
-    LaunchedEffect(imageLoaded) {
-        if (imageLoaded && !impressionLogged) {
+    LaunchedEffect(campaign.id) {
+        if (!impressionLogged) {
             impressionLogged = true
             onVisibleImpression(campaign, AdvertisingRotationEngine.QUEUE_APP_OPEN_POPUP)
         }
     }
 
-    if (imageFailed || campaign.imageUrl.isBlank()) return
+    if (showFallback && campaign.title.isBlank() && campaign.description.isBlank()) {
+        LaunchedEffect(campaign.id) { onDismiss() }
+        return
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -661,15 +963,29 @@ fun AppOpenPopup300x200Dialog(
                             onDismiss()
                         }
                 ) {
-                    val popupModel = remember(campaign.imageUrl) { decodeAdImageModel(campaign.imageUrl) }
-                    AsyncImage(
-                        model = popupModel ?: campaign.imageUrl,
-                        contentDescription = campaign.title.ifBlank { campaign.businessName },
-                        contentScale = ContentScale.Crop,
-                        onSuccess = { imageLoaded = true },
-                        onError = { imageFailed = true },
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    if (!showFallback) {
+                        AsyncImage(
+                            model = popupModel,
+                            contentDescription = campaign.title.ifBlank { campaign.businessName },
+                            contentScale = ContentScale.Crop,
+                            onError = { imageFailed = true },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Brush.linearGradient(listOf(MedicalBlueDark, MedicalTealDark))),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Campaign,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.85f),
+                                modifier = Modifier.size(64.dp)
+                            )
+                        }
+                    }
                 }
 
                 if (campaign.title.isNotBlank()) {

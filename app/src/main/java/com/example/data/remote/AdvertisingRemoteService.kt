@@ -70,6 +70,8 @@ object AdvertisingRemoteService {
             val campObj = getJsonObject(authedUrl("advertising/campaigns"))
             val placementsObj = getJsonObject(authedUrl("advertising/placements"))
             val rotationObj = getJsonObject(authedUrl("advertising/rotation"))
+            val bottomBannersObj = getJsonObject(authedUrl("advertising/bottomBanners"))
+            val admobObj = getJsonObject(authedUrl("advertising/admob"))
             val advSlidersObj = getJsonObject(authedUrl("homeSlider/advertiserCampaigns"))
             val customSlidersObj = getJsonObject(authedUrl("homeSlider/adminCustomSliders"))
             val sliderSettingsObj = getJsonObject(authedUrl("homeSlider/settings"))
@@ -79,6 +81,8 @@ object AdvertisingRemoteService {
             val campaigns = parseCampaigns(campObj)
             val advertiserSliders = parseAdvertiserHomeSliders(advSlidersObj)
             val customSliders = parseAdminCustomSliders(customSlidersObj)
+            val adminBottomBanners = parseAdminBottomBanners(bottomBannersObj)
+            val admobConfig = parseAdMobConfig(admobObj)
             val sliderSettings = parseHomeSliderSettings(sliderSettingsObj)
             val placementSettings = parsePlacementSettings(placementsObj)
             val rotation = parseRotationCounters(rotationObj)
@@ -92,6 +96,8 @@ object AdvertisingRemoteService {
                     campaigns = campaigns,
                     advertiserHomeSliders = advertiserSliders,
                     adminCustomSliders = customSliders,
+                    adminBottomBanners = adminBottomBanners,
+                    admobConfig = admobConfig,
                     homeSliderSettings = sliderSettings,
                     placementSettings = placementSettings,
                     rotationCounters = rotation,
@@ -842,6 +848,20 @@ object AdvertisingRemoteService {
         }
     }
 
+    suspend fun logBottomBannerImpression(bannerId: String) = withContext(Dispatchers.IO) {
+        if (bannerId.isBlank()) return@withContext
+        runCatching {
+            atomicIncrementField(authedUrl("advertising/bottomBanners/$bannerId/impressionsCount"))
+        }
+    }
+
+    suspend fun logBottomBannerClick(bannerId: String) = withContext(Dispatchers.IO) {
+        if (bannerId.isBlank()) return@withContext
+        runCatching {
+            atomicIncrementField(authedUrl("advertising/bottomBanners/$bannerId/clicksCount"))
+        }
+    }
+
     private fun atomicIncrementField(url: String) {
         repeat(3) {
             var getConn: HttpURLConnection? = null
@@ -1096,6 +1116,86 @@ object AdvertisingRemoteService {
             )
         }
         return list
+    }
+
+    private fun parseAdminBottomBanners(root: JSONObject?): List<AdminBottomBannerItem> {
+        if (root == null) return emptyList()
+        val list = mutableListOf<AdminBottomBannerItem>()
+        val keys = root.keys()
+        while (keys.hasNext()) {
+            val id = keys.next()
+            val o = root.optJSONObject(id) ?: continue
+            list.add(
+                AdminBottomBannerItem(
+                    id = id,
+                    title = o.optString("title", "").trim(),
+                    imageUrl = o.optString("imageUrl", "").trim(),
+                    destinationUrl = o.optString("destinationUrl", "").trim(),
+                    order = o.optInt("order", 1).coerceAtLeast(1),
+                    startDate = o.optLong("startDate", 0L),
+                    expiryDate = o.optLong("expiryDate", 0L),
+                    status = o.optString("status", AdStatuses.ACTIVE).trim().uppercase(),
+                    impressionsCount = o.optLong("impressionsCount", 0L),
+                    clicksCount = o.optLong("clicksCount", 0L),
+                    createdAt = o.optLong("createdAt", 0L),
+                    updatedAt = o.optLong("updatedAt", 0L)
+                )
+            )
+        }
+        return list.sortedWith(compareBy<AdminBottomBannerItem> { it.order }.thenBy { it.createdAt }.thenBy { it.id })
+    }
+
+    private fun parseAdMobConfig(obj: JSONObject?): AdMobRemoteConfig {
+        if (obj == null) return AdMobRemoteConfig()
+        val testMode = obj.optBoolean("testMode", true)
+        val rawBanner = obj.optString("bannerUnitId", "").trim()
+        val rawNative = obj.optString("nativeUnitId", "").trim()
+        val rawAppId = obj.optString("appId", "").trim()
+        val placementsManaged = obj.optBoolean("placementsManaged", false) || obj.has("placements")
+        val placementsList = mutableListOf<AdMobPlacementItem>()
+        val placementsObj = obj.optJSONObject("placements")
+        if (placementsObj != null) {
+            val keys = placementsObj.keys()
+            while (keys.hasNext()) {
+                val id = keys.next()
+                val p = placementsObj.optJSONObject(id) ?: continue
+                val formatRaw = p.optString("adFormat", "BANNER").trim().uppercase()
+                val normFormat = if (formatRaw == "NATIVE") "NATIVE" else "BANNER"
+                val defaultPlacement = if (normFormat == "BANNER") {
+                    AdPlacements.BOTTOM_ALL_SCREENS
+                } else {
+                    AdPlacements.ALL_NATIVE_LISTS
+                }
+                val rawPlacement = p.optString("placement", defaultPlacement).trim()
+                placementsList.add(
+                    AdMobPlacementItem(
+                        id = id,
+                        label = p.optString("label", "").trim(),
+                        adFormat = normFormat,
+                        placement = if (rawPlacement.isBlank()) defaultPlacement else AdPlacements.normalize(rawPlacement),
+                        adUnitId = p.optString("adUnitId", "").trim(),
+                        status = p.optString("status", AdStatuses.ACTIVE).trim().uppercase(),
+                        createdAt = p.optLong("createdAt", 0L),
+                        updatedAt = p.optLong("updatedAt", 0L)
+                    )
+                )
+            }
+        }
+        val sortedPlacements = placementsList.sortedWith(
+            compareBy<AdMobPlacementItem> { it.createdAt }.thenBy { it.id }
+        )
+        return AdMobRemoteConfig(
+            enabled = obj.optBoolean("enabled", true),
+            testMode = testMode,
+            appId = rawAppId,
+            bannerEnabled = obj.optBoolean("bannerEnabled", true),
+            bannerUnitId = rawBanner.ifBlank { if (testMode) AdMobRemoteConfig.DEFAULT_TEST_BANNER_ID else "" },
+            nativeEnabled = obj.optBoolean("nativeEnabled", true),
+            nativeUnitId = rawNative.ifBlank { if (testMode) AdMobRemoteConfig.DEFAULT_TEST_NATIVE_ID else "" },
+            placementsManaged = placementsManaged,
+            placements = sortedPlacements,
+            updatedAt = obj.optLong("updatedAt", 0L)
+        )
     }
 
     private fun parseHomeSliderSettings(obj: JSONObject?): HomeSliderSettings {

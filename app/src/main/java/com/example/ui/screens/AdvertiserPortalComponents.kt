@@ -158,10 +158,21 @@ internal fun AdvertiserOverviewTab(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(pkg.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = TextPrimary)
                                 Text(
-                                    "${adTypeLabel(pkg.adType, lang)} • ${pkg.durationDays} ${tr(lang, "দিন", "days")} (Max ${pkg.maxCampaignDurationDays}d)",
+                                    "${adTypeLabel(pkg.adType, lang)} • ${pkg.durationDays} ${tr(lang, "দিন", "days")}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MedicalTealDark,
                                     fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = tr(
+                                        lang,
+                                        "প্লেসমেন্ট: ${AdPlacements.displayLabel(pkg.placement, true)}",
+                                        "Placement: ${AdPlacements.displayLabel(pkg.placement, false)}"
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MedicalBlueDark,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                             Text(

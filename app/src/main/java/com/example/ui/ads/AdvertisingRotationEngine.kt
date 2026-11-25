@@ -112,13 +112,14 @@ object AdvertisingRotationEngine {
                 AdPackageTypes.normalize(campaign.adType) == AdPackageTypes.NATIVE_300x100 &&
                     AdvertisingValidators.isCampaignEligible(campaign, nowMs)
             }
+            .distinctBy { it.id }
             .sortedWith(compareBy<AdCampaignItem> { it.createdAt }.thenBy { it.advertiserId }.thenBy { it.id })
 
         if (allActiveNative.isEmpty()) return null
 
         val exactOrAll = allActiveNative.filter { campaign ->
             val p = AdPlacements.normalize(campaign.placement)
-            p == normPlacement || p.isBlank() || p == "ALL" || p == "ALL_LISTS"
+            p == normPlacement || p == AdPlacements.ALL_NATIVE_LISTS || p.isBlank()
         }
         val pool = if (exactOrAll.isNotEmpty()) exactOrAll else allActiveNative
         val idx = Math.floorMod(baseOffset.coerceAtLeast(0L) + slotIndex.coerceAtLeast(0).toLong(), pool.size.toLong()).toInt()
@@ -126,12 +127,81 @@ object AdvertisingRotationEngine {
     }
 
     /**
-     * Bottom Banner 300x50 selection (Section 6):
-     * - Only ONE banner visible at a time
-     * - Only Bottom Banner package eligible (or BOTTOM_ALL_SCREENS placement)
-     * - Prioritizes earliest activated eligible campaign (`activatedAt ASC`),
-     *   respecting optional manual admin `priorityOverride` if set.
-     * - Automatically switches to next eligible when earliest expires or is paused.
+     * Collects ALL active bottom banners for the 10-second rotating bottom banner bar:
+     * 1. Admin Promotional Bottom Banners (/advertising/bottomBanners) ordered by `order ASC, createdAt ASC`
+     * 2. Eligible Advertiser Bottom Banner campaigns (`BOTTOM_BANNER_300x50`)
+     * 3. Google AdMob Banner (when enabled in /advertising/admob — official test ad or Admin's live Banner Unit ID)
+     */
+    fun selectActiveBottomBanners(
+        adminBanners: List<AdminBottomBannerItem>,
+        campaigns: List<AdCampaignItem>,
+        admobConfig: AdMobRemoteConfig = AdMobRemoteConfig(),
+        nowMs: Long,
+        settings: PlacementGlobalSettings = PlacementGlobalSettings()
+    ): List<BottomBannerDisplayItem> {
+        if (!settings.adsEnabled || !settings.bottomBannerEnabled) return emptyList()
+
+        val result = mutableListOf<BottomBannerDisplayItem>()
+
+        adminBanners
+            .filter { AdvertisingValidators.isAdminBottomBannerEligible(it, nowMs) }
+            .sortedWith(compareBy<AdminBottomBannerItem> { it.order }.thenBy { it.createdAt }.thenBy { it.id })
+            .forEach { b ->
+                result.add(
+                    BottomBannerDisplayItem(
+                        id = "admin_bb_${b.id}",
+                        title = b.title,
+                        subtitle = "",
+                        imageUrl = b.imageUrl,
+                        destinationUrl = b.destinationUrl,
+                        isAdminPromo = true
+                    )
+                )
+            }
+
+        campaigns
+            .filter { campaign ->
+                val isBannerType = AdPackageTypes.normalize(campaign.adType) == AdPackageTypes.BOTTOM_BANNER_300x50
+                val isBottomPlacement = AdPlacements.normalize(campaign.placement) == AdPlacements.BOTTOM_ALL_SCREENS
+                (isBannerType || isBottomPlacement) &&
+                    AdvertisingValidators.isCampaignEligible(campaign, nowMs)
+            }
+            .sortedWith(
+                compareBy<AdCampaignItem> { it.priorityOverride }
+                    .thenBy { if (it.activatedAt > 0L) it.activatedAt else Long.MAX_VALUE }
+                    .thenBy { it.createdAt }
+                    .thenBy { it.id }
+            )
+            .forEach { camp ->
+                result.add(
+                    BottomBannerDisplayItem(
+                        id = "camp_bb_${camp.id}",
+                        title = camp.title.ifBlank { camp.businessName },
+                        subtitle = camp.businessName,
+                        imageUrl = camp.imageUrl,
+                        destinationUrl = camp.destinationUrl,
+                        isAdminPromo = false,
+                        sourceCampaign = camp
+                    )
+                )
+            }
+
+        admobConfig.activeBannerUnitIds().forEachIndexed { idx, unitId ->
+            result.add(
+                BottomBannerDisplayItem(
+                    id = "admob_banner_${idx}_$unitId",
+                    title = "AdMob Banner",
+                    isAdMobBanner = true,
+                    admobUnitId = unitId
+                )
+            )
+        }
+
+        return result
+    }
+
+    /**
+     * Legacy single-campaign bottom banner selector retained for backwards compatibility.
      */
     fun selectBottomBanner(
         campaigns: List<AdCampaignItem>,
@@ -243,7 +313,7 @@ object AdvertisingRotationEngine {
                 } else emptyList()
             }
 
-            targetRefs.mapIndexedNotNull { targetIdx, ref ->
+            val linkedSlides = targetRefs.mapIndexedNotNull { targetIdx, ref ->
                 val target = AdvertisingValidators.validateAndResolveDirectoryRecord(
                     recordType = ref.recordType,
                     recordId = ref.recordId,
@@ -273,6 +343,27 @@ object AdvertisingRotationEngine {
                     targetRecordId = target.recordId,
                     destinationUrl = campaign.destinationUrl
                 )
+            }
+
+            if (linkedSlides.isNotEmpty()) {
+                linkedSlides
+            } else if (campaign.imageUrl.isNotBlank() || campaign.title.isNotBlank()) {
+                listOf(
+                    ResolvedHomeSliderSlide(
+                        slideId = "adv_standalone_${campaign.id}",
+                        isCustomAdminSlider = false,
+                        campaignId = campaign.id,
+                        advertiserId = campaign.advertiserId,
+                        title = campaign.title.ifBlank { campaign.businessName },
+                        subtitle = campaign.businessName,
+                        description = campaign.description,
+                        imageUrl = campaign.imageUrl,
+                        categoryBadge = "Sponsored",
+                        destinationUrl = campaign.destinationUrl
+                    )
+                )
+            } else {
+                emptyList()
             }
         }
 

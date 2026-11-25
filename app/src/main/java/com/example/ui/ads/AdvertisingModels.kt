@@ -53,10 +53,12 @@ object AdPlacements {
     const val HOSPITAL_LIST = "HOSPITAL_LIST"
     const val DIAGNOSTIC_LIST = "DIAGNOSTIC_LIST"
     const val FAVORITE_LIST = "FAVORITE_LIST"
+    const val ALL_NATIVE_LISTS = "ALL_NATIVE_LISTS"
     const val BOTTOM_ALL_SCREENS = "BOTTOM_ALL_SCREENS"
     const val APP_LAUNCH = "APP_LAUNCH"
 
     val NATIVE_PLACEMENTS: Set<String> = setOf(
+        ALL_NATIVE_LISTS,
         DOCTOR_LIST,
         HOSPITAL_LIST,
         DIAGNOSTIC_LIST,
@@ -65,6 +67,7 @@ object AdPlacements {
 
     fun normalize(raw: String): String = when (raw.trim().uppercase()) {
         "HOME_TOP_SLIDER", "HOME_SLIDER", "HOME" -> HOME_TOP_SLIDER
+        "ALL_NATIVE_LISTS", "ALL_NATIVE", "ALL_LISTS", "ALL" -> ALL_NATIVE_LISTS
         "DOCTOR_LIST", "DOCTORS" -> DOCTOR_LIST
         "HOSPITAL_LIST", "HOSPITALS" -> HOSPITAL_LIST
         "DIAGNOSTIC_LIST", "DIAGNOSTIC_CENTER_LIST", "DIAGNOSTICS" -> DIAGNOSTIC_LIST
@@ -72,6 +75,18 @@ object AdPlacements {
         "BOTTOM_ALL_SCREENS", "BOTTOM_BANNER", "ALL_SCREENS" -> BOTTOM_ALL_SCREENS
         "APP_LAUNCH", "APP_OPEN" -> APP_LAUNCH
         else -> raw.trim().uppercase()
+    }
+
+    fun displayLabel(raw: String, isBn: Boolean): String = when (normalize(raw)) {
+        HOME_TOP_SLIDER -> if (isBn) "হোম স্ক্রিন টপ স্লাইডার" else "Home Screen Top Slider"
+        ALL_NATIVE_LISTS -> if (isBn) "সব নেটিভ তালিকা (ডাক্তার, হাসপাতাল, ডায়াগনস্টিক ও জনপ্রিয় ডাক্তার)" else "All Native Lists (Doctors, Hospitals, Diagnostics & Popular Doctors)"
+        DOCTOR_LIST -> if (isBn) "ডাক্তার তালিকা ও জনপ্রিয় ডাক্তারবৃন্দ" else "Doctor List & Home Popular Doctors"
+        HOSPITAL_LIST -> if (isBn) "হাসপাতাল তালিকা" else "Hospital List"
+        DIAGNOSTIC_LIST -> if (isBn) "ডায়াগনস্টিক সেন্টার তালিকা" else "Diagnostic Center List"
+        FAVORITE_LIST -> if (isBn) "প্রিয় তালিকা" else "Favorite List"
+        BOTTOM_ALL_SCREENS -> if (isBn) "সব স্ক্রিনের নিচে (বটম ব্যানার)" else "Bottom of All Screens"
+        APP_LAUNCH -> if (isBn) "অ্যাপ ওপেন পপআপ (প্রতি সেশনে ১ বার)" else "App Launch Popup (Once / Session)"
+        else -> raw.replace('_', ' ')
     }
 }
 
@@ -291,12 +306,151 @@ data class ResolvedHomeSliderSlide(
     val destinationUrl: String = ""
 )
 
+/**
+ * Admin Promotional Bottom Banner Advertisement (stored at /advertising/bottomBanners/{id}).
+ * Managed directly by Admin without requiring advertiser package purchases.
+ */
+data class AdminBottomBannerItem(
+    val id: String,
+    val title: String,
+    val imageUrl: String = "",
+    val destinationUrl: String = "",
+    val order: Int = 1,
+    val startDate: Long = 0L,
+    val expiryDate: Long = 0L,
+    val status: String = AdStatuses.ACTIVE, // ACTIVE | INACTIVE
+    val impressionsCount: Long = 0L,
+    val clicksCount: Long = 0L,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L
+)
+
+/**
+ * Individual Google AdMob Placement ID managed dynamically from Admin Panel (/advertising/admob/placements/{id}).
+ */
+data class AdMobPlacementItem(
+    val id: String,
+    val label: String = "",
+    val adFormat: String = "BANNER", // BANNER | NATIVE
+    val placement: String = AdPlacements.BOTTOM_ALL_SCREENS,
+    val adUnitId: String = "",
+    val status: String = AdStatuses.ACTIVE, // ACTIVE | INACTIVE
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L
+) {
+    val isActive: Boolean
+        get() = status.equals(AdStatuses.ACTIVE, ignoreCase = true) && adUnitId.isNotBlank()
+}
+
+/**
+ * Dynamic Google AdMob Configuration synced from Firebase RTDB (/advertising/admob).
+ * Supports unlimited Admin-managed Placement IDs (Add, Edit, Activate/Deactivate, Delete)
+ * with automatic live sync to the Android app, plus Official Google Test Ads when Test Mode is enabled.
+ */
+data class AdMobRemoteConfig(
+    val enabled: Boolean = true,
+    val testMode: Boolean = true,
+    val appId: String = DEFAULT_TEST_APP_ID,
+    val bannerEnabled: Boolean = true,
+    val bannerUnitId: String = DEFAULT_TEST_BANNER_ID,
+    val nativeEnabled: Boolean = true,
+    val nativeUnitId: String = DEFAULT_TEST_NATIVE_ID,
+    val placementsManaged: Boolean = false,
+    val placements: List<AdMobPlacementItem> = emptyList(),
+    val updatedAt: Long = 0L
+) {
+    companion object {
+        const val DEFAULT_TEST_APP_ID = "ca-app-pub-3940256099942544~3347511713"
+        const val DEFAULT_TEST_BANNER_ID = "ca-app-pub-3940256099942544/6300978111"
+        const val DEFAULT_TEST_NATIVE_ID = "ca-app-pub-3940256099942544/2247696110"
+    }
+
+    fun activeBannerUnitIds(): List<String> {
+        if (!enabled || !bannerEnabled) return emptyList()
+        if (testMode) return listOf(DEFAULT_TEST_BANNER_ID)
+        val fromPlacements = placements
+            .filter { it.isActive && it.adFormat.equals("BANNER", ignoreCase = true) }
+            .map { it.adUnitId.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        if (fromPlacements.isNotEmpty()) return fromPlacements
+        if (placementsManaged) return emptyList()
+        val legacy = bannerUnitId.trim()
+        return if (legacy.isNotBlank()) listOf(legacy) else emptyList()
+    }
+
+    fun activeNativeUnitIdsFor(placementTarget: String): List<String> {
+        if (!enabled || !nativeEnabled) return emptyList()
+        if (testMode) return listOf(DEFAULT_TEST_NATIVE_ID)
+        val normTarget = AdPlacements.normalize(placementTarget)
+        val activeNativePlacements = placements.filter {
+            it.isActive && it.adFormat.equals("NATIVE", ignoreCase = true)
+        }
+        val exactMatches = activeNativePlacements
+            .filter { AdPlacements.normalize(it.placement) == normTarget }
+            .map { it.adUnitId.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        if (exactMatches.isNotEmpty()) return exactMatches
+
+        val allListsMatches = activeNativePlacements
+            .filter {
+                val normP = AdPlacements.normalize(it.placement)
+                normP == AdPlacements.ALL_NATIVE_LISTS || it.placement.isBlank()
+            }
+            .map { it.adUnitId.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        if (allListsMatches.isNotEmpty()) return allListsMatches
+
+        if (placementsManaged || placements.isNotEmpty()) return emptyList()
+        val legacy = nativeUnitId.trim()
+        return if (legacy.isNotBlank()) listOf(legacy) else emptyList()
+    }
+
+    fun nativeUnitIdForSlot(placementTarget: String, slotIndex: Int): String? {
+        val ids = activeNativeUnitIdsFor(placementTarget)
+        if (ids.isEmpty()) return null
+        return ids[Math.floorMod(slotIndex.coerceAtLeast(0), ids.size)]
+    }
+
+    val effectiveBannerUnitId: String
+        get() = activeBannerUnitIds().firstOrNull().orEmpty()
+
+    val effectiveNativeUnitId: String
+        get() = activeNativeUnitIdsFor(AdPlacements.ALL_NATIVE_LISTS).firstOrNull().orEmpty()
+
+    val isBannerActive: Boolean
+        get() = activeBannerUnitIds().isNotEmpty()
+
+    val isNativeActive: Boolean
+        get() = activeNativeUnitIdsFor(AdPlacements.ALL_NATIVE_LISTS).isNotEmpty()
+}
+
+/**
+ * Unified display item for the 10-second rotating Bottom Banner slot.
+ * Supports Admin Promotional Bottom Banners, Advertiser Bottom Banner campaigns, and Google AdMob Banner Ads.
+ */
+data class BottomBannerDisplayItem(
+    val id: String,
+    val title: String,
+    val subtitle: String = "",
+    val imageUrl: String = "",
+    val destinationUrl: String = "",
+    val isAdminPromo: Boolean = false,
+    val isAdMobBanner: Boolean = false,
+    val admobUnitId: String = "",
+    val sourceCampaign: AdCampaignItem? = null
+)
+
 data class AdvertisingSystemSnapshot(
     val packages: List<AdPackageItem> = emptyList(),
     val paymentMethods: List<AdPaymentMethod> = emptyList(),
     val campaigns: List<AdCampaignItem> = emptyList(),
     val advertiserHomeSliders: List<AdvertiserHomeSliderItem> = emptyList(),
     val adminCustomSliders: List<AdminCustomSliderItem> = emptyList(),
+    val adminBottomBanners: List<AdminBottomBannerItem> = emptyList(),
+    val admobConfig: AdMobRemoteConfig = AdMobRemoteConfig(),
     val homeSliderSettings: HomeSliderSettings = HomeSliderSettings(),
     val placementSettings: PlacementGlobalSettings = PlacementGlobalSettings(),
     val rotationCounters: Map<String, Long> = emptyMap(),
@@ -371,7 +525,10 @@ object AdvertisingValidators {
         return if (AdPackageTypes.normalize(campaign.adType) == AdPackageTypes.HOME_SLIDER) {
             campaign.promotedTargets.any {
                 SliderRecordTypes.isSupported(it.recordType) && it.recordId.isNotBlank()
-            } || (SliderRecordTypes.isSupported(campaign.targetRecordType) && campaign.targetRecordId.isNotBlank())
+            } ||
+                (SliderRecordTypes.isSupported(campaign.targetRecordType) && campaign.targetRecordId.isNotBlank()) ||
+                campaign.imageUrl.isNotBlank() ||
+                campaign.title.isNotBlank()
         } else {
             campaign.imageUrl.isNotBlank() || campaign.title.isNotBlank() || campaign.businessName.isNotBlank()
         }
@@ -382,6 +539,14 @@ object AdvertisingValidators {
         if (slider.imageUrl.isBlank()) return false
         if (slider.startDate > 0L && nowMs < slider.startDate) return false
         if (slider.expiryDate > 0L && nowMs > slider.expiryDate) return false
+        return true
+    }
+
+    fun isAdminBottomBannerEligible(banner: AdminBottomBannerItem, nowMs: Long): Boolean {
+        if (!banner.status.equals(AdStatuses.ACTIVE, true)) return false
+        if (banner.imageUrl.isBlank() && banner.title.isBlank()) return false
+        if (banner.startDate > 0L && nowMs < banner.startDate) return false
+        if (banner.expiryDate > 0L && nowMs > banner.expiryDate) return false
         return true
     }
 

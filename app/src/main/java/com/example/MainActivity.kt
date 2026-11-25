@@ -36,11 +36,13 @@ import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
 import com.example.ui.ads.AdCampaignItem
+import com.example.ui.ads.AdMobInitializer
 import com.example.ui.ads.AdvertisingRotationEngine
 import com.example.ui.ads.AppOpenPopup300x200Dialog
-import com.example.ui.ads.BottomBanner300x50Bar
 import com.example.ui.ads.ConnectivityMonitor
+import com.example.ui.ads.RotatingBottomBannerBar
 import com.example.ui.ads.SliderRecordTypes
+import com.example.ui.ads.openAdUrl
 import com.example.ui.components.GlobalTopAppBar
 import com.example.ui.components.NotificationCenterBottomSheet
 import com.example.ui.components.SyncStatusBottomSheet
@@ -75,6 +77,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        AdMobInitializer.ensureInitialized(applicationContext)
         setContent {
             val vm: MainViewModel = viewModel()
             val isDarkTheme by vm.isDarkTheme.collectAsStateWithLifecycle()
@@ -123,25 +126,26 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
                 ConnectivityMonitor.refreshNow(appContext)
                 vm.recordForegroundActivity()
                 vm.triggerForegroundAutoSyncIfStale()
+                vm.refreshAdvertisingSystem()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // App Open Popup (300x200) — shown STRICTLY ONCE per app session on launch
-    var appOpenPopupEvaluated by remember { mutableStateOf(false) }
+    LaunchedEffect(adSnapshot.admobConfig.appId) {
+        AdMobInitializer.syncRemoteAppId(appContext, adSnapshot.admobConfig.appId)
+    }
+
+    // App Open Popup (300x200) — shown STRICTLY ONCE per app session (guarded in MainViewModel)
     var activeAppOpenPopup by remember { mutableStateOf<AdCampaignItem?>(null) }
 
     LaunchedEffect(showSplash, adSnapshot.syncedFromServer, adSnapshot.campaigns) {
-        if (showSplash || appOpenPopupEvaluated) return@LaunchedEffect
-        if (adSnapshot.syncedFromServer) {
-            appOpenPopupEvaluated = true
-            val popup = vm.selectLaunchPopupOnce()
-            if (popup != null) {
-                activeAppOpenPopup = popup
-                vm.markAppOpenPopupShown()
-            }
+        if (showSplash || !adSnapshot.syncedFromServer) return@LaunchedEffect
+        val popup = vm.tryConsumeSessionLaunchPopup()
+        if (popup != null) {
+            activeAppOpenPopup = popup
+            vm.markAppOpenPopupShown()
         }
     }
 
@@ -305,27 +309,31 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
             },
             bottomBar = {
                 val showBottomAd = currentRoute != Routes.ADVERTISER_PORTAL
-                val activeBottomBanner = remember(
+                val activeBottomBanners = remember(
+                    adSnapshot.adminBottomBanners,
                     adSnapshot.campaigns,
+                    adSnapshot.admobConfig,
                     adSnapshot.placementSettings,
                     authoritativeNowMs / 60_000L,
                     showBottomAd
                 ) {
-                    if (!showBottomAd) null
-                    else AdvertisingRotationEngine.selectBottomBanner(
+                    if (!showBottomAd) emptyList()
+                    else AdvertisingRotationEngine.selectActiveBottomBanners(
+                        adminBanners = adSnapshot.adminBottomBanners,
                         campaigns = adSnapshot.campaigns,
+                        admobConfig = adSnapshot.admobConfig,
                         nowMs = authoritativeNowMs,
                         settings = adSnapshot.placementSettings
                     )
                 }
 
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    if (activeBottomBanner != null) {
-                        BottomBanner300x50Bar(
-                            campaign = activeBottomBanner,
+                    if (activeBottomBanners.isNotEmpty()) {
+                        RotatingBottomBannerBar(
+                            banners = activeBottomBanners,
                             lang = lang,
-                            onVisibleImpression = vm::logAdvertisingImpression,
-                            onClicked = vm::logAdvertisingClick
+                            onVisibleImpression = vm::logBottomBannerImpression,
+                            onClicked = vm::logBottomBannerClick
                         )
                     }
                     if (showMainChrome && !isWideScreen) {
@@ -497,10 +505,16 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
                                         pendingOpenDiagnosticId = slide.targetRecordId
                                         navigateToTab(Routes.FACILITIES)
                                     }
+                                    else -> {
+                                        if (slide.destinationUrl.isNotBlank()) {
+                                            openAdUrl(appContext, slide.destinationUrl, lang)
+                                        }
+                                    }
                                 }
                             },
                             adCampaigns = adSnapshot.campaigns,
                             adPlacementSettings = adSnapshot.placementSettings,
+                            admobConfig = adSnapshot.admobConfig,
                             doctorListRotationBase = homeDoctorNativeBase,
                             hospitalRotationBase = homeHospitalNativeBase,
                             onNativeAdImpression = { camp, q ->
@@ -535,6 +549,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
                             onDoctorClick = openDoctorProfile,
                             adCampaigns = adSnapshot.campaigns,
                             adPlacementSettings = adSnapshot.placementSettings,
+                            admobConfig = adSnapshot.admobConfig,
                             doctorListRotationBase = doctorNativeBase,
                             onNativeAdImpression = { camp, q ->
                                 vm.logAdvertisingImpression(camp, q)
@@ -587,6 +602,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
                             },
                             adCampaigns = adSnapshot.campaigns,
                             adPlacementSettings = adSnapshot.placementSettings,
+                            admobConfig = adSnapshot.admobConfig,
                             hospitalRotationBase = hospBase,
                             diagnosticRotationBase = diagBase,
                             onNativeAdImpression = { camp, q ->
@@ -634,6 +650,7 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
                             onDoctorClick = openDoctorProfile,
                             adCampaigns = adSnapshot.campaigns,
                             adPlacementSettings = adSnapshot.placementSettings,
+                            admobConfig = adSnapshot.admobConfig,
                             favoriteRotationBase = favBase,
                             onNativeAdImpression = { camp, q ->
                                 vm.logAdvertisingImpression(camp, q)

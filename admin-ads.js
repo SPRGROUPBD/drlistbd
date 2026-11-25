@@ -43,11 +43,13 @@ let adState = {
   admob: {
     enabled: true,
     testMode: true,
+    placementsManaged: false,
     appId: ADMOB_OFFICIAL_TEST_IDS.appId,
     bannerEnabled: true,
     bannerUnitId: ADMOB_OFFICIAL_TEST_IDS.bannerUnitId,
     nativeEnabled: true,
-    nativeUnitId: ADMOB_OFFICIAL_TEST_IDS.nativeUnitId
+    nativeUnitId: ADMOB_OFFICIAL_TEST_IDS.nativeUnitId,
+    placements: {}
   },
   payments: {},
   trxIndex: {},
@@ -126,9 +128,11 @@ async function loadAdvertisingData() {
     adState.advertisers = a.advertisers && typeof a.advertisers === "object" ? a.advertisers : {};
     adState.campaigns = a.campaigns && typeof a.campaigns === "object" ? a.campaigns : {};
     adState.bottomBanners = a.bottomBanners && typeof a.bottomBanners === "object" ? a.bottomBanners : {};
+    const remoteAdMob = a.admob && typeof a.admob === "object" ? a.admob : {};
     adState.admob = {
       ...adState.admob,
-      ...(a.admob && typeof a.admob === "object" ? a.admob : {})
+      ...remoteAdMob,
+      placements: remoteAdMob.placements && typeof remoteAdMob.placements === "object" ? remoteAdMob.placements : {}
     };
     adState.payments = a.payments && typeof a.payments === "object" ? a.payments : {};
     adState.trxIndex = a.trxIndex && typeof a.trxIndex === "object" ? a.trxIndex : {};
@@ -264,10 +268,11 @@ function getAdTabTitle(tabKey) {
     ad_payment_methods: "Payment Methods",
     ad_custom_slider: "Custom Slider Management",
     ad_bottom_banners: "Bottom Banner Advertisement",
+    ad_admob: "Google AdMob App ID & Placement IDs",
     ad_rotation: "Rotation Management",
     ad_history: "Campaign History",
     ad_reports: "Advertisement Reports & CSV",
-    ad_settings: "Advertisement & AdMob Settings"
+    ad_settings: "Advertisement Settings"
   };
   return map[tabKey] || null;
 }
@@ -279,6 +284,7 @@ function updateAdNavBadges() {
   const pendingCampCount = campaigns.filter(c => getEffectiveCampaignStatus(c, now) === "PENDING").length;
   const pendingPayCount = Object.values(adState.payments || {}).filter(p => String(p.status || "PENDING").toUpperCase() === "PENDING").length;
   const activeBottomBanners = Object.values(adState.bottomBanners || {}).filter(b => getEffectiveBottomBannerStatus(b, now) === "ACTIVE").length;
+  const activeAdMobPlacements = Object.values((adState.admob && adState.admob.placements) || {}).filter(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE").length;
 
   const setB = (id, count) => {
     const el = document.getElementById(id);
@@ -290,6 +296,7 @@ function updateAdNavBadges() {
   setB("navBadgePendingAds", pendingCampCount);
   setB("navBadgePayments", pendingPayCount);
   setB("navBadgeBottomBanners", activeBottomBanners);
+  setB("navBadgeAdMob", activeAdMobPlacements);
 }
 
 function renderAdvertisingTab(tabKey) {
@@ -302,6 +309,7 @@ function renderAdvertisingTab(tabKey) {
     case "ad_payment_methods": return renderAdPaymentMethods();
     case "ad_custom_slider": return renderAdCustomSlider();
     case "ad_bottom_banners": return renderAdBottomBanners();
+    case "ad_admob": return renderAdMobManagement();
     case "ad_rotation": return renderAdRotation();
     case "ad_history": return renderAdHistory();
     case "ad_reports": return renderAdReports();
@@ -442,7 +450,7 @@ function renderAdDashboard() {
             <button onclick="switchTab('ad_packages')" class="p-3 rounded-xl bg-sky-50 text-sky-900 text-xs font-bold text-left hover:bg-sky-100">+ Create Ad Package</button>
             <button onclick="switchTab('ad_bottom_banners')" class="p-3 rounded-xl bg-emerald-50 text-emerald-900 text-xs font-bold text-left hover:bg-emerald-100">+ Bottom Banner Ad (10s)</button>
             <button onclick="switchTab('ad_custom_slider')" class="p-3 rounded-xl bg-indigo-50 text-indigo-900 text-xs font-bold text-left hover:bg-indigo-100">+ Add Custom Home Slider</button>
-            <button onclick="switchTab('ad_settings')" class="p-3 rounded-xl bg-amber-50 text-amber-900 text-xs font-bold text-left hover:bg-amber-100">AdMob Banner &amp; Native IDs</button>
+            <button onclick="switchTab('ad_admob')" class="p-3 rounded-xl bg-amber-50 text-amber-900 text-xs font-bold text-left hover:bg-amber-100">AdMob App ID &amp; Placement IDs</button>
           </div>
         </div>
       </div>
@@ -950,9 +958,16 @@ function renderAdRequests() {
               ${AD_PLACEMENTS.map(p => `<option value="${p.key}" ${(edit ? edit.placement : "BOTTOM_ALL_SCREENS") === p.key ? "selected" : ""}>${esc(p.label)}</option>`).join("")}
             </select>
           </div>
-          <div class="md:col-span-2">
-            <label class="block text-xs font-semibold mb-1">Creative Image URL (or Base64 data URI)</label>
-            <input id="camp_img" class="input" placeholder="https://... or data:image/..." value="${esc(edit ? (edit.imageUrl || "") : "")}" />
+          <div class="md:col-span-2 space-y-1.5">
+            <label class="block text-xs font-semibold">Creative Image URL or Upload (PNG / JPG / WEBP, max 5MB)</label>
+            <div class="flex flex-wrap gap-2">
+              <input id="camp_img" class="input flex-1" placeholder="https://... or upload image file" value="${esc(edit ? (edit.imageUrl || "") : "")}" oninput="updateCampImgPreview(this.value)" />
+              <label class="px-3 py-2 rounded-xl bg-sky-50 text-sky-800 border border-sky-200 text-xs font-bold cursor-pointer hover:bg-sky-100 whitespace-nowrap">
+                Upload Image
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden" onchange="handleAdImageFileUpload(this, 'camp_img', updateCampImgPreview, 900)" />
+              </label>
+            </div>
+            <img id="camp_img_preview" src="${esc(edit ? (edit.imageUrl || "") : "")}" class="${edit && edit.imageUrl ? "" : "hidden"} h-16 rounded-lg object-cover border border-slate-200" />
           </div>
           <div>
             <label class="block text-xs font-semibold mb-1">Destination URL / Call Link</label>
@@ -1726,7 +1741,16 @@ function renderAdCustomSlider() {
             <input type="hidden" id="cs_id" value="${esc(edit ? edit.id : "")}" />
             <input id="cs_title" required class="input" placeholder="Slider Title *" value="${esc(edit ? edit.title : "")}" />
             <textarea id="cs_desc" rows="2" class="input" placeholder="Description (optional)">${esc(edit ? (edit.description || "") : "")}</textarea>
-            <input id="cs_img" required type="url" class="input" placeholder="Slider Image URL *" value="${esc(edit ? edit.imageUrl : "")}" />
+            <div class="space-y-1.5">
+              <div class="flex gap-2">
+                <input id="cs_img" required class="input flex-1" placeholder="Slider Image URL or Upload *" value="${esc(edit ? edit.imageUrl : "")}" oninput="updateCustomSliderPreview(this.value)" />
+                <label class="px-3 py-2 rounded-xl bg-teal-50 text-teal-800 border border-teal-200 text-xs font-bold cursor-pointer hover:bg-teal-100 whitespace-nowrap">
+                  Upload
+                  <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden" onchange="handleAdImageFileUpload(this, 'cs_img', updateCustomSliderPreview, 1080)" />
+                </label>
+              </div>
+              <img id="cs_img_preview" src="${esc(edit ? (edit.imageUrl || "") : "")}" class="${edit && edit.imageUrl ? "" : "hidden"} w-full h-28 rounded-xl object-cover border border-slate-200" />
+            </div>
             <input id="cs_dest" type="url" class="input" placeholder="Destination URL (https://...)" value="${esc(edit ? (edit.destinationUrl || "") : "")}" />
             <div class="grid grid-cols-2 gap-2">
               <div>
@@ -1848,6 +1872,249 @@ async function deleteCustomSlider(id) {
   await rtdbAdDelete(`homeSlider/adminCustomSliders/${id}`);
   delete adState.homeSliderCustom[id];
   toast("Custom slider deleted.");
+  renderTab();
+}
+
+function updateCampImgPreview(url) {
+  const el = document.getElementById("camp_img_preview");
+  if (!el) return;
+  const clean = String(url || "").trim();
+  if (clean) { el.src = clean; el.classList.remove("hidden"); }
+  else { el.removeAttribute("src"); el.classList.add("hidden"); }
+}
+
+function updateCustomSliderPreview(url) {
+  const el = document.getElementById("cs_img_preview");
+  if (!el) return;
+  const clean = String(url || "").trim();
+  if (clean) { el.src = clean; el.classList.remove("hidden"); }
+  else { el.removeAttribute("src"); el.classList.add("hidden"); }
+}
+
+// 8B. ADMIN BOTTOM BANNER ADVERTISEMENT (Unlimited Promotional System — 10-second Auto Rotation)
+function renderAdBottomBanners() {
+  const now = Date.now();
+  const list = Object.entries(adState.bottomBanners || {})
+    .map(([id, b]) => ({ id, ...b, effectiveStatus: getEffectiveBottomBannerStatus(b, now) }))
+    .sort((a, b) => Number(a.order || 1) - Number(b.order || 1) || Number(a.createdAt || 0) - Number(b.createdAt || 0));
+  const activeCount = list.filter(b => b.effectiveStatus === "ACTIVE").length;
+  const edit = editing.bottomBanner || null;
+  const prevTitle = edit ? (edit.title || "") : "";
+  const prevImg = edit ? (edit.imageUrl || "") : "";
+  const prevUrl = edit ? (edit.destinationUrl || "") : "";
+
+  return `
+    <div class="space-y-5">
+      <div class="rounded-2xl bg-gradient-to-r from-teal-700 to-sky-700 text-white p-5 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 class="text-lg font-bold">Bottom Banner Advertisement (Admin Promotional System)</h3>
+          <p class="text-xs text-teal-100 mt-1">Promote your own app, services, or campaigns directly at the bottom of the Android app without advertiser package purchases. Active banners auto-rotate smoothly every <b>10 seconds</b>.</p>
+        </div>
+        <div class="px-3.5 py-2 rounded-xl bg-white/15 border border-white/25 text-xs font-bold">
+          ${activeCount} Active Banner${activeCount === 1 ? "" : "s"} ${activeCount > 1 ? "(10s Rotation)" : activeCount === 1 ? "(Continuous)" : "(Hidden)"}
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-5">
+        <div class="xl:col-span-5 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <h3 class="font-bold text-base">${edit ? "Edit Bottom Banner" : "Add Unlimited Bottom Banner"}</h3>
+          <form onsubmit="submitBottomBanner(event)" class="space-y-3">
+            <input type="hidden" id="bb_id" value="${esc(edit ? edit.id : "")}" />
+            <div>
+              <label class="block text-xs font-semibold mb-1">Advertisement Title *</label>
+              <input id="bb_title" required class="input" placeholder="e.g. 24/7 Emergency Doctor Helpline" value="${esc(prevTitle)}" oninput="updateBottomBannerPreview()" />
+            </div>
+            <div class="space-y-1.5">
+              <label class="block text-xs font-semibold">Banner Image (Upload PNG/JPG/WEBP or URL) *</label>
+              <div class="flex gap-2">
+                <input id="bb_img" required class="input flex-1" placeholder="https://... or upload banner" value="${esc(prevImg)}" oninput="updateBottomBannerPreview()" />
+                <label class="px-3 py-2 rounded-xl bg-teal-50 text-teal-800 border border-teal-200 text-xs font-bold cursor-pointer hover:bg-teal-100 whitespace-nowrap">
+                  Upload
+                  <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden" onchange="handleAdImageFileUpload(this, 'bb_img', updateBottomBannerPreview, 900)" />
+                </label>
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold mb-1">Destination URL (https://, http://, or tel:)</label>
+              <input id="bb_dest" class="input" placeholder="https://... or tel:017..." value="${esc(prevUrl)}" oninput="updateBottomBannerPreview()" />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs font-semibold mb-1">Start Date (optional)</label>
+                <input id="bb_start" type="date" class="input" value="${edit && edit.startDate ? new Date(edit.startDate).toISOString().slice(0,10) : ""}" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold mb-1">End Date (optional)</label>
+                <input id="bb_end" type="date" class="input" value="${edit && edit.expiryDate ? new Date(edit.expiryDate).toISOString().slice(0,10) : ""}" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs font-semibold mb-1">Display Order</label>
+                <input id="bb_order" type="number" min="1" class="input" value="${esc(edit ? (edit.order || 1) : (list.length + 1))}" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold mb-1">Status *</label>
+                <select id="bb_status" class="input">
+                  <option value="ACTIVE" ${!edit || edit.status === "ACTIVE" ? "selected" : ""}>ACTIVE</option>
+                  <option value="INACTIVE" ${edit && edit.status !== "ACTIVE" ? "selected" : ""}>INACTIVE</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Live Mobile Banner Preview before Publishing -->
+            <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+              <div class="flex items-center justify-between text-[11px] font-bold text-slate-600">
+                <span>Live Banner Preview (300&times;50 Mobile)</span>
+                <span class="text-teal-700">10s Auto-Rotate</span>
+              </div>
+              <div class="mx-auto w-full max-w-[320px] h-[54px] rounded-xl overflow-hidden border border-sky-200 shadow-sm relative bg-gradient-to-r from-sky-800 to-teal-700 flex items-center">
+                <img id="bb_preview_img" src="${esc(prevImg)}" class="${prevImg ? "" : "hidden"} w-full h-full object-cover absolute inset-0" />
+                <div id="bb_preview_fallback" class="${prevImg ? "hidden" : ""} px-3 text-white text-xs font-bold truncate z-10">${esc(prevTitle || "Your Bottom Banner Preview")}</div>
+                <span class="absolute top-0 left-0 px-1.5 py-0.5 rounded-br-md bg-black/65 text-white text-[9px] font-bold z-20">Ad</span>
+              </div>
+              <div id="bb_preview_meta" class="text-[10px] text-slate-500 text-center truncate">${esc(prevUrl || "Add destination URL for clickable banner")}</div>
+            </div>
+
+            <button type="submit" class="w-full py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold">${edit ? "Update Bottom Banner" : "Publish Bottom Banner"}</button>
+            ${edit ? `<button type="button" onclick="editing={};renderTab()" class="w-full py-1.5 text-xs text-slate-500">Cancel Edit</button>` : ""}
+          </form>
+        </div>
+
+        <div class="xl:col-span-7 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <h3 class="font-bold text-base mb-1">All Bottom Banner Advertisements (${list.length})</h3>
+          <p class="text-xs text-slate-500 mb-3">Active banners appear at the bottom of the Android app. When multiple banners are active, each displays for 10 seconds before rotating smoothly.</p>
+          ${list.length === 0 ? `<p class="text-xs text-slate-400 py-10 text-center">No Admin bottom banners added yet. Add your first promotional banner using the form.</p>` : `
+            <div class="space-y-3">
+              ${list.map(b => `
+                <div class="border ${b.effectiveStatus === "ACTIVE" ? "border-emerald-300 bg-emerald-50/20" : "border-slate-200"} rounded-xl p-3.5 flex flex-wrap justify-between items-center gap-3">
+                  <div class="flex items-center gap-3 min-w-0 flex-1">
+                    ${b.imageUrl ? `<img src="${esc(b.imageUrl)}" class="w-28 h-12 rounded-lg object-cover border border-slate-200 flex-shrink-0 bg-slate-100" />` : `<div class="w-28 h-12 rounded-lg bg-sky-800 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">No Image</div>`}
+                    <div class="min-w-0 text-xs space-y-0.5">
+                      <div class="flex flex-wrap items-center gap-1.5">
+                        <span class="px-1.5 py-0.5 rounded bg-slate-100 font-bold">#${b.order || 1}</span>
+                        <b class="text-sm text-slate-900 truncate">${esc(b.title || "Untitled Banner")}</b>
+                        ${adStatusPill(b.effectiveStatus)}
+                      </div>
+                      <div class="text-slate-500 truncate">${esc(b.destinationUrl || "No destination URL")}</div>
+                      <div class="text-[11px] text-slate-500">
+                        ${b.startDate || b.expiryDate ? `Schedule: ${formatDateOnly(b.startDate)} &ndash; ${formatDateOnly(b.expiryDate)} &bull; ` : ""}
+                        Impressions: <b>${Number(b.impressionsCount || 0).toLocaleString()}</b> &bull; Clicks: <b>${Number(b.clicksCount || 0).toLocaleString()}</b>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="flex flex-wrap gap-1.5 text-xs">
+                    <button onclick="editBottomBanner('${esc(b.id)}')" class="px-2.5 py-1 rounded-lg bg-sky-50 text-sky-700 font-semibold">Edit</button>
+                    <button onclick="toggleBottomBannerStatus('${esc(b.id)}')" class="px-2.5 py-1 rounded-lg ${b.status === "ACTIVE" ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"} font-semibold">${b.status === "ACTIVE" ? "Deactivate" : "Activate"}</button>
+                    <button onclick="deleteBottomBanner('${esc(b.id)}')" class="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 font-semibold">Delete</button>
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+          `}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function updateBottomBannerPreview() {
+  const title = (document.getElementById("bb_title")?.value || "").trim();
+  const imgUrl = (document.getElementById("bb_img")?.value || "").trim();
+  const dest = (document.getElementById("bb_dest")?.value || "").trim();
+  const imgEl = document.getElementById("bb_preview_img");
+  const fbEl = document.getElementById("bb_preview_fallback");
+  const metaEl = document.getElementById("bb_preview_meta");
+  if (imgEl && fbEl) {
+    if (imgUrl) {
+      imgEl.src = imgUrl;
+      imgEl.classList.remove("hidden");
+      fbEl.classList.add("hidden");
+    } else {
+      imgEl.removeAttribute("src");
+      imgEl.classList.add("hidden");
+      fbEl.textContent = title || "Your Bottom Banner Preview";
+      fbEl.classList.remove("hidden");
+    }
+  }
+  if (metaEl) metaEl.textContent = dest || "Add destination URL for clickable banner";
+}
+
+async function submitBottomBanner(e) {
+  e.preventDefault();
+  const id = (document.getElementById("bb_id").value || "").trim() || uid("bb");
+  const old = adState.bottomBanners[id] || {};
+  const title = document.getElementById("bb_title").value.trim();
+  const imageUrl = document.getElementById("bb_img").value.trim();
+  const destinationUrl = document.getElementById("bb_dest").value.trim();
+  const startStr = document.getElementById("bb_start").value;
+  const endStr = document.getElementById("bb_end").value;
+
+  if (title.length < 2) return alert("Advertisement Title is required.");
+  if (!imageUrl) return alert("Please upload a banner image or enter an image URL.");
+  if (destinationUrl && !/^(https?:\/\/|tel:)/i.test(destinationUrl)) {
+    return alert("Destination URL must start with https://, http://, or tel:");
+  }
+
+  const startDate = startStr ? new Date(startStr + "T00:00:00").getTime() : 0;
+  const expiryDate = endStr ? new Date(endStr + "T23:59:59").getTime() : 0;
+  if (startDate > 0 && expiryDate > 0 && expiryDate < startDate) {
+    return alert("End Date cannot be earlier than Start Date.");
+  }
+
+  const now = Date.now();
+  const payload = {
+    ...old,
+    id,
+    title,
+    imageUrl,
+    destinationUrl,
+    order: Math.max(1, parseInt(document.getElementById("bb_order").value || "1", 10)),
+    startDate,
+    expiryDate,
+    status: document.getElementById("bb_status").value === "INACTIVE" ? "INACTIVE" : "ACTIVE",
+    impressionsCount: Number(old.impressionsCount || 0),
+    clicksCount: Number(old.clicksCount || 0),
+    createdAt: old.createdAt || now,
+    updatedAt: now
+  };
+  await rtdbAdPut(`advertising/bottomBanners/${id}`, payload);
+  adState.bottomBanners[id] = payload;
+  editing = {};
+  updateAdNavBadges();
+  await writeAuditLog("SAVE_BOTTOM_BANNER", "BOTTOM_BANNER", id, `Saved bottom banner "${title}" (${payload.status})`);
+  toast("Bottom banner saved!");
+  renderTab();
+}
+
+function editBottomBanner(id) {
+  const b = adState.bottomBanners[id];
+  if (!b) return;
+  editing = { bottomBanner: { id, ...b } };
+  renderTab();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function toggleBottomBannerStatus(id) {
+  const b = adState.bottomBanners[id];
+  if (!b) return;
+  const next = b.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+  const updated = { ...b, status: next, updatedAt: Date.now() };
+  await rtdbAdPut(`advertising/bottomBanners/${id}`, updated);
+  adState.bottomBanners[id] = updated;
+  updateAdNavBadges();
+  await writeAuditLog("TOGGLE_BOTTOM_BANNER", "BOTTOM_BANNER", id, `Set bottom banner "${b.title}" to ${next}`);
+  toast(`Bottom banner marked ${next}`);
+  renderTab();
+}
+
+async function deleteBottomBanner(id) {
+  if (!confirm("Delete this bottom banner advertisement?")) return;
+  await rtdbAdDelete(`advertising/bottomBanners/${id}`);
+  delete adState.bottomBanners[id];
+  updateAdNavBadges();
+  await writeAuditLog("DELETE_BOTTOM_BANNER", "BOTTOM_BANNER", id, `Deleted bottom banner ${id}`);
+  toast("Bottom banner deleted.");
   renderTab();
 }
 
@@ -2128,36 +2395,464 @@ function exportAdReportsCsv() {
   a.click();
 }
 
+const ADMOB_PLACEMENT_OPTIONS = [
+  { key: "BOTTOM_ALL_SCREENS", format: "BANNER", label: "Bottom Banner — All Screens" },
+  { key: "ALL_NATIVE_LISTS", format: "NATIVE", label: "All Native Lists (Doctors, Hospitals, Diagnostics, Popular Doctors & Favorites)" },
+  { key: "DOCTOR_LIST", format: "NATIVE", label: "Doctor List & Home Popular Doctors (জনপ্রিয় ডাক্তারবৃন্দ)" },
+  { key: "HOSPITAL_LIST", format: "NATIVE", label: "Hospital List (হাসপাতাল)" },
+  { key: "DIAGNOSTIC_LIST", format: "NATIVE", label: "Diagnostic Center List (ডায়াগনস্টিক)" },
+  { key: "FAVORITE_LIST", format: "NATIVE", label: "Favorite List (প্রিয় তালিকা)" }
+];
+
+function admobPlacementLabel(key) {
+  const found = ADMOB_PLACEMENT_OPTIONS.find(p => p.key === key);
+  return found ? found.label : (key || "—");
+}
+
+function isOfficialTestAdMobUnitId(unitId) {
+  return String(unitId || "").trim().startsWith("ca-app-pub-3940256099942544/");
+}
+
+function syncAdMobPrimaryFieldsFromPlacements(admobObj) {
+  const placementsMap = admobObj.placements && typeof admobObj.placements === "object" ? admobObj.placements : {};
+  const list = Object.values(placementsMap).filter(p => p && String(p.status || "ACTIVE").toUpperCase() === "ACTIVE");
+  const firstBanner = list.find(p => String(p.adFormat || "").toUpperCase() === "BANNER" && String(p.adUnitId || "").trim());
+  const firstNative = list.find(p => String(p.adFormat || "").toUpperCase() === "NATIVE" && String(p.adUnitId || "").trim());
+  return {
+    ...admobObj,
+    placements: placementsMap,
+    placementsManaged: true,
+    bannerUnitId: firstBanner ? String(firstBanner.adUnitId).trim() : "",
+    nativeUnitId: firstNative ? String(firstNative.adUnitId).trim() : "",
+    updatedAt: Date.now()
+  };
+}
+
+// 14B. DEDICATED GOOGLE ADMOB APP ID & PLACEMENT ID CRUD MANAGEMENT
+function renderAdMobManagement() {
+  const am = adState.admob || {};
+  const placementsList = Object.entries(am.placements || {})
+    .map(([id, p]) => ({ id, ...p }))
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const ed = editing.type === "admob_placement" ? editing.item : null;
+  const selectedFormat = (ed && ed.adFormat) || "BANNER";
+  const formatPlacements = ADMOB_PLACEMENT_OPTIONS.filter(p => p.format === selectedFormat);
+  const activeCount = placementsList.filter(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE").length;
+
+  return `
+    <div class="space-y-5">
+      <!-- Section 1: AdMob App ID & Global Mode Control (Add / Edit / Delete) -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 class="font-bold text-base text-slate-900">1. Google AdMob App ID &amp; Live Sync Control</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Add, edit, or delete your AdMob App ID and toggle live/test mode. Changes sync automatically to the Android app within seconds.</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" onclick="addOfficialAdMobTestPlacements()" class="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold hover:bg-amber-100">
+              + Add Official Google Test IDs
+            </button>
+          </div>
+        </div>
+
+        <form onsubmit="saveAdMobAppConfig(event)" class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
+          <div class="lg:col-span-5">
+            <label class="block text-xs font-semibold mb-1">AdMob App ID (ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY)</label>
+            <input id="am_app_id" class="input font-mono text-xs" placeholder="ca-app-pub-3940256099942544~3347511713" value="${esc(am.appId || "")}" />
+          </div>
+          <div class="lg:col-span-2">
+            <label class="flex items-center justify-between p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200 cursor-pointer">
+              <span class="text-xs font-bold text-emerald-900">AdMob On</span>
+              <input type="checkbox" id="am_enabled" ${am.enabled !== false ? "checked" : ""} />
+            </label>
+          </div>
+          <div class="lg:col-span-2">
+            <label class="flex items-center justify-between p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 cursor-pointer">
+              <span class="text-xs font-bold text-amber-900">Test Mode</span>
+              <input type="checkbox" id="am_test_mode" ${am.testMode === true ? "checked" : ""} />
+            </label>
+          </div>
+          <div class="lg:col-span-3 flex gap-2">
+            <button type="submit" class="flex-1 py-2.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold">
+              ${am.appId ? "Update App ID" : "Add App ID"}
+            </button>
+            ${am.appId ? `<button type="button" onclick="deleteAdMobAppId()" class="py-2.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold">Delete</button>` : ""}
+          </div>
+
+          <div class="lg:col-span-12 grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+            <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
+              <span class="text-xs font-semibold text-slate-800">Enable AdMob Banner Placements</span>
+              <input type="checkbox" id="am_banner_enabled" ${am.bannerEnabled !== false ? "checked" : ""} />
+            </label>
+            <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
+              <span class="text-xs font-semibold text-slate-800">Enable AdMob Native Placements</span>
+              <input type="checkbox" id="am_native_enabled" ${am.nativeEnabled !== false ? "checked" : ""} />
+            </label>
+          </div>
+        </form>
+
+        <div class="p-3 rounded-xl ${am.testMode ? "bg-amber-50 border-amber-200 text-amber-900" : "bg-emerald-50 border-emerald-200 text-emerald-900"} border text-xs">
+          ${am.testMode
+            ? "<b>Test Mode is ON:</b> Android app is currently serving Google Official Test Banner &amp; Native ads. Turn OFF Test Mode or add any live Placement ID below to switch automatically to your live AdMob IDs."
+            : `<b>Live Mode is ACTIVE:</b> Android app automatically syncs and renders the <b>${activeCount}</b> active Placement ID(s) listed below. Any Add, Edit, Toggle, or Delete updates the app automatically.`
+          }
+        </div>
+      </div>
+
+      <!-- Section 2: Add / Edit AdMob Placement ID + Live Table -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm h-fit">
+          <h3 class="font-bold text-base mb-1">${ed ? "Edit AdMob Placement ID" : "Add AdMob Placement ID"}</h3>
+          <p class="text-xs text-slate-500 mb-3">Configure Banner or Native Ad Unit IDs for any screen placement. Saved IDs take effect automatically in the app.</p>
+
+          <form onsubmit="submitAdMobPlacement(event)" class="space-y-3">
+            <input type="hidden" id="amp_id" value="${esc(ed ? ed.id : "")}" />
+
+            <div>
+              <label class="block text-xs font-semibold mb-1">Placement Label *</label>
+              <input id="amp_label" required class="input" placeholder="e.g., Home Bottom Banner / Doctor List Native" value="${esc(ed ? ed.label : "")}" />
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold mb-1">Ad Format *</label>
+              <select id="amp_format" required class="input" onchange="onAdMobFormatChange()">
+                <option value="BANNER" ${selectedFormat === "BANNER" ? "selected" : ""}>Banner Ad (Bottom Bar)</option>
+                <option value="NATIVE" ${selectedFormat === "NATIVE" ? "selected" : ""}>Native Ad (300x100 In-List)</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold mb-1">Target App Placement *</label>
+              <select id="amp_placement" required class="input">
+                ${formatPlacements.map(p => `<option value="${p.key}" ${ed && ed.placement === p.key ? "selected" : ""}>${esc(p.label)}</option>`).join("")}
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold mb-1">AdMob Placement / Ad Unit ID *</label>
+              <input id="amp_unit_id" required class="input font-mono text-xs" placeholder="ca-app-pub-XXXXXXXXXXXXXXXX/YYYYYYYYYY" value="${esc(ed ? ed.adUnitId : "")}" />
+              <div class="flex flex-wrap gap-1.5 mt-1.5">
+                <button type="button" onclick="fillSingleTestUnitId('BANNER')" class="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-[10px] font-semibold text-slate-700">Use Test Banner ID</button>
+                <button type="button" onclick="fillSingleTestUnitId('NATIVE')" class="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-[10px] font-semibold text-slate-700">Use Test Native ID</button>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold mb-1">Status</label>
+              <select id="amp_status" class="input">
+                <option value="ACTIVE" ${!ed || String(ed.status || "ACTIVE").toUpperCase() === "ACTIVE" ? "selected" : ""}>ACTIVE (Live in App)</option>
+                <option value="INACTIVE" ${ed && String(ed.status || "").toUpperCase() === "INACTIVE" ? "selected" : ""}>INACTIVE (Hidden)</option>
+              </select>
+            </div>
+
+            <div class="flex gap-2 pt-1">
+              <button type="submit" class="flex-1 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold">
+                ${ed ? "Update Placement ID" : "Add Placement ID"}
+              </button>
+              ${ed ? `<button type="button" onclick="editing={};renderTab()" class="px-3 py-2.5 rounded-xl bg-slate-100 text-xs font-semibold">Cancel</button>` : ""}
+            </div>
+          </form>
+        </div>
+
+        <div class="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div>
+              <h3 class="font-bold text-base">AdMob Placement IDs (${placementsList.length})</h3>
+              <p class="text-xs text-slate-500">Add, edit, activate/deactivate, or delete any placement ID — the Android app updates automatically.</p>
+            </div>
+            <span class="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold">${activeCount} Active</span>
+          </div>
+
+          <table class="w-full text-xs">
+            <thead>
+              <tr class="text-left text-slate-500 border-b">
+                <th class="py-2 pr-3">Label &amp; Format</th>
+                <th class="py-2 pr-3">Placement</th>
+                <th class="py-2 pr-3">Ad Unit / Placement ID</th>
+                <th class="py-2 pr-3">Status</th>
+                <th class="py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${placementsList.length === 0 ? `
+                <tr>
+                  <td colspan="5" class="py-8 text-center text-slate-400">
+                    No AdMob Placement IDs added yet. Add a Banner or Native Placement ID on the left, or click <b>+ Add Official Google Test IDs</b> above.
+                  </td>
+                </tr>
+              ` : placementsList.map(p => {
+                const isAct = String(p.status || "ACTIVE").toUpperCase() === "ACTIVE";
+                const isTest = isOfficialTestAdMobUnitId(p.adUnitId);
+                return `
+                  <tr class="border-b border-slate-100 hover:bg-slate-50/70">
+                    <td class="py-2.5 pr-3">
+                      <div class="font-bold text-slate-900">${esc(p.label || p.adFormat)}</div>
+                      <div class="flex items-center gap-1.5 mt-0.5">
+                        <span class="px-1.5 py-0.5 rounded ${p.adFormat === "BANNER" ? "bg-sky-100 text-sky-800" : "bg-indigo-100 text-indigo-800"} text-[10px] font-bold">${esc(p.adFormat || "BANNER")}</span>
+                        ${isTest ? `<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">TEST ID</span>` : `<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">LIVE ID</span>`}
+                      </div>
+                    </td>
+                    <td class="py-2.5 pr-3 text-slate-700">${esc(admobPlacementLabel(p.placement))}</td>
+                    <td class="py-2.5 pr-3 font-mono text-[11px] text-slate-800 break-all">${esc(p.adUnitId)}</td>
+                    <td class="py-2.5 pr-3">${adStatusBadge(isAct ? "ACTIVE" : "INACTIVE")}</td>
+                    <td class="py-2.5 whitespace-nowrap space-x-1">
+                      <button onclick="editAdMobPlacement('${p.id}')" class="px-2 py-1 rounded bg-sky-100 text-sky-800 font-semibold">Edit</button>
+                      <button onclick="toggleAdMobPlacementStatus('${p.id}')" class="px-2 py-1 rounded ${isAct ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"} font-semibold">${isAct ? "Deactivate" : "Activate"}</button>
+                      <button onclick="deleteAdMobPlacement('${p.id}')" class="px-2 py-1 rounded bg-rose-100 text-rose-800 font-semibold">Delete</button>
+                    </td>
+                  </tr>
+                `;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function onAdMobFormatChange() {
+  const fmt = (document.getElementById("amp_format")?.value || "BANNER").toUpperCase();
+  const sel = document.getElementById("amp_placement");
+  if (!sel) return;
+  const opts = ADMOB_PLACEMENT_OPTIONS.filter(p => p.format === fmt);
+  sel.innerHTML = opts.map(p => `<option value="${p.key}">${esc(p.label)}</option>`).join("");
+}
+
+function fillSingleTestUnitId(format) {
+  const fmtEl = document.getElementById("amp_format");
+  const idEl = document.getElementById("amp_unit_id");
+  const labelEl = document.getElementById("amp_label");
+  if (fmtEl) {
+    fmtEl.value = format;
+    onAdMobFormatChange();
+  }
+  if (idEl) {
+    idEl.value = format === "BANNER" ? ADMOB_OFFICIAL_TEST_IDS.bannerUnitId : ADMOB_OFFICIAL_TEST_IDS.nativeUnitId;
+  }
+  if (labelEl && !labelEl.value.trim()) {
+    labelEl.value = format === "BANNER" ? "Google Test Bottom Banner" : "Google Test Native Ad";
+  }
+}
+
+async function saveAdMobAppConfig(e) {
+  e.preventDefault();
+  const appId = (document.getElementById("am_app_id")?.value || "").trim();
+  if (appId && !/^ca-app-pub-\d{10,20}~\d{6,15}$/i.test(appId)) {
+    return alert("Invalid AdMob App ID format. Expected: ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY");
+  }
+  const updated = syncAdMobPrimaryFieldsFromPlacements({
+    ...(adState.admob || {}),
+    enabled: Boolean(document.getElementById("am_enabled")?.checked),
+    testMode: Boolean(document.getElementById("am_test_mode")?.checked),
+    appId,
+    bannerEnabled: Boolean(document.getElementById("am_banner_enabled")?.checked),
+    nativeEnabled: Boolean(document.getElementById("am_native_enabled")?.checked)
+  });
+  await rtdbAdPut("advertising/admob", updated);
+  adState.admob = updated;
+  updateAdNavBadges();
+  await writeAuditLog("UPDATE_ADMOB_APP_CONFIG", "ADMOB", "admob", `Saved AdMob App ID (${appId || "cleared"}) | enabled=${updated.enabled} | testMode=${updated.testMode}`);
+  toast("AdMob App ID & settings saved and synced!");
+  renderTab();
+}
+
+async function deleteAdMobAppId() {
+  if (!confirm("Delete the saved AdMob App ID?")) return;
+  const updated = syncAdMobPrimaryFieldsFromPlacements({
+    ...(adState.admob || {}),
+    appId: ""
+  });
+  await rtdbAdPut("advertising/admob", updated);
+  adState.admob = updated;
+  await writeAuditLog("DELETE_ADMOB_APP_ID", "ADMOB", "admob", "Deleted AdMob App ID");
+  toast("AdMob App ID deleted!");
+  renderTab();
+}
+
+async function submitAdMobPlacement(e) {
+  e.preventDefault();
+  const id = (document.getElementById("amp_id")?.value || "").trim() || uid("amp");
+  const label = (document.getElementById("amp_label")?.value || "").trim();
+  const adFormat = (document.getElementById("amp_format")?.value || "BANNER").toUpperCase();
+  const placement = (document.getElementById("amp_placement")?.value || (adFormat === "BANNER" ? "BOTTOM_ALL_SCREENS" : "ALL_NATIVE_LISTS")).toUpperCase();
+  const adUnitId = (document.getElementById("amp_unit_id")?.value || "").trim();
+  const status = (document.getElementById("amp_status")?.value || "ACTIVE").toUpperCase() === "INACTIVE" ? "INACTIVE" : "ACTIVE";
+
+  if (label.length < 2) return alert("Placement Label is required.");
+  if (!/^ca-app-pub-\d{10,20}\/\d{6,15}$/i.test(adUnitId)) {
+    return alert("Invalid AdMob Placement / Ad Unit ID format. Expected: ca-app-pub-XXXXXXXXXXXXXXXX/YYYYYYYYYY");
+  }
+
+  const now = Date.now();
+  const oldPlacements = { ...((adState.admob && adState.admob.placements) || {}) };
+  const prev = oldPlacements[id] || {};
+  oldPlacements[id] = {
+    id,
+    label,
+    adFormat,
+    placement,
+    adUnitId,
+    status,
+    createdAt: prev.createdAt || now,
+    updatedAt: now
+  };
+
+  // If Admin enters a real live Ad Unit ID (not Google's test ID), automatically switch Test Mode OFF so it goes live immediately
+  const isLiveUnit = !isOfficialTestAdMobUnitId(adUnitId);
+  const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
+    ...(adState.admob || {}),
+    enabled: true,
+    testMode: isLiveUnit ? false : Boolean(adState.admob && adState.admob.testMode === true && !Object.values(oldPlacements).some(p => !isOfficialTestAdMobUnitId(p.adUnitId))),
+    bannerEnabled: adFormat === "BANNER" ? true : (adState.admob?.bannerEnabled !== false),
+    nativeEnabled: adFormat === "NATIVE" ? true : (adState.admob?.nativeEnabled !== false),
+    placements: oldPlacements
+  });
+
+  await rtdbAdPut("advertising/admob", nextAdMob);
+  adState.admob = nextAdMob;
+  editing = {};
+  updateAdNavBadges();
+  await writeAuditLog("SAVE_ADMOB_PLACEMENT", "ADMOB", id, `Saved AdMob ${adFormat} placement "${label}" (${placement}) -> ${adUnitId}`);
+  toast(isLiveUnit ? "Live AdMob Placement ID saved! App will auto-update." : "AdMob Placement ID saved & synced!");
+  renderTab();
+}
+
+function editAdMobPlacement(id) {
+  const item = adState.admob && adState.admob.placements && adState.admob.placements[id];
+  if (!item) return;
+  editing = { type: "admob_placement", item: { id, ...item } };
+  renderTab();
+}
+
+async function toggleAdMobPlacementStatus(id) {
+  const oldPlacements = { ...((adState.admob && adState.admob.placements) || {}) };
+  const item = oldPlacements[id];
+  if (!item) return;
+  const nextStatus = String(item.status || "ACTIVE").toUpperCase() === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+  oldPlacements[id] = { ...item, status: nextStatus, updatedAt: Date.now() };
+  const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
+    ...(adState.admob || {}),
+    placements: oldPlacements
+  });
+  await rtdbAdPut("advertising/admob", nextAdMob);
+  adState.admob = nextAdMob;
+  updateAdNavBadges();
+  await writeAuditLog("TOGGLE_ADMOB_PLACEMENT", "ADMOB", id, `Set AdMob placement "${item.label}" to ${nextStatus}`);
+  toast(`Placement marked ${nextStatus}! App will auto-update.`);
+  renderTab();
+}
+
+async function deleteAdMobPlacement(id) {
+  const oldPlacements = { ...((adState.admob && adState.admob.placements) || {}) };
+  const item = oldPlacements[id];
+  if (!item) return;
+  if (!confirm(`Delete AdMob placement "${item.label}" (${item.adUnitId})?`)) return;
+  delete oldPlacements[id];
+  const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
+    ...(adState.admob || {}),
+    placements: oldPlacements
+  });
+  await rtdbAdPut("advertising/admob", nextAdMob);
+  adState.admob = nextAdMob;
+  if (editing.type === "admob_placement" && editing.item && editing.item.id === id) editing = {};
+  updateAdNavBadges();
+  await writeAuditLog("DELETE_ADMOB_PLACEMENT", "ADMOB", id, `Deleted AdMob placement "${item.label}"`);
+  toast("AdMob Placement ID deleted! App will auto-update.");
+  renderTab();
+}
+
+async function addOfficialAdMobTestPlacements() {
+  const now = Date.now();
+  const oldPlacements = { ...((adState.admob && adState.admob.placements) || {}) };
+  oldPlacements["amp_test_banner"] = {
+    id: "amp_test_banner",
+    label: "Google Test Bottom Banner",
+    adFormat: "BANNER",
+    placement: "BOTTOM_ALL_SCREENS",
+    adUnitId: ADMOB_OFFICIAL_TEST_IDS.bannerUnitId,
+    status: "ACTIVE",
+    createdAt: oldPlacements["amp_test_banner"]?.createdAt || now,
+    updatedAt: now
+  };
+  oldPlacements["amp_test_native"] = {
+    id: "amp_test_native",
+    label: "Google Test Native (All Lists)",
+    adFormat: "NATIVE",
+    placement: "ALL_NATIVE_LISTS",
+    adUnitId: ADMOB_OFFICIAL_TEST_IDS.nativeUnitId,
+    status: "ACTIVE",
+    createdAt: oldPlacements["amp_test_native"]?.createdAt || (now + 1),
+    updatedAt: now
+  };
+  const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
+    ...(adState.admob || {}),
+    enabled: true,
+    testMode: false,
+    appId: (adState.admob && adState.admob.appId) || ADMOB_OFFICIAL_TEST_IDS.appId,
+    bannerEnabled: true,
+    nativeEnabled: true,
+    placements: oldPlacements
+  });
+  await rtdbAdPut("advertising/admob", nextAdMob);
+  adState.admob = nextAdMob;
+  updateAdNavBadges();
+  await writeAuditLog("ADD_ADMOB_TEST_PLACEMENTS", "ADMOB", "admob", "Added official Google AdMob Test Banner & Native placements");
+  toast("Official Google Test Banner & Native Placement IDs added!");
+  renderTab();
+}
+
 // 15. ADVERTISEMENT SETTINGS
 function renderAdSettings() {
   const s = adState.placements || {};
+  const am = adState.admob || {};
+  const placementCount = Object.values(am.placements || {}).filter(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE").length;
   return `
-    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm max-w-2xl space-y-4">
-      <div>
-        <h3 class="font-bold text-base">Global Advertisement Placement Settings</h3>
-        <p class="text-xs text-slate-500">Dynamically enable or disable each advertisement placement across the Android application.</p>
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+      <!-- Quick Link to Dedicated Google AdMob App ID & Placement IDs CRUD -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 h-fit">
+        <div>
+          <h3 class="font-bold text-base text-slate-900">Google AdMob App ID &amp; Placement IDs</h3>
+          <p class="text-xs text-slate-500 mt-0.5">Add, edit, activate/deactivate, or delete your AdMob App ID and Banner/Native Placement IDs. Changes update automatically in the Android app.</p>
+        </div>
+        <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
+          <div><span class="text-slate-500">Status:</span> <b class="${am.enabled !== false ? "text-emerald-700" : "text-rose-700"}">${am.enabled !== false ? "ENABLED" : "DISABLED"}</b> (${am.testMode ? "Test Mode" : "Live Placements Mode"})</div>
+          <div><span class="text-slate-500">App ID:</span> <span class="font-mono text-[11px]">${esc(am.appId || "Not set")}</span></div>
+          <div><span class="text-slate-500">Active Placement IDs:</span> <b>${placementCount}</b></div>
+        </div>
+        <button type="button" onclick="switchTab('ad_admob')" class="w-full py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold">
+          Open Google AdMob IDs Manager (Add / Edit / Delete) →
+        </button>
       </div>
-      <div class="space-y-2.5 text-sm">
-        ${[
-          ["adsEnabled", "Master Advertisement Switch (All Ads Enabled)"],
-          ["homeSliderEnabled", "Top Home Slider Carousel Enabled"],
-          ["doctorNativeEnabled", "Doctor List Native Ads (300x100 after every 3 cards)"],
-          ["hospitalNativeEnabled", "Hospital List Native Ads (300x100 after every 3 cards)"],
-          ["diagnosticNativeEnabled", "Diagnostic List Native Ads (300x100 after every 3 cards)"],
-          ["favoriteNativeEnabled", "Favorite List Native Ads (300x100 after every 3 cards)"],
-          ["bottomBannerEnabled", "Fixed Bottom Banner Ads (300x50, max 1)"],
-          ["appOpenPopupEnabled", "App Open Popup Ads (300x200 on launch)"],
-          ["popupOncePerSession", "Show App Open Popup strictly once per session"]
-        ].map(([k, label]) => `
-          <label class="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
-            <span class="text-xs font-semibold text-slate-800">${esc(label)}</span>
-            <input type="checkbox" id="adset_${k}" ${s[k] !== false ? "checked" : ""} />
-          </label>
-        `).join("")}
-      </div>
-      <div class="flex flex-wrap gap-3 pt-2">
-        <button onclick="saveGlobalAdPlacementSettings()" class="px-5 py-2.5 rounded-xl bg-sky-600 text-white text-xs font-bold">Save Placement Settings</button>
-        <button onclick="sweepAndRefreshAds()" class="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-800 text-xs font-bold">Run Expiry Sweep Now</button>
+
+      <!-- Global Advertisement Placement Settings -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+        <div>
+          <h3 class="font-bold text-base">Global Advertisement Placement Settings</h3>
+          <p class="text-xs text-slate-500">Dynamically enable or disable each advertisement placement across the Android application.</p>
+        </div>
+        <div class="space-y-2.5 text-sm">
+          ${[
+            ["adsEnabled", "Master Advertisement Switch (All Ads Enabled)"],
+            ["homeSliderEnabled", "Top Home Slider Carousel Enabled"],
+            ["doctorNativeEnabled", "Doctor List & Home Popular Doctors Native Ads (every 3 cards)"],
+            ["hospitalNativeEnabled", "Hospital List Native Ads (every 3 cards)"],
+            ["diagnosticNativeEnabled", "Diagnostic List Native Ads (every 3 cards)"],
+            ["favoriteNativeEnabled", "Favorite List Native Ads (every 3 cards)"],
+            ["bottomBannerEnabled", "Bottom Banner Ads (10s Auto Rotation)"],
+            ["appOpenPopupEnabled", "App Open Popup Ads (300x200 on launch)"],
+            ["popupOncePerSession", "Show App Open Popup strictly once per session"]
+          ].map(([k, label]) => `
+            <label class="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
+              <span class="text-xs font-semibold text-slate-800">${esc(label)}</span>
+              <input type="checkbox" id="adset_${k}" ${s[k] !== false ? "checked" : ""} />
+            </label>
+          `).join("")}
+        </div>
+        <div class="flex flex-wrap gap-3 pt-2">
+          <button onclick="saveGlobalAdPlacementSettings()" class="px-5 py-2.5 rounded-xl bg-sky-600 text-white text-xs font-bold">Save Placement Settings</button>
+          <button onclick="sweepAndRefreshAds()" class="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-800 text-xs font-bold">Run Expiry Sweep Now</button>
+        </div>
       </div>
     </div>
   `;

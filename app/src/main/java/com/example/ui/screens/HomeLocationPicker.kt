@@ -43,11 +43,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import com.example.data.seed.DistrictInfo
 import com.example.data.seed.SeedData
 import com.example.i18n.AppLang
 import com.example.i18n.tr
 import com.example.ui.ads.ResolvedHomeSliderSlide
+import com.example.ui.ads.decodeAdImageModel
 import com.example.ui.components.ExternalImageAvatar
 import com.example.ui.theme.*
 import kotlinx.coroutines.Dispatchers
@@ -357,12 +360,14 @@ fun HomeHeroBannerSlider(
 
     LaunchedEffect(slides.size, isDragged, isAppForeground, autoSlideIntervalMs) {
         if (!isSingleSlide && !isDragged && isAppForeground) {
-            delay(autoSlideIntervalMs.coerceAtLeast(1500L))
-            if (!pagerState.isScrollInProgress && isAppForeground) {
-                pagerState.animateScrollToPage(
-                    page = pagerState.currentPage + 1,
-                    animationSpec = tween(durationMillis = 450)
-                )
+            while (true) {
+                delay(autoSlideIntervalMs.coerceIn(2000L, 15000L))
+                if (!pagerState.isScrollInProgress && isAppForeground && !isDragged) {
+                    pagerState.animateScrollToPage(
+                        page = pagerState.currentPage + 1,
+                        animationSpec = tween(durationMillis = 450)
+                    )
+                }
             }
         }
     }
@@ -490,13 +495,25 @@ fun HomeHeroBannerSlider(
                                 RoundedCornerShape(14.dp)
                             )
                     ) {
-                        ExternalImageAvatar(
-                            imageUrl = item.imageUrl,
-                            contentDescription = title,
-                            fallbackIcon = Icons.Rounded.MedicalServices,
-                            size = 126.dp,
-                            shape = RoundedCornerShape(14.dp)
-                        )
+                        val decodedModel = remember(item.imageUrl) { decodeAdImageModel(item.imageUrl) }
+                        var slideImgFailed by remember(item.slideId, item.imageUrl) { mutableStateOf(false) }
+                        if (decodedModel != null && !slideImgFailed) {
+                            AsyncImage(
+                                model = decodedModel,
+                                contentDescription = title,
+                                contentScale = ContentScale.Crop,
+                                onError = { slideImgFailed = true },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            ExternalImageAvatar(
+                                imageUrl = item.imageUrl,
+                                contentDescription = title,
+                                fallbackIcon = Icons.Rounded.MedicalServices,
+                                size = 126.dp,
+                                shape = RoundedCornerShape(14.dp)
+                            )
+                        }
                     }
                 }
             }

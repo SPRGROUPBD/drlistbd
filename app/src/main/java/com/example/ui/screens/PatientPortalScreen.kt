@@ -28,9 +28,10 @@ import com.example.data.model.DoctorFullProfile
 import com.example.i18n.AppLang
 import com.example.i18n.tr
 import com.example.ui.ads.AdCampaignItem
+import com.example.ui.ads.AdMobRemoteConfig
 import com.example.ui.ads.AdPlacements
 import com.example.ui.ads.AdvertisingRotationEngine
-import com.example.ui.ads.NativeAd300x100Card
+import com.example.ui.ads.NativeAdSlotOrAdMob
 import com.example.ui.ads.PlacementGlobalSettings
 import com.example.ui.components.DoctorCard
 import com.example.ui.components.EmptyStateCard
@@ -59,6 +60,7 @@ fun PatientPortalScreen(
     onDoctorClick: (String) -> Unit,
     adCampaigns: List<AdCampaignItem> = emptyList(),
     adPlacementSettings: PlacementGlobalSettings = PlacementGlobalSettings(),
+    admobConfig: AdMobRemoteConfig = AdMobRemoteConfig(),
     favoriteRotationBase: Long = 0L,
     onNativeAdImpression: (AdCampaignItem, String) -> Unit = { _, _ -> },
     onNativeAdClick: (AdCampaignItem, String) -> Unit = { _, _ -> },
@@ -203,6 +205,7 @@ fun PatientPortalScreen(
                                 slotIndex = AdvertisingRotationEngine.nativeSlotForCardIndex(idx),
                                 campaigns = adCampaigns,
                                 placementSettings = adPlacementSettings,
+                                admobConfig = admobConfig,
                                 baseOffset = favoriteRotationBase,
                                 nowMs = nowMs,
                                 lang = lang,
@@ -243,6 +246,7 @@ fun PatientPortalScreen(
                                 slotIndex = AdvertisingRotationEngine.nativeSlotForCardIndex(idx),
                                 campaigns = adCampaigns,
                                 placementSettings = adPlacementSettings,
+                                admobConfig = admobConfig,
                                 baseOffset = favoriteRotationBase,
                                 nowMs = nowMs,
                                 lang = lang,
@@ -283,6 +287,7 @@ fun PatientPortalScreen(
                                 slotIndex = AdvertisingRotationEngine.nativeSlotForCardIndex(idx),
                                 campaigns = adCampaigns,
                                 placementSettings = adPlacementSettings,
+                                admobConfig = admobConfig,
                                 baseOffset = favoriteRotationBase,
                                 nowMs = nowMs,
                                 lang = lang,
@@ -323,6 +328,7 @@ fun PatientPortalScreen(
                                 slotIndex = AdvertisingRotationEngine.nativeSlotForCardIndex(idx),
                                 campaigns = adCampaigns,
                                 placementSettings = adPlacementSettings,
+                                admobConfig = admobConfig,
                                 baseOffset = favoriteRotationBase,
                                 nowMs = nowMs,
                                 lang = lang,
@@ -342,28 +348,22 @@ private fun FavoriteListNativeAdSlot(
     slotIndex: Int,
     campaigns: List<AdCampaignItem>,
     placementSettings: PlacementGlobalSettings,
+    admobConfig: AdMobRemoteConfig,
     baseOffset: Long,
     nowMs: Long,
     lang: AppLang,
     onVisibleImpression: (AdCampaignItem, String) -> Unit,
     onClicked: (AdCampaignItem, String) -> Unit
 ) {
-    val nativeAd = remember(campaigns, placementSettings, slotIndex, baseOffset, nowMs / 60_000L) {
-        AdvertisingRotationEngine.selectNativeAdForSlot(
-            campaigns = campaigns,
-            placementTarget = AdPlacements.FAVORITE_LIST,
-            slotIndex = slotIndex,
-            baseOffset = baseOffset,
-            nowMs = nowMs,
-            settings = placementSettings
-        )
-    } ?: return
-
-    Spacer(Modifier.height(10.dp))
-    NativeAd300x100Card(
-        campaign = nativeAd,
+    NativeAdSlotOrAdMob(
+        campaigns = campaigns,
+        placementTarget = AdPlacements.FAVORITE_LIST,
         queueKey = AdvertisingRotationEngine.QUEUE_FAVORITE_NATIVE,
         slotIndex = slotIndex,
+        baseOffset = baseOffset,
+        nowMs = nowMs,
+        placementSettings = placementSettings,
+        admobConfig = admobConfig,
         lang = lang,
         onVisibleImpression = onVisibleImpression,
         onClicked = onClicked

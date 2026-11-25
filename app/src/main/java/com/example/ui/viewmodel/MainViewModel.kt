@@ -14,6 +14,7 @@ import com.example.i18n.AppLang
 import com.example.ui.ads.AdCampaignItem
 import com.example.ui.ads.AdvertisingRotationEngine
 import com.example.ui.ads.AdvertisingSystemSnapshot
+import com.example.ui.ads.BottomBannerDisplayItem
 import com.example.ui.ads.ConnectivityMonitor
 import com.example.ui.ads.DynamicAdPackage
 import com.example.ui.ads.FairAdRotationEngine
@@ -142,6 +143,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _authoritativeNowMs = MutableStateFlow(System.currentTimeMillis())
     val authoritativeNowMs: StateFlow<Long> = _authoritativeNowMs.asStateFlow()
 
+    @Volatile
+    private var hasEvaluatedAppOpenPopupThisSession: Boolean = false
+
     val isOnline: StateFlow<Boolean> = ConnectivityMonitor.isOnline
 
     val lastAppOpenPopupDate: StateFlow<String> = repo.prefs.lastAppOpenPopupDate
@@ -264,6 +268,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 delay(180_000L)
                 if (ConnectivityMonitor.isOnline.value && !_isSyncing.value) {
                     performFirebaseSync(isInitialBootstrap = false, showToast = false)
+                }
+            }
+        }
+
+        // Real-time lightweight Advertisement & AdMob config refresh (every 10s without touching Auto Sync spinner)
+        viewModelScope.launch(exceptionHandler) {
+            while (true) {
+                delay(10_000L)
+                if (ConnectivityMonitor.isOnline.value && !_isSyncing.value) {
+                    refreshDynamicAdSystem()
                 }
             }
         }
@@ -453,6 +467,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    fun tryConsumeSessionLaunchPopup(): AdCampaignItem? {
+        if (hasEvaluatedAppOpenPopupThisSession) return null
+        val snap = _adSnapshot.value
+        if (!snap.syncedFromServer) return null
+        hasEvaluatedAppOpenPopupThisSession = true
+        return selectLaunchPopupOnce()
+    }
+
     fun selectLaunchPopupOnce(): AdCampaignItem? {
         val snap = _adSnapshot.value
         val result = AdvertisingRotationEngine.selectNextAppOpenPopup(
@@ -473,6 +495,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         return chosen
+    }
+
+    fun logBottomBannerImpression(item: BottomBannerDisplayItem) {
+        if (item.isAdMobBanner) return
+        val sourceCamp = item.sourceCampaign
+        if (sourceCamp != null) {
+            logAdvertisingImpression(sourceCamp, AdvertisingRotationEngine.QUEUE_BOTTOM_BANNER)
+            return
+        }
+        if (item.isAdminPromo) {
+            val rawId = item.id.removePrefix("admin_bb_")
+            viewModelScope.launch(exceptionHandler) {
+                if (ConnectivityMonitor.isOnline.value) {
+                    AdvertisingRemoteService.logBottomBannerImpression(rawId)
+                }
+            }
+        }
+    }
+
+    fun logBottomBannerClick(item: BottomBannerDisplayItem) {
+        if (item.isAdMobBanner) return
+        val sourceCamp = item.sourceCampaign
+        if (sourceCamp != null) {
+            logAdvertisingClick(sourceCamp, AdvertisingRotationEngine.QUEUE_BOTTOM_BANNER)
+            return
+        }
+        if (item.isAdminPromo) {
+            val rawId = item.id.removePrefix("admin_bb_")
+            viewModelScope.launch(exceptionHandler) {
+                if (ConnectivityMonitor.isOnline.value) {
+                    AdvertisingRemoteService.logBottomBannerClick(rawId)
+                }
+            }
+        }
     }
 
     fun advanceNativePlacementQueue(queueKey: String, campaignId: String) {

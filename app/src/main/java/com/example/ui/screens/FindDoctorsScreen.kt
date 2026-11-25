@@ -31,6 +31,7 @@ import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
 import com.example.ui.ads.AdCampaignItem
+import com.example.ui.ads.AdMobRemoteConfig
 import com.example.ui.ads.AdPlacements
 import com.example.ui.ads.AdTargetScreens
 import com.example.ui.ads.AdvertisingRotationEngine
@@ -38,7 +39,7 @@ import com.example.ui.ads.FairAdRotationEngine
 import com.example.ui.ads.FairNative300x200Card
 import com.example.ui.ads.ManagedAdvertiserCampaign
 import com.example.ui.ads.ManagedNativeBannerAd
-import com.example.ui.ads.NativeAd300x100Card
+import com.example.ui.ads.NativeAdSlotOrAdMob
 import com.example.ui.ads.NativeSponsorAdCard
 import com.example.ui.ads.PlacementGlobalSettings
 import com.example.ui.ads.PlacementRateCardEngine
@@ -77,6 +78,7 @@ fun FindDoctorsScreen(
     onDoctorClick: (String) -> Unit,
     adCampaigns: List<AdCampaignItem> = emptyList(),
     adPlacementSettings: PlacementGlobalSettings = PlacementGlobalSettings(),
+    admobConfig: AdMobRemoteConfig = AdMobRemoteConfig(),
     doctorListRotationBase: Long = 0L,
     onNativeAdImpression: (AdCampaignItem, String) -> Unit = { _, _ -> },
     onNativeAdClick: (AdCampaignItem, String) -> Unit = { _, _ -> },
@@ -317,30 +319,22 @@ fun FindDoctorsScreen(
                         onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
                         onClick = { onDoctorClick(doc.doctor.id) }
                     )
-                    // Display 1 Native Ad (300x100) after every 3 Doctor Cards via independent DOCTOR_LIST queue
+                    // Display 1 Native Ad (300x100) or AdMob Native Ad after every 3 Doctor Cards
                     if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(index, pagedDoctors.size)) {
                         val nativeSlot = AdvertisingRotationEngine.nativeSlotForCardIndex(index)
-                        val nativeAd = remember(adCampaigns, adPlacementSettings, nativeSlot, doctorListRotationBase, nowMs / 60_000L) {
-                            AdvertisingRotationEngine.selectNativeAdForSlot(
-                                campaigns = adCampaigns,
-                                placementTarget = AdPlacements.DOCTOR_LIST,
-                                slotIndex = nativeSlot,
-                                baseOffset = doctorListRotationBase,
-                                nowMs = nowMs,
-                                settings = adPlacementSettings
-                            )
-                        }
-                        if (nativeAd != null) {
-                            Spacer(Modifier.height(10.dp))
-                            NativeAd300x100Card(
-                                campaign = nativeAd,
-                                queueKey = AdvertisingRotationEngine.QUEUE_DOCTOR_NATIVE,
-                                slotIndex = nativeSlot,
-                                lang = lang,
-                                onVisibleImpression = onNativeAdImpression,
-                                onClicked = onNativeAdClick
-                            )
-                        }
+                        NativeAdSlotOrAdMob(
+                            campaigns = adCampaigns,
+                            placementTarget = AdPlacements.DOCTOR_LIST,
+                            queueKey = AdvertisingRotationEngine.QUEUE_DOCTOR_NATIVE,
+                            slotIndex = nativeSlot,
+                            baseOffset = doctorListRotationBase,
+                            nowMs = nowMs,
+                            placementSettings = adPlacementSettings,
+                            admobConfig = admobConfig,
+                            lang = lang,
+                            onVisibleImpression = onNativeAdImpression,
+                            onClicked = onNativeAdClick
+                        )
                     }
                 }
                 if (pagedDoctors.size < filteredDoctors.size) {

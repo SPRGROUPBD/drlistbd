@@ -680,6 +680,7 @@ private fun CreateCampaignAndPaymentTab(
                     )
                     activePackages.forEach { itemPkg ->
                         val chosen = itemPkg.id == selectedPkg?.id
+                        val placementText = AdPlacements.displayLabel(itemPkg.placement, lang == AppLang.BN)
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = if (chosen) MedicalBlueLight else BackgroundIce,
@@ -693,16 +694,76 @@ private fun CreateCampaignAndPaymentTab(
                                     amountPaid = itemPkg.price.toInt().toString()
                                 }
                         ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(itemPkg.name, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = TextPrimary)
-                                    Text("${adTypeLabel(itemPkg.adType, lang)} • ${itemPkg.durationDays}d", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(itemPkg.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                        Text(
+                                            text = "${adTypeLabel(itemPkg.adType, lang)} • ${itemPkg.durationDays} ${tr(lang, "দিন", "Days")}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MedicalTealDark
+                                        )
+                                    }
+                                    Text("৳${itemPkg.price.toInt()}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = MedicalBlueDark)
                                 }
-                                Text("৳${itemPkg.price.toInt()}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold, color = MedicalBlueDark)
+                                Text(
+                                    text = tr(lang, "প্লেসমেন্ট: $placementText", "Placement: $placementText"),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MedicalBlueDark
+                                )
+                                if (itemPkg.description.isNotBlank()) {
+                                    Text(
+                                        text = itemPkg.description,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondary,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    pkg?.let { activeSel ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MedicalTealLight.copy(alpha = 0.45f),
+                            border = BorderStroke(1.dp, MedicalTeal.copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = tr(lang, "নির্বাচিত প্যাকেজ সারসংক্ষেপ", "Selected Package Summary"),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MedicalTealDark
+                                )
+                                Text(
+                                    text = "${activeSel.name} • ${adTypeLabel(activeSel.adType, lang)} • ৳${activeSel.price.toInt()} / ${activeSel.durationDays} ${tr(lang, "দিন", "days")}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = tr(
+                                        lang,
+                                        "প্লেসমেন্ট: ${AdPlacements.displayLabel(selectedPlacement, true)}",
+                                        "Placement: ${AdPlacements.displayLabel(selectedPlacement, false)}"
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondary
+                                )
                             }
                         }
                     }
@@ -731,6 +792,7 @@ private fun CreateCampaignAndPaymentTab(
                             Text(tr(lang, "নেটিভ প্লেসমেন্ট নির্বাচন করুন:", "Native Placement:"), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = TextSecondary)
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 listOf(
+                                    AdPlacements.ALL_NATIVE_LISTS to tr(lang, "সব নেটিভ তালিকা (ডাক্তার, হাসপাতাল, ডায়াগনস্টিক ও জনপ্রিয় ডাক্তার)", "All Native Lists (Doctors, Hospitals, Diagnostics & Popular Doctors)"),
                                     AdPlacements.DOCTOR_LIST to tr(lang, "ডাক্তার তালিকা (Doctor List)", "Doctor List"),
                                     AdPlacements.HOSPITAL_LIST to tr(lang, "হাসপাতাল তালিকা (Hospital List)", "Hospital List"),
                                     AdPlacements.DIAGNOSTIC_LIST to tr(lang, "ডায়াগনস্টিক তালিকা (Diagnostic List)", "Diagnostic Center List"),

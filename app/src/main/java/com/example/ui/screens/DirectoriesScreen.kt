@@ -39,6 +39,7 @@ import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
 import com.example.ui.ads.AdCampaignItem
+import com.example.ui.ads.AdMobRemoteConfig
 import com.example.ui.ads.AdPlacements
 import com.example.ui.ads.AdTargetScreens
 import com.example.ui.ads.AdvertisingRotationEngine
@@ -46,7 +47,7 @@ import com.example.ui.ads.FairAdRotationEngine
 import com.example.ui.ads.FairNative300x200Card
 import com.example.ui.ads.ManagedAdvertiserCampaign
 import com.example.ui.ads.ManagedNativeBannerAd
-import com.example.ui.ads.NativeAd300x100Card
+import com.example.ui.ads.NativeAdSlotOrAdMob
 import com.example.ui.ads.NativeSponsorAdCard
 import com.example.ui.ads.PlacementGlobalSettings
 import com.example.ui.ads.PlacementRateCardEngine
@@ -96,6 +97,7 @@ fun DirectoriesScreen(
     onConsumePendingFacilityDetail: () -> Unit = {},
     adCampaigns: List<AdCampaignItem> = emptyList(),
     adPlacementSettings: PlacementGlobalSettings = PlacementGlobalSettings(),
+    admobConfig: AdMobRemoteConfig = AdMobRemoteConfig(),
     hospitalRotationBase: Long = 0L,
     diagnosticRotationBase: Long = 0L,
     onNativeAdImpression: (AdCampaignItem, String) -> Unit = { _, _ -> },
@@ -198,27 +200,19 @@ fun DirectoriesScreen(
                             )
                             if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, list.size)) {
                                 val slot = AdvertisingRotationEngine.nativeSlotForCardIndex(idx)
-                                val nativeHospital = remember(adCampaigns, adPlacementSettings, slot, hospitalRotationBase, nowMs / 60_000L) {
-                                    AdvertisingRotationEngine.selectNativeAdForSlot(
-                                        campaigns = adCampaigns,
-                                        placementTarget = AdPlacements.HOSPITAL_LIST,
-                                        slotIndex = slot,
-                                        baseOffset = hospitalRotationBase,
-                                        nowMs = nowMs,
-                                        settings = adPlacementSettings
-                                    )
-                                }
-                                if (nativeHospital != null) {
-                                    Spacer(Modifier.height(10.dp))
-                                    NativeAd300x100Card(
-                                        campaign = nativeHospital,
-                                        queueKey = AdvertisingRotationEngine.QUEUE_HOSPITAL_NATIVE,
-                                        slotIndex = slot,
-                                        lang = lang,
-                                        onVisibleImpression = onNativeAdImpression,
-                                        onClicked = onNativeAdClick
-                                    )
-                                }
+                                NativeAdSlotOrAdMob(
+                                    campaigns = adCampaigns,
+                                    placementTarget = AdPlacements.HOSPITAL_LIST,
+                                    queueKey = AdvertisingRotationEngine.QUEUE_HOSPITAL_NATIVE,
+                                    slotIndex = slot,
+                                    baseOffset = hospitalRotationBase,
+                                    nowMs = nowMs,
+                                    placementSettings = adPlacementSettings,
+                                    admobConfig = admobConfig,
+                                    lang = lang,
+                                    onVisibleImpression = onNativeAdImpression,
+                                    onClicked = onNativeAdClick
+                                )
                             }
                         }
                     }
@@ -251,27 +245,19 @@ fun DirectoriesScreen(
                             )
                             if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, list.size)) {
                                 val slot = AdvertisingRotationEngine.nativeSlotForCardIndex(idx)
-                                val nativeDiagnostic = remember(adCampaigns, adPlacementSettings, slot, diagnosticRotationBase, nowMs / 60_000L) {
-                                    AdvertisingRotationEngine.selectNativeAdForSlot(
-                                        campaigns = adCampaigns,
-                                        placementTarget = AdPlacements.DIAGNOSTIC_LIST,
-                                        slotIndex = slot,
-                                        baseOffset = diagnosticRotationBase,
-                                        nowMs = nowMs,
-                                        settings = adPlacementSettings
-                                    )
-                                }
-                                if (nativeDiagnostic != null) {
-                                    Spacer(Modifier.height(10.dp))
-                                    NativeAd300x100Card(
-                                        campaign = nativeDiagnostic,
-                                        queueKey = AdvertisingRotationEngine.QUEUE_DIAGNOSTIC_NATIVE,
-                                        slotIndex = slot,
-                                        lang = lang,
-                                        onVisibleImpression = onNativeAdImpression,
-                                        onClicked = onNativeAdClick
-                                    )
-                                }
+                                NativeAdSlotOrAdMob(
+                                    campaigns = adCampaigns,
+                                    placementTarget = AdPlacements.DIAGNOSTIC_LIST,
+                                    queueKey = AdvertisingRotationEngine.QUEUE_DIAGNOSTIC_NATIVE,
+                                    slotIndex = slot,
+                                    baseOffset = diagnosticRotationBase,
+                                    nowMs = nowMs,
+                                    placementSettings = adPlacementSettings,
+                                    admobConfig = admobConfig,
+                                    lang = lang,
+                                    onVisibleImpression = onNativeAdImpression,
+                                    onClicked = onNativeAdClick
+                                )
                             }
                         }
                     }
