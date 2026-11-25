@@ -507,32 +507,34 @@ fun NativeAdSlotOrAdMob(
         admobConfig.nativeUnitIdForSlot(normPlacement, slotIndex)
     }
 
-    // Avoid consecutive duplicates when only 1 custom native campaign exists and AdMob Native is active
+    // Show Google AdMob Native Ad when no custom native campaign is active, or interleave on alternating 3-card slots
     val preferAdMobForSlot = placementSettings.adsEnabled && !admobNativeUnitId.isNullOrBlank() && placementEnabled && (
-        customNative == null || (activeCustomCount == 1 && slotIndex % 2 == 1)
+        customNative == null || (activeCustomCount >= 1 && slotIndex % 2 == 1)
         )
 
     when {
         preferAdMobForSlot && !admobNativeUnitId.isNullOrBlank() -> {
-            Spacer(Modifier.height(10.dp))
-            AdMobNativeAdCard(
-                adUnitId = admobNativeUnitId,
-                lang = lang,
-                slotKey = "${queueKey}_$slotIndex",
-                modifier = modifier
-            )
+            Column(modifier = modifier.fillMaxWidth()) {
+                Spacer(Modifier.height(10.dp))
+                AdMobNativeAdCard(
+                    adUnitId = admobNativeUnitId,
+                    lang = lang,
+                    slotKey = "${queueKey}_$slotIndex"
+                )
+            }
         }
         customNative != null -> {
-            Spacer(Modifier.height(10.dp))
-            NativeAd300x100Card(
-                campaign = customNative,
-                queueKey = queueKey,
-                slotIndex = slotIndex,
-                lang = lang,
-                onVisibleImpression = onVisibleImpression,
-                onClicked = onClicked,
-                modifier = modifier
-            )
+            Column(modifier = modifier.fillMaxWidth()) {
+                Spacer(Modifier.height(10.dp))
+                NativeAd300x100Card(
+                    campaign = customNative,
+                    queueKey = queueKey,
+                    slotIndex = slotIndex,
+                    lang = lang,
+                    onVisibleImpression = onVisibleImpression,
+                    onClicked = onClicked
+                )
+            }
         }
         else -> Unit
     }

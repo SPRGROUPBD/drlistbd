@@ -697,7 +697,8 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
                             onLoginSuccess = vm::saveAdvertiserSession,
                             onLogout = { vm.logoutAdvertiser(appContext) },
                             onShowMessage = vm::showMessage,
-                            onRefreshGlobalAds = vm::refreshAdvertisingSystem
+                            onRefreshGlobalAds = vm::refreshAdvertisingSystem,
+                            onDoctorClick = openDoctorProfile
                         )
                     }
 

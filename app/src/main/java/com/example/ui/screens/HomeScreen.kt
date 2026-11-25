@@ -684,35 +684,37 @@ fun HomeScreen(
             }
         } else {
             itemsIndexed(popularDoctors, key = { _, it -> "popular_${it.doctor.id}" }) { index, doc ->
-                PopularDoctorCompactCard(
-                    item = doc,
-                    lang = lang,
-                    isDark = isDark,
-                    cardBg = cardBg,
-                    cardBorder = cardBorder,
-                    isFavorite = doc.doctor.id in favoriteIds,
-                    onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
-                    onClick = { onDoctorClick(doc.doctor.id) },
-                    modifier = Modifier.padding(horizontal = 14.dp)
-                )
-
-                // Dynamic Native Banner Ads (300x100) + AdMob Native inside "জনপ্রিয় ডাক্তারবৃন্দ" (Popular Doctors)
-                if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(index, popularDoctors.size)) {
-                    val nativeSlot = AdvertisingRotationEngine.nativeSlotForCardIndex(index)
-                    NativeAdSlotOrAdMob(
-                        campaigns = adCampaigns,
-                        placementTarget = AdPlacements.DOCTOR_LIST,
-                        queueKey = AdvertisingRotationEngine.QUEUE_DOCTOR_NATIVE,
-                        slotIndex = nativeSlot,
-                        baseOffset = doctorListRotationBase,
-                        nowMs = nowMs,
-                        placementSettings = adPlacementSettings,
-                        admobConfig = admobConfig,
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    PopularDoctorCompactCard(
+                        item = doc,
                         lang = lang,
-                        onVisibleImpression = onNativeAdImpression,
-                        onClicked = onNativeAdClick,
+                        isDark = isDark,
+                        cardBg = cardBg,
+                        cardBorder = cardBorder,
+                        isFavorite = doc.doctor.id in favoriteIds,
+                        onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
+                        onClick = { onDoctorClick(doc.doctor.id) },
                         modifier = Modifier.padding(horizontal = 14.dp)
                     )
+
+                    // Dynamic Native Banner Ads (300x100) + AdMob Native inside "জনপ্রিয় ডাক্তারবৃন্দ" (Popular Doctors)
+                    if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(index, popularDoctors.size)) {
+                        val nativeSlot = AdvertisingRotationEngine.nativeSlotForCardIndex(index)
+                        NativeAdSlotOrAdMob(
+                            campaigns = adCampaigns,
+                            placementTarget = AdPlacements.DOCTOR_LIST,
+                            queueKey = AdvertisingRotationEngine.QUEUE_DOCTOR_NATIVE,
+                            slotIndex = nativeSlot,
+                            baseOffset = doctorListRotationBase,
+                            nowMs = nowMs,
+                            placementSettings = adPlacementSettings,
+                            admobConfig = admobConfig,
+                            lang = lang,
+                            onVisibleImpression = onNativeAdImpression,
+                            onClicked = onNativeAdClick,
+                            modifier = Modifier.padding(horizontal = 14.dp)
+                        )
+                    }
                 }
             }
         }

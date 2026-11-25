@@ -383,9 +383,10 @@ data class AdMobRemoteConfig(
         if (!enabled || !nativeEnabled) return emptyList()
         if (testMode) return listOf(DEFAULT_TEST_NATIVE_ID)
         val normTarget = AdPlacements.normalize(placementTarget)
-        val activeNativePlacements = placements.filter {
-            it.isActive && it.adFormat.equals("NATIVE", ignoreCase = true)
+        val allNativePlacements = placements.filter {
+            it.adFormat.equals("NATIVE", ignoreCase = true)
         }
+        val activeNativePlacements = allNativePlacements.filter { it.isActive }
         val exactMatches = activeNativePlacements
             .filter { AdPlacements.normalize(it.placement) == normTarget }
             .map { it.adUnitId.trim() }
@@ -403,7 +404,7 @@ data class AdMobRemoteConfig(
             .distinct()
         if (allListsMatches.isNotEmpty()) return allListsMatches
 
-        if (placementsManaged || placements.isNotEmpty()) return emptyList()
+        if (allNativePlacements.isNotEmpty()) return emptyList()
         val legacy = nativeUnitId.trim()
         return if (legacy.isNotBlank()) listOf(legacy) else emptyList()
     }

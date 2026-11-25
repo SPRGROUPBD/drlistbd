@@ -376,7 +376,9 @@ object AdvertisingRemoteService {
             category = o.optString("category", "Healthcare"),
             photoUrl = o.optString("photoUrl", ""),
             websiteUrl = o.optString("websiteUrl", ""),
-            authProvider = o.optString("authProvider", "GOOGLE")
+            authProvider = o.optString("authProvider", "GOOGLE"),
+            institutionId = o.optString("institutionId", ""),
+            institutionType = o.optString("institutionType", "")
         )
     }
 
@@ -969,23 +971,32 @@ object AdvertisingRemoteService {
 
     private fun parseCampaign(id: String, o: JSONObject): AdCampaignItem {
         val parsedTargets = mutableListOf<PromotedTargetRef>()
+        fun addTargetObj(item: JSONObject?) {
+            if (item == null) return
+            val rType = SliderRecordTypes.normalize(item.optString("recordType", ""))
+            val rId = item.optString("recordId", "").trim()
+            if (SliderRecordTypes.isSupported(rType) && rId.isNotBlank()) {
+                parsedTargets.add(
+                    PromotedTargetRef(
+                        recordType = rType,
+                        recordId = rId,
+                        title = item.optString("title", "").trim(),
+                        subtitle = item.optString("subtitle", "").trim(),
+                        photoUrl = item.optString("photoUrl", "").trim()
+                    )
+                )
+            }
+        }
         val targetsArr = o.optJSONArray("promotedTargets")
         if (targetsArr != null) {
             for (i in 0 until targetsArr.length()) {
-                val item = targetsArr.optJSONObject(i) ?: continue
-                val rType = SliderRecordTypes.normalize(item.optString("recordType", ""))
-                val rId = item.optString("recordId", "").trim()
-                if (SliderRecordTypes.isSupported(rType) && rId.isNotBlank()) {
-                    parsedTargets.add(
-                        PromotedTargetRef(
-                            recordType = rType,
-                            recordId = rId,
-                            title = item.optString("title", "").trim(),
-                            subtitle = item.optString("subtitle", "").trim(),
-                            photoUrl = item.optString("photoUrl", "").trim()
-                        )
-                    )
-                }
+                addTargetObj(targetsArr.optJSONObject(i))
+            }
+        } else {
+            val targetsObj = o.optJSONObject("promotedTargets")
+            if (targetsObj != null) {
+                val tKeys = targetsObj.keys().asSequence().toList().sortedBy { it.toIntOrNull() ?: Int.MAX_VALUE }
+                tKeys.forEach { k -> addTargetObj(targetsObj.optJSONObject(k)) }
             }
         }
         val rawImageUrl = o.optString("imageUrl", "").trim()

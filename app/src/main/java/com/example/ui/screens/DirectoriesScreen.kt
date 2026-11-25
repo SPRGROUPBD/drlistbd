@@ -183,36 +183,38 @@ fun DirectoriesScreen(
                 } else {
                     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         itemsIndexed(list, key = { _, it -> it.id }) { idx, h ->
-                            FacilityCard(
-                                name = tr(lang, h.nameBn, h.nameEn),
-                                subtitle = "${h.upazila}, ${h.district}",
-                                address = h.address,
-                                phone = h.contactNumber,
-                                imageUrl = h.imageUrl,
-                                isDemo = h.isDemoData,
-                                icon = Icons.Rounded.LocalHospital,
-                                lang = lang,
-                                isFavorite = h.id in favoriteHospitalIds,
-                                onToggleFavorite = { onToggleHospitalFavorite(h.id, h.nameEn) },
-                                onCall = { safeDialPhone(context, h.contactNumber, lang) },
-                                onViewDoctors = { onSelectFacility(h.nameEn.removePrefix("[DEMO] ")) },
-                                onCardClick = { detailHospital = h }
-                            )
-                            if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, list.size)) {
-                                val slot = AdvertisingRotationEngine.nativeSlotForCardIndex(idx)
-                                NativeAdSlotOrAdMob(
-                                    campaigns = adCampaigns,
-                                    placementTarget = AdPlacements.HOSPITAL_LIST,
-                                    queueKey = AdvertisingRotationEngine.QUEUE_HOSPITAL_NATIVE,
-                                    slotIndex = slot,
-                                    baseOffset = hospitalRotationBase,
-                                    nowMs = nowMs,
-                                    placementSettings = adPlacementSettings,
-                                    admobConfig = admobConfig,
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                FacilityCard(
+                                    name = tr(lang, h.nameBn, h.nameEn),
+                                    subtitle = "${h.upazila}, ${h.district}",
+                                    address = h.address,
+                                    phone = h.contactNumber,
+                                    imageUrl = h.imageUrl,
+                                    isDemo = h.isDemoData,
+                                    icon = Icons.Rounded.LocalHospital,
                                     lang = lang,
-                                    onVisibleImpression = onNativeAdImpression,
-                                    onClicked = onNativeAdClick
+                                    isFavorite = h.id in favoriteHospitalIds,
+                                    onToggleFavorite = { onToggleHospitalFavorite(h.id, h.nameEn) },
+                                    onCall = { safeDialPhone(context, h.contactNumber, lang) },
+                                    onViewDoctors = { onSelectFacility(h.nameEn.removePrefix("[DEMO] ")) },
+                                    onCardClick = { detailHospital = h }
                                 )
+                                if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, list.size)) {
+                                    val slot = AdvertisingRotationEngine.nativeSlotForCardIndex(idx)
+                                    NativeAdSlotOrAdMob(
+                                        campaigns = adCampaigns,
+                                        placementTarget = AdPlacements.HOSPITAL_LIST,
+                                        queueKey = AdvertisingRotationEngine.QUEUE_HOSPITAL_NATIVE,
+                                        slotIndex = slot,
+                                        baseOffset = hospitalRotationBase,
+                                        nowMs = nowMs,
+                                        placementSettings = adPlacementSettings,
+                                        admobConfig = admobConfig,
+                                        lang = lang,
+                                        onVisibleImpression = onNativeAdImpression,
+                                        onClicked = onNativeAdClick
+                                    )
+                                }
                             }
                         }
                     }
@@ -228,36 +230,38 @@ fun DirectoriesScreen(
                 } else {
                     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         itemsIndexed(list, key = { _, it -> it.id }) { idx, dc ->
-                            FacilityCard(
-                                name = tr(lang, dc.nameBn, dc.nameEn),
-                                subtitle = "${dc.upazila}, ${dc.district}",
-                                address = dc.address,
-                                phone = dc.contactNumber,
-                                imageUrl = dc.imageUrl,
-                                isDemo = dc.isDemoData,
-                                icon = Icons.Rounded.Biotech,
-                                lang = lang,
-                                isFavorite = dc.id in favoriteDiagnosticIds,
-                                onToggleFavorite = { onToggleDiagnosticFavorite(dc.id, dc.nameEn) },
-                                onCall = { safeDialPhone(context, dc.contactNumber, lang) },
-                                onViewDoctors = { onSelectFacility(dc.nameEn.removePrefix("[DEMO] ")) },
-                                onCardClick = { detailDiagnostic = dc }
-                            )
-                            if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, list.size)) {
-                                val slot = AdvertisingRotationEngine.nativeSlotForCardIndex(idx)
-                                NativeAdSlotOrAdMob(
-                                    campaigns = adCampaigns,
-                                    placementTarget = AdPlacements.DIAGNOSTIC_LIST,
-                                    queueKey = AdvertisingRotationEngine.QUEUE_DIAGNOSTIC_NATIVE,
-                                    slotIndex = slot,
-                                    baseOffset = diagnosticRotationBase,
-                                    nowMs = nowMs,
-                                    placementSettings = adPlacementSettings,
-                                    admobConfig = admobConfig,
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                FacilityCard(
+                                    name = tr(lang, dc.nameBn, dc.nameEn),
+                                    subtitle = "${dc.upazila}, ${dc.district}",
+                                    address = dc.address,
+                                    phone = dc.contactNumber,
+                                    imageUrl = dc.imageUrl,
+                                    isDemo = dc.isDemoData,
+                                    icon = Icons.Rounded.Biotech,
                                     lang = lang,
-                                    onVisibleImpression = onNativeAdImpression,
-                                    onClicked = onNativeAdClick
+                                    isFavorite = dc.id in favoriteDiagnosticIds,
+                                    onToggleFavorite = { onToggleDiagnosticFavorite(dc.id, dc.nameEn) },
+                                    onCall = { safeDialPhone(context, dc.contactNumber, lang) },
+                                    onViewDoctors = { onSelectFacility(dc.nameEn.removePrefix("[DEMO] ")) },
+                                    onCardClick = { detailDiagnostic = dc }
                                 )
+                                if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, list.size)) {
+                                    val slot = AdvertisingRotationEngine.nativeSlotForCardIndex(idx)
+                                    NativeAdSlotOrAdMob(
+                                        campaigns = adCampaigns,
+                                        placementTarget = AdPlacements.DIAGNOSTIC_LIST,
+                                        queueKey = AdvertisingRotationEngine.QUEUE_DIAGNOSTIC_NATIVE,
+                                        slotIndex = slot,
+                                        baseOffset = diagnosticRotationBase,
+                                        nowMs = nowMs,
+                                        placementSettings = adPlacementSettings,
+                                        admobConfig = admobConfig,
+                                        lang = lang,
+                                        onVisibleImpression = onNativeAdImpression,
+                                        onClicked = onNativeAdClick
+                                    )
+                                }
                             }
                         }
                     }

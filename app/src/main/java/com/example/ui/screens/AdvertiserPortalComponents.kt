@@ -41,10 +41,15 @@ internal fun AdvertiserOverviewTab(
     myCampaigns: List<AdCampaignItem>,
     myPayments: List<AdPaymentRecord>,
     activePackages: List<AdPackageItem>,
+    doctors: List<DoctorFullProfile> = emptyList(),
+    hospitals: List<HospitalEntity> = emptyList(),
+    diagnostics: List<DiagnosticCenterEntity> = emptyList(),
     nowMs: Long,
     onSelectPackageToCreate: (AdPackageItem) -> Unit,
-    onRenewCampaign: (AdCampaignItem) -> Unit
+    onRenewCampaign: (AdCampaignItem) -> Unit,
+    onDoctorClick: (String) -> Unit = {}
 ) {
+    var previewSliderCampaign by remember { mutableStateOf<AdCampaignItem?>(null) }
     val activeCount = myCampaigns.count { AdvertisingValidators.isCampaignEligible(it, nowMs) }
     val pendingCount = myCampaigns.count {
         AdvertisingValidators.effectiveCampaignStatus(it, nowMs) == AdStatuses.PENDING
@@ -235,10 +240,87 @@ internal fun AdvertiserOverviewTab(
                     lang = lang,
                     campaign = camp,
                     nowMs = nowMs,
-                    onRenew = { onRenewCampaign(camp) }
+                    onRenew = { onRenewCampaign(camp) },
+                    onPreviewSlider = if (AdPackageTypes.normalize(camp.adType) == AdPackageTypes.HOME_SLIDER) {
+                        { previewSliderCampaign = camp }
+                    } else null
                 )
             }
         }
+    }
+
+    previewSliderCampaign?.let { camp ->
+        val previewSlides = remember(camp, doctors, hospitals, diagnostics, lang) {
+            buildPreviewSlidesForTargets(
+                targets = camp.promotedTargets.ifEmpty {
+                    if (camp.targetRecordId.isNotBlank()) {
+                        listOf(
+                            PromotedTargetRef(
+                                recordType = camp.targetRecordType,
+                                recordId = camp.targetRecordId,
+                                title = camp.targetRecordTitle,
+                                subtitle = camp.targetRecordSubtitle,
+                                photoUrl = camp.targetRecordPhotoUrl
+                            )
+                        )
+                    } else emptyList()
+                },
+                doctors = doctors,
+                hospitals = hospitals,
+                diagnostics = diagnostics,
+                lang = lang,
+                fallbackTitle = camp.title.ifBlank { camp.businessName },
+                fallbackImageUrl = camp.imageUrl
+            )
+        }
+        AlertDialog(
+            onDismissRequest = { previewSliderCampaign = null },
+            title = {
+                Text(
+                    text = tr(lang, "হোম স্লাইডার প্রিভিউ", "Home Slider Preview"),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (previewSlides.isEmpty()) {
+                        Text(
+                            text = tr(lang, "এই ক্যাম্পেইনে কোনো স্লাইড পাওয়া যায়নি।", "No slides found for this campaign."),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    } else {
+                        Text(
+                            text = tr(
+                                lang,
+                                "মোট ${previewSlides.size}টি স্লাইড — ডাক্তারের কার্ডে ট্যাপ করে প্রোফাইল দেখুন।",
+                                "${previewSlides.size} slide(s) — tap any doctor slide to view full profile."
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                        HomeHeroBannerSlider(
+                            slides = previewSlides,
+                            autoSlideIntervalMs = 3500L,
+                            lang = lang,
+                            onSlideVisible = {},
+                            onSlideClick = { slide ->
+                                if (slide.targetRecordType == SliderRecordTypes.DOCTOR && slide.targetRecordId.isNotBlank()) {
+                                    previewSliderCampaign = null
+                                    onDoctorClick(slide.targetRecordId)
+                                }
+                            }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { previewSliderCampaign = null }) {
+                    Text(tr(lang, "বন্ধ করুন", "Close"))
+                }
+            }
+        )
     }
 }
 
@@ -247,7 +329,8 @@ private fun CampaignStatusCard(
     lang: AppLang,
     campaign: AdCampaignItem,
     nowMs: Long,
-    onRenew: () -> Unit
+    onRenew: () -> Unit,
+    onPreviewSlider: (() -> Unit)? = null
 ) {
     val effective = AdvertisingValidators.effectiveCampaignStatus(campaign, nowMs)
     val badgeColor = when (effective) {
@@ -353,6 +436,20 @@ private fun CampaignStatusCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = TextSecondary
                 )
+            }
+
+            if (onPreviewSlider != null) {
+                OutlinedButton(
+                    onClick = onPreviewSlider,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp)
+                        .testTag("adv_preview_slider_${campaign.id}")
+                ) {
+                    Icon(Icons.Rounded.Visibility, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(tr(lang, "হোম স্লাইডার ভিউ দেখুন", "View Home Slider Preview"))
+                }
             }
 
             if (effective == AdStatuses.EXPIRED) {
@@ -588,7 +685,8 @@ internal fun HomeSliderExistingRecordPicker(
     hospitals: List<HospitalEntity>,
     diagnostics: List<DiagnosticCenterEntity>,
     selectedTargets: List<PromotedTargetRef>,
-    onSelectionChange: (List<PromotedTargetRef>) -> Unit
+    onSelectionChange: (List<PromotedTargetRef>) -> Unit,
+    onViewDoctor: (String) -> Unit = {}
 ) {
     val selectedKeys = remember(selectedTargets) {
         selectedTargets.map { "${SliderRecordTypes.normalize(it.recordType)}:${it.recordId}" }.toSet()
@@ -604,34 +702,27 @@ internal fun HomeSliderExistingRecordPicker(
         onSelectionChange(next)
     }
 
-    // 1. Resolve Advertiser's own saved institution (Hospital or Diagnostic Center)
+    // 1. Resolve Advertiser's own saved institution (Hospital or Diagnostic Center) robustly across EN & BN names
+    fun matchesBusinessName(nameEn: String, nameBn: String, bizRaw: String): Boolean {
+        val bizNorm = FacilityDoctorMatcher.normalize(bizRaw)
+        if (bizNorm.isBlank()) return false
+        val enNorm = FacilityDoctorMatcher.normalize(nameEn)
+        val bnNorm = FacilityDoctorMatcher.normalize(nameBn)
+        return (enNorm.isNotBlank() && (enNorm == bizNorm || enNorm.contains(bizNorm) || (enNorm.length >= 4 && bizNorm.contains(enNorm)))) ||
+            (bnNorm.isNotBlank() && (bnNorm == bizNorm || bnNorm.contains(bizNorm) || (bnNorm.length >= 3 && bizNorm.contains(bnNorm))))
+    }
+
     val ownHospital = remember(session.institutionId, session.businessName, hospitals) {
         val instId = session.institutionId.trim()
-        val bizNorm = session.businessName.trim().lowercase()
         hospitals.firstOrNull { instId.isNotBlank() && it.id == instId }
-            ?: hospitals.firstOrNull { h ->
-                bizNorm.isNotBlank() && (
-                    h.nameEn.removePrefix("[DEMO] ").trim().equals(bizNorm, ignoreCase = true) ||
-                        h.nameBn.removePrefix("[DEMO] ").trim().equals(bizNorm, ignoreCase = true) ||
-                        h.nameEn.lowercase().contains(bizNorm) ||
-                        bizNorm.contains(h.nameEn.removePrefix("[DEMO] ").trim().lowercase()).and(h.nameEn.length >= 4)
-                    )
-            }
+            ?: hospitals.firstOrNull { h -> matchesBusinessName(h.nameEn, h.nameBn, session.businessName) }
     }
     val ownDiagnostic = remember(session.institutionId, session.businessName, diagnostics, ownHospital) {
         if (ownHospital != null) null
         else {
             val instId = session.institutionId.trim()
-            val bizNorm = session.businessName.trim().lowercase()
             diagnostics.firstOrNull { instId.isNotBlank() && it.id == instId }
-                ?: diagnostics.firstOrNull { d ->
-                    bizNorm.isNotBlank() && (
-                        d.nameEn.removePrefix("[DEMO] ").trim().equals(bizNorm, ignoreCase = true) ||
-                            d.nameBn.removePrefix("[DEMO] ").trim().equals(bizNorm, ignoreCase = true) ||
-                            d.nameEn.lowercase().contains(bizNorm) ||
-                            bizNorm.contains(d.nameEn.removePrefix("[DEMO] ").trim().lowercase()).and(d.nameEn.length >= 4)
-                        )
-                }
+                ?: diagnostics.firstOrNull { d -> matchesBusinessName(d.nameEn, d.nameBn, session.businessName) }
         }
     }
 
@@ -663,9 +754,11 @@ internal fun HomeSliderExistingRecordPicker(
         val altName = ownHospital?.nameBn?.removePrefix("[DEMO] ")
             ?: ownDiagnostic?.nameBn?.removePrefix("[DEMO] ")
             ?: ""
-        if (primaryName.isBlank() && altName.isBlank()) emptyList()
+        val extraBiz = session.businessName.trim()
+        if (primaryName.isBlank() && altName.isBlank() && extraBiz.isBlank()) emptyList()
         else doctors.filter { doc ->
-            FacilityDoctorMatcher.matchesFacility(doc, primaryName, altName)
+            FacilityDoctorMatcher.matchesFacility(doc, primaryName, altName) ||
+                (extraBiz.isNotBlank() && FacilityDoctorMatcher.matchesFacility(doc, extraBiz, ""))
         }.map { d ->
             PromotedTargetRef(
                 recordType = SliderRecordTypes.DOCTOR,
@@ -678,6 +771,15 @@ internal fun HomeSliderExistingRecordPicker(
                 ).filter { it.isNotBlank() }.joinToString(" • "),
                 photoUrl = d.doctor.photoUrl
             )
+        }
+    }
+
+    var instDoctorSearch by remember { mutableStateOf("") }
+    val visibleInstitutionDoctors = remember(institutionDoctors, instDoctorSearch) {
+        val q = instDoctorSearch.trim().lowercase()
+        if (q.isEmpty()) institutionDoctors
+        else institutionDoctors.filter {
+            it.title.lowercase().contains(q) || it.subtitle.lowercase().contains(q)
         }
     }
 
@@ -840,14 +942,25 @@ internal fun HomeSliderExistingRecordPicker(
                     )
                 }
             } else {
+                if (institutionDoctors.size > 3) {
+                    OutlinedTextField(
+                        value = instDoctorSearch,
+                        onValueChange = { instDoctorSearch = it },
+                        placeholder = { Text(tr(lang, "আপনার প্রতিষ্ঠানের ডাক্তার খুঁজুন...", "Filter your institution's doctors...")) },
+                        leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    institutionDoctors.forEach { docTarget ->
+                    visibleInstitutionDoctors.forEach { docTarget ->
                         val isChosen = "${docTarget.recordType}:${docTarget.recordId}" in selectedKeys
                         MultiSelectTargetRow(
                             target = docTarget,
                             badge = tr(lang, "ডাক্তার", "Doctor"),
                             checked = isChosen,
-                            onToggle = { toggleTarget(docTarget) }
+                            onToggle = { toggleTarget(docTarget) },
+                            onView = { onViewDoctor(docTarget.recordId) }
                         )
                     }
                 }
@@ -917,17 +1030,89 @@ internal fun HomeSliderExistingRecordPicker(
                                 target = item,
                                 badge = badgeText,
                                 checked = isChosen,
-                                onToggle = { toggleTarget(item) }
+                                onToggle = { toggleTarget(item) },
+                                onView = if (item.recordType == SliderRecordTypes.DOCTOR) {
+                                    { onViewDoctor(item.recordId) }
+                                } else null
                             )
                         }
                     }
                 }
             }
 
-            // Section D: Live Summary of All Selected Items
+            // Section D: Live Home Slider Preview + Summary of All Selected Items
             if (selectedTargets.isNotEmpty()) {
                 val docCount = selectedTargets.count { it.recordType == SliderRecordTypes.DOCTOR }
                 val facCount = selectedTargets.size - docCount
+                val livePreviewSlides = remember(selectedTargets, doctors, hospitals, diagnostics, lang) {
+                    buildPreviewSlidesForTargets(
+                        targets = selectedTargets,
+                        doctors = doctors,
+                        hospitals = hospitals,
+                        diagnostics = diagnostics,
+                        lang = lang
+                    )
+                }
+
+                if (livePreviewSlides.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = SurfaceWhite,
+                        border = BorderStroke(1.dp, MedicalBlue.copy(alpha = 0.4f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("adv_live_home_slider_preview")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Visibility,
+                                        contentDescription = null,
+                                        tint = MedicalBlueDark,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = tr(lang, "হোম স্লাইডার লাইভ প্রিভিউ (${livePreviewSlides.size})", "Live Home Slider Preview (${livePreviewSlides.size})"),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MedicalBlueDark
+                                    )
+                                }
+                                Text(
+                                    text = tr(lang, "ট্যাপ করে দেখুন", "Tap to View"),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MedicalTealDark,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            HomeHeroBannerSlider(
+                                slides = livePreviewSlides,
+                                autoSlideIntervalMs = 3500L,
+                                lang = lang,
+                                onSlideVisible = {},
+                                onSlideClick = { slide ->
+                                    if (slide.targetRecordType == SliderRecordTypes.DOCTOR && slide.targetRecordId.isNotBlank()) {
+                                        onViewDoctor(slide.targetRecordId)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = SurfaceWhite,
@@ -969,6 +1154,19 @@ internal fun HomeSliderExistingRecordPicker(
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f)
                                 )
+                                if (sel.recordType == SliderRecordTypes.DOCTOR) {
+                                    IconButton(
+                                        onClick = { onViewDoctor(sel.recordId) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.Visibility,
+                                            contentDescription = tr(lang, "প্রোফাইল দেখুন", "View Doctor Profile"),
+                                            tint = MedicalBlue,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
                                 IconButton(
                                     onClick = { toggleTarget(sel) },
                                     modifier = Modifier.size(32.dp)
@@ -984,12 +1182,65 @@ internal fun HomeSliderExistingRecordPicker(
     }
 }
 
+internal fun buildPreviewSlidesForTargets(
+    targets: List<PromotedTargetRef>,
+    doctors: List<DoctorFullProfile>,
+    hospitals: List<HospitalEntity>,
+    diagnostics: List<DiagnosticCenterEntity>,
+    lang: AppLang,
+    fallbackTitle: String = "",
+    fallbackImageUrl: String = ""
+): List<ResolvedHomeSliderSlide> {
+    val slides = targets.mapIndexed { idx, ref ->
+        val normType = SliderRecordTypes.normalize(ref.recordType)
+        val resolved = AdvertisingValidators.validateAndResolveDirectoryRecord(
+            recordType = normType,
+            recordId = ref.recordId,
+            doctors = doctors,
+            hospitals = hospitals,
+            diagnostics = diagnostics
+        )
+        val badge = when (normType) {
+            SliderRecordTypes.DOCTOR -> tr(lang, "স্পন্সরড ডাক্তার", "Sponsored Doctor")
+            SliderRecordTypes.HOSPITAL -> tr(lang, "স্পন্সরড হাসপাতাল", "Sponsored Hospital")
+            SliderRecordTypes.DIAGNOSTIC -> tr(lang, "স্পন্সরড ডায়াগনস্টিক", "Sponsored Diagnostic")
+            else -> tr(lang, "স্পন্সরড", "Sponsored")
+        }
+        ResolvedHomeSliderSlide(
+            slideId = "preview_${normType}_${ref.recordId}_$idx",
+            isCustomAdminSlider = false,
+            title = resolved?.title ?: ref.title.ifBlank { fallbackTitle },
+            subtitle = resolved?.subtitle ?: ref.subtitle,
+            description = resolved?.subtitle ?: ref.subtitle,
+            imageUrl = resolved?.photoUrl?.ifBlank { ref.photoUrl } ?: ref.photoUrl.ifBlank { fallbackImageUrl },
+            categoryBadge = badge,
+            targetRecordType = normType,
+            targetRecordId = ref.recordId
+        )
+    }
+    return if (slides.isNotEmpty()) slides
+    else if (fallbackTitle.isNotBlank() || fallbackImageUrl.isNotBlank()) {
+        listOf(
+            ResolvedHomeSliderSlide(
+                slideId = "preview_fallback",
+                isCustomAdminSlider = false,
+                title = fallbackTitle,
+                subtitle = "",
+                description = "",
+                imageUrl = fallbackImageUrl,
+                categoryBadge = tr(lang, "স্পন্সরড", "Sponsored")
+            )
+        )
+    } else emptyList()
+}
+
 @Composable
 private fun MultiSelectTargetRow(
     target: PromotedTargetRef,
     badge: String,
     checked: Boolean,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    onView: (() -> Unit)? = null
 ) {
     Surface(
         shape = RoundedCornerShape(12.dp),
@@ -1039,6 +1290,19 @@ private fun MultiSelectTargetRow(
                         color = TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (onView != null) {
+                IconButton(
+                    onClick = onView,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Visibility,
+                        contentDescription = "View Profile",
+                        tint = MedicalBlueDark,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }

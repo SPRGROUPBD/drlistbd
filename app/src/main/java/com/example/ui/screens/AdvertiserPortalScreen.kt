@@ -70,6 +70,7 @@ fun AdvertiserPortalScreen(
     onLogout: () -> Unit,
     onShowMessage: (String) -> Unit,
     onRefreshGlobalAds: () -> Unit = {},
+    onDoctorClick: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -207,6 +208,9 @@ fun AdvertiserPortalScreen(
                 myCampaigns = myCampaigns,
                 myPayments = myPayments,
                 activePackages = activePackages,
+                doctors = doctors,
+                hospitals = hospitals,
+                diagnostics = diagnosticCenters,
                 nowMs = nowMs,
                 onSelectPackageToCreate = { pkg ->
                     renewingCampaign = null
@@ -217,7 +221,8 @@ fun AdvertiserPortalScreen(
                     renewingCampaign = camp
                     preselectedPackage = activePackages.firstOrNull { it.id == camp.packageId } ?: activePackages.firstOrNull()
                     activeTab = 1
-                }
+                },
+                onDoctorClick = onDoctorClick
             )
             1 -> CreateCampaignAndPaymentTab(
                 lang = lang,
@@ -245,7 +250,8 @@ fun AdvertiserPortalScreen(
                         )
                     )
                 },
-                onError = onShowMessage
+                onError = onShowMessage,
+                onDoctorClick = onDoctorClick
             )
             2 -> AdvertiserPaymentsHistoryTab(lang = lang, payments = myPayments)
             3 -> AdvertiserProfileSettingsTab(
@@ -582,7 +588,8 @@ private fun CreateCampaignAndPaymentTab(
     isOnline: Boolean,
     nowMs: Long,
     onSubmitted: () -> Unit,
-    onError: (String) -> Unit
+    onError: (String) -> Unit,
+    onDoctorClick: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -820,7 +827,8 @@ private fun CreateCampaignAndPaymentTab(
                                     val first = updated.firstOrNull()
                                     if (first != null && title.isBlank()) title = first.title
                                     if (first != null && imageUrl.isBlank()) imageUrl = first.photoUrl
-                                }
+                                },
+                                onViewDoctor = onDoctorClick
                             )
                         } else {
                             OutlinedTextField(

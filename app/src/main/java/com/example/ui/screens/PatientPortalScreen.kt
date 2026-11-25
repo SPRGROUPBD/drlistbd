@@ -193,25 +193,27 @@ fun PatientPortalScreen(
                     }
                 } else {
                     itemsIndexed(favoriteDoctors, key = { _, it -> it.doctor.id }) { idx, doc ->
-                        DoctorCard(
-                            item = doc,
-                            lang = lang,
-                            isFavorite = true,
-                            onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
-                            onClick = { onDoctorClick(doc.doctor.id) }
-                        )
-                        if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, favoriteDoctors.size)) {
-                            FavoriteListNativeAdSlot(
-                                slotIndex = AdvertisingRotationEngine.nativeSlotForCardIndex(idx),
-                                campaigns = adCampaigns,
-                                placementSettings = adPlacementSettings,
-                                admobConfig = admobConfig,
-                                baseOffset = favoriteRotationBase,
-                                nowMs = nowMs,
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            DoctorCard(
+                                item = doc,
                                 lang = lang,
-                                onVisibleImpression = onNativeAdImpression,
-                                onClicked = onNativeAdClick
+                                isFavorite = true,
+                                onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
+                                onClick = { onDoctorClick(doc.doctor.id) }
                             )
+                            if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, favoriteDoctors.size)) {
+                                FavoriteListNativeAdSlot(
+                                    slotIndex = AdvertisingRotationEngine.nativeSlotForCardIndex(idx),
+                                    campaigns = adCampaigns,
+                                    placementSettings = adPlacementSettings,
+                                    admobConfig = admobConfig,
+                                    baseOffset = favoriteRotationBase,
+                                    nowMs = nowMs,
+                                    lang = lang,
+                                    onVisibleImpression = onNativeAdImpression,
+                                    onClicked = onNativeAdClick
+                                )
+                            }
                         }
                     }
                 }
@@ -232,27 +234,29 @@ fun PatientPortalScreen(
                     }
                 } else {
                     itemsIndexed(favoriteHospitals, key = { _, it -> it.id }) { idx, h ->
-                        SavedItemCard(
-                            title = tr(lang, h.nameBn, h.nameEn),
-                            subtitle = "${h.upazila}, ${h.district}",
-                            detail = h.address,
-                            icon = Icons.Rounded.LocalHospital,
-                            actionLabel = tr(lang, "ডাক্তার দেখুন", "View Doctors"),
-                            onAction = { onSelectFacility(h.nameEn.removePrefix("[DEMO] ")) },
-                            onRemove = { onToggleHospitalFavorite(h.id, h.nameEn) }
-                        )
-                        if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, favoriteHospitals.size)) {
-                            FavoriteListNativeAdSlot(
-                                slotIndex = AdvertisingRotationEngine.nativeSlotForCardIndex(idx),
-                                campaigns = adCampaigns,
-                                placementSettings = adPlacementSettings,
-                                admobConfig = admobConfig,
-                                baseOffset = favoriteRotationBase,
-                                nowMs = nowMs,
-                                lang = lang,
-                                onVisibleImpression = onNativeAdImpression,
-                                onClicked = onNativeAdClick
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            SavedItemCard(
+                                title = tr(lang, h.nameBn, h.nameEn),
+                                subtitle = "${h.upazila}, ${h.district}",
+                                detail = h.address,
+                                icon = Icons.Rounded.LocalHospital,
+                                actionLabel = tr(lang, "ডাক্তার দেখুন", "View Doctors"),
+                                onAction = { onSelectFacility(h.nameEn.removePrefix("[DEMO] ")) },
+                                onRemove = { onToggleHospitalFavorite(h.id, h.nameEn) }
                             )
+                            if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, favoriteHospitals.size)) {
+                                FavoriteListNativeAdSlot(
+                                    slotIndex = AdvertisingRotationEngine.nativeSlotForCardIndex(idx),
+                                    campaigns = adCampaigns,
+                                    placementSettings = adPlacementSettings,
+                                    admobConfig = admobConfig,
+                                    baseOffset = favoriteRotationBase,
+                                    nowMs = nowMs,
+                                    lang = lang,
+                                    onVisibleImpression = onNativeAdImpression,
+                                    onClicked = onNativeAdClick
+                                )
+                            }
                         }
                     }
                 }
@@ -273,27 +277,29 @@ fun PatientPortalScreen(
                     }
                 } else {
                     itemsIndexed(favoriteDiagnostics, key = { _, it -> it.id }) { idx, dc ->
-                        SavedItemCard(
-                            title = tr(lang, dc.nameBn, dc.nameEn),
-                            subtitle = "${dc.upazila}, ${dc.district}",
-                            detail = dc.address,
-                            icon = Icons.Rounded.Biotech,
-                            actionLabel = tr(lang, "ডাক্তার দেখুন", "View Doctors"),
-                            onAction = { onSelectFacility(dc.nameEn.removePrefix("[DEMO] ")) },
-                            onRemove = { onToggleDiagnosticFavorite(dc.id, dc.nameEn) }
-                        )
-                        if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, favoriteDiagnostics.size)) {
-                            FavoriteListNativeAdSlot(
-                                slotIndex = AdvertisingRotationEngine.nativeSlotForCardIndex(idx),
-                                campaigns = adCampaigns,
-                                placementSettings = adPlacementSettings,
-                                admobConfig = admobConfig,
-                                baseOffset = favoriteRotationBase,
-                                nowMs = nowMs,
-                                lang = lang,
-                                onVisibleImpression = onNativeAdImpression,
-                                onClicked = onNativeAdClick
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            SavedItemCard(
+                                title = tr(lang, dc.nameBn, dc.nameEn),
+                                subtitle = "${dc.upazila}, ${dc.district}",
+                                detail = dc.address,
+                                icon = Icons.Rounded.Biotech,
+                                actionLabel = tr(lang, "ডাক্তার দেখুন", "View Doctors"),
+                                onAction = { onSelectFacility(dc.nameEn.removePrefix("[DEMO] ")) },
+                                onRemove = { onToggleDiagnosticFavorite(dc.id, dc.nameEn) }
                             )
+                            if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, favoriteDiagnostics.size)) {
+                                FavoriteListNativeAdSlot(
+                                    slotIndex = AdvertisingRotationEngine.nativeSlotForCardIndex(idx),
+                                    campaigns = adCampaigns,
+                                    placementSettings = adPlacementSettings,
+                                    admobConfig = admobConfig,
+                                    baseOffset = favoriteRotationBase,
+                                    nowMs = nowMs,
+                                    lang = lang,
+                                    onVisibleImpression = onNativeAdImpression,
+                                    onClicked = onNativeAdClick
+                                )
+                            }
                         }
                     }
                 }
@@ -314,27 +320,29 @@ fun PatientPortalScreen(
                     }
                 } else {
                     itemsIndexed(favoriteChambers, key = { _, it -> it.second.id }) { idx, (doc, ch) ->
-                        SavedItemCard(
-                            title = tr(lang, doc.doctor.fullNameBn, doc.doctor.fullNameEn),
-                            subtitle = ch.facilityName,
-                            detail = "${ch.upazila}, ${ch.district} • ${ch.fullAddress}",
-                            icon = Icons.Rounded.Schedule,
-                            actionLabel = tr(lang, "প্রোফাইল", "Open Doctor"),
-                            onAction = { onDoctorClick(doc.doctor.id) },
-                            onRemove = { onToggleChamberFavorite(ch.id, ch.facilityName) }
-                        )
-                        if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, favoriteChambers.size)) {
-                            FavoriteListNativeAdSlot(
-                                slotIndex = AdvertisingRotationEngine.nativeSlotForCardIndex(idx),
-                                campaigns = adCampaigns,
-                                placementSettings = adPlacementSettings,
-                                admobConfig = admobConfig,
-                                baseOffset = favoriteRotationBase,
-                                nowMs = nowMs,
-                                lang = lang,
-                                onVisibleImpression = onNativeAdImpression,
-                                onClicked = onNativeAdClick
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            SavedItemCard(
+                                title = tr(lang, doc.doctor.fullNameBn, doc.doctor.fullNameEn),
+                                subtitle = ch.facilityName,
+                                detail = "${ch.upazila}, ${ch.district} • ${ch.fullAddress}",
+                                icon = Icons.Rounded.Schedule,
+                                actionLabel = tr(lang, "প্রোফাইল", "Open Doctor"),
+                                onAction = { onDoctorClick(doc.doctor.id) },
+                                onRemove = { onToggleChamberFavorite(ch.id, ch.facilityName) }
                             )
+                            if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(idx, favoriteChambers.size)) {
+                                FavoriteListNativeAdSlot(
+                                    slotIndex = AdvertisingRotationEngine.nativeSlotForCardIndex(idx),
+                                    campaigns = adCampaigns,
+                                    placementSettings = adPlacementSettings,
+                                    admobConfig = admobConfig,
+                                    baseOffset = favoriteRotationBase,
+                                    nowMs = nowMs,
+                                    lang = lang,
+                                    onVisibleImpression = onNativeAdImpression,
+                                    onClicked = onNativeAdClick
+                                )
+                            }
                         }
                     }
                 }

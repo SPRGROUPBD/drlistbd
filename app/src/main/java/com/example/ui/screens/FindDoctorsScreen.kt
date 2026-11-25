@@ -312,29 +312,31 @@ fun FindDoctorsScreen(
                 }
 
                 itemsIndexed(pagedDoctors, key = { _, it -> it.doctor.id }) { index, doc ->
-                    DoctorCard(
-                        item = doc,
-                        lang = lang,
-                        isFavorite = doc.doctor.id in favoriteIds,
-                        onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
-                        onClick = { onDoctorClick(doc.doctor.id) }
-                    )
-                    // Display 1 Native Ad (300x100) or AdMob Native Ad after every 3 Doctor Cards
-                    if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(index, pagedDoctors.size)) {
-                        val nativeSlot = AdvertisingRotationEngine.nativeSlotForCardIndex(index)
-                        NativeAdSlotOrAdMob(
-                            campaigns = adCampaigns,
-                            placementTarget = AdPlacements.DOCTOR_LIST,
-                            queueKey = AdvertisingRotationEngine.QUEUE_DOCTOR_NATIVE,
-                            slotIndex = nativeSlot,
-                            baseOffset = doctorListRotationBase,
-                            nowMs = nowMs,
-                            placementSettings = adPlacementSettings,
-                            admobConfig = admobConfig,
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        DoctorCard(
+                            item = doc,
                             lang = lang,
-                            onVisibleImpression = onNativeAdImpression,
-                            onClicked = onNativeAdClick
+                            isFavorite = doc.doctor.id in favoriteIds,
+                            onToggleFavorite = { onToggleFavorite(doc.doctor.id) },
+                            onClick = { onDoctorClick(doc.doctor.id) }
                         )
+                        // Display 1 Native Ad (300x100) or AdMob Native Ad after every 3 Doctor Cards
+                        if (AdvertisingRotationEngine.shouldInsertNativeAfterCard(index, pagedDoctors.size)) {
+                            val nativeSlot = AdvertisingRotationEngine.nativeSlotForCardIndex(index)
+                            NativeAdSlotOrAdMob(
+                                campaigns = adCampaigns,
+                                placementTarget = AdPlacements.DOCTOR_LIST,
+                                queueKey = AdvertisingRotationEngine.QUEUE_DOCTOR_NATIVE,
+                                slotIndex = nativeSlot,
+                                baseOffset = doctorListRotationBase,
+                                nowMs = nowMs,
+                                placementSettings = adPlacementSettings,
+                                admobConfig = admobConfig,
+                                lang = lang,
+                                onVisibleImpression = onNativeAdImpression,
+                                onClicked = onNativeAdClick
+                            )
+                        }
                     }
                 }
                 if (pagedDoctors.size < filteredDoctors.size) {
