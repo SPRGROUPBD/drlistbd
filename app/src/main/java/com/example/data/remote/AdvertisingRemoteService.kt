@@ -1204,6 +1204,7 @@ object AdvertisingRemoteService {
             nativeEnabled = obj.optBoolean("nativeEnabled", true),
             nativeUnitId = rawNative.ifBlank { if (testMode) AdMobRemoteConfig.DEFAULT_TEST_NATIVE_ID else "" },
             placementsManaged = placementsManaged,
+            nativeExplicitlyCleared = obj.optBoolean("nativeExplicitlyCleared", false),
             placements = sortedPlacements,
             updatedAt = obj.optLong("updatedAt", 0L)
         )

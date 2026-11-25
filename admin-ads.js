@@ -2441,18 +2441,21 @@ function isOfficialTestAdMobUnitId(unitId) {
   return String(unitId || "").trim().startsWith("ca-app-pub-3940256099942544/");
 }
 
-function syncAdMobPrimaryFieldsFromPlacements(admobObj, markManaged = true) {
+function syncAdMobPrimaryFieldsFromPlacements(admobObj, markManaged = true, clearedNative = false) {
   const placementsMap = admobObj.placements && typeof admobObj.placements === "object" ? admobObj.placements : {};
-  const list = Object.values(placementsMap).filter(p => p && String(p.status || "ACTIVE").toUpperCase() === "ACTIVE");
+  const allList = Object.values(placementsMap).filter(p => p && typeof p === "object");
+  const list = allList.filter(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE");
   const firstBanner = list.find(p => String(p.adFormat || "").toUpperCase() === "BANNER" && String(p.adUnitId || "").trim());
   const firstNative = list.find(p => String(p.adFormat || "").toUpperCase() === "NATIVE" && String(p.adUnitId || "").trim());
-  const isManaged = markManaged || Boolean(admobObj.placementsManaged) || Object.keys(placementsMap).length > 0;
+  const hasAnyNativeRecord = allList.some(p => String(p.adFormat || "").toUpperCase() === "NATIVE");
+  const isManaged = markManaged || Boolean(admobObj.placementsManaged) || allList.length > 0;
   return {
     ...admobObj,
     placements: placementsMap,
     placementsManaged: isManaged,
+    nativeExplicitlyCleared: hasAnyNativeRecord ? false : (clearedNative || Boolean(admobObj.nativeExplicitlyCleared)),
     bannerUnitId: firstBanner ? String(firstBanner.adUnitId).trim() : (isManaged ? "" : String(admobObj.bannerUnitId || "").trim()),
-    nativeUnitId: firstNative ? String(firstNative.adUnitId).trim() : (isManaged ? "" : String(admobObj.nativeUnitId || "").trim()),
+    nativeUnitId: firstNative ? String(firstNative.adUnitId).trim() : (hasAnyNativeRecord || clearedNative ? "" : String(admobObj.nativeUnitId || "").trim()),
     updatedAt: Date.now()
   };
 }
@@ -2848,12 +2851,14 @@ async function deleteAdMobPlacement(id) {
     const item = oldPlacements[id];
     if (!item) return;
     if (!confirm(`Delete AdMob placement "${item.label}" (${item.adUnitId})?`)) return;
+    const deletedFormat = String(oldPlacements[id]?.adFormat || "").toUpperCase();
     delete oldPlacements[id];
+    const remainingNative = Object.values(oldPlacements).some(p => p && String(p.adFormat || "").toUpperCase() === "NATIVE");
     const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
       ...(adState.admob || {}),
       testMode: false,
       placements: oldPlacements
-    }, true);
+    }, true, deletedFormat === "NATIVE" && !remainingNative);
     await rtdbAdPut("advertising/admob", nextAdMob);
     adState.admob = nextAdMob;
     if (editing.type === "admob_placement" && editing.item && editing.item.id === id) editing = {};

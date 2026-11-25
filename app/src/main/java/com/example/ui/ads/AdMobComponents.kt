@@ -3,6 +3,9 @@ package com.example.ui.ads
 import android.content.Context
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.text.TextUtils
 import android.util.Log
 import android.util.TypedValue
@@ -18,8 +21,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.example.BuildConfig
 import com.example.i18n.AppLang
 import com.example.i18n.tr
 import com.example.ui.theme.LightSurfaceWhite
@@ -47,13 +53,16 @@ import com.google.android.gms.ads.AdSize
 import com.google.android.gms.ads.AdView
 import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.MobileAds
+import com.google.android.gms.ads.RequestConfiguration
 import com.google.android.gms.ads.nativead.NativeAd
 import com.google.android.gms.ads.nativead.NativeAdOptions
 import com.google.android.gms.ads.nativead.NativeAdView
+import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicBoolean
 
 object AdMobInitializer {
     private const val TAG = "AdMobInitializer"
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val initStarted = AtomicBoolean(false)
     @Volatile
     private var initCompleted = false
@@ -63,6 +72,29 @@ object AdMobInitializer {
     @Volatile
     var syncedRemoteAppId: String = ""
         private set
+
+    fun isRunningOnEmulator(): Boolean {
+        return (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic")) ||
+            Build.FINGERPRINT.startsWith("generic") ||
+            Build.FINGERPRINT.startsWith("unknown") ||
+            Build.HARDWARE.contains("goldfish") ||
+            Build.HARDWARE.contains("ranchu") ||
+            Build.MODEL.contains("google_sdk") ||
+            Build.MODEL.contains("Emulator") ||
+            Build.MODEL.contains("Android SDK built for x86") ||
+            Build.MANUFACTURER.contains("Genymotion") ||
+            Build.PRODUCT.contains("sdk_gphone") ||
+            Build.PRODUCT.contains("emulator") ||
+            Build.PRODUCT.contains("simulator")
+    }
+
+    private fun postToMain(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            runCatching { block() }
+        } else {
+            mainHandler.post { runCatching { block() } }
+        }
+    }
 
     fun ensureInitialized(context: Context) {
         runWhenInitialized(context) {}
@@ -82,11 +114,16 @@ object AdMobInitializer {
             }
         }
         if (shouldRunNow) {
-            onReady()
+            postToMain(onReady)
             return
         }
         if (shouldStartInit) {
             runCatching {
+                val requestConfig = RequestConfiguration.Builder()
+                    .setTestDeviceIds(listOf(AdRequest.DEVICE_ID_EMULATOR))
+                    .build()
+                MobileAds.setRequestConfiguration(requestConfig)
+
                 MobileAds.initialize(context.applicationContext) {
                     Log.d(TAG, "Google Mobile Ads SDK initialized")
                     val callbacks = synchronized(lock) {
@@ -95,7 +132,9 @@ object AdMobInitializer {
                         pendingCallbacks.clear()
                         copy
                     }
-                    callbacks.forEach { cb -> runCatching { cb() } }
+                    postToMain {
+                        callbacks.forEach { cb -> runCatching { cb() } }
+                    }
                 }
             }.onFailure { err ->
                 Log.w(TAG, "MobileAds initialization skipped: ${err.message}")
@@ -105,7 +144,9 @@ object AdMobInitializer {
                     pendingCallbacks.clear()
                     copy
                 }
-                callbacks.forEach { cb -> runCatching { cb() } }
+                postToMain {
+                    callbacks.forEach { cb -> runCatching { cb() } }
+                }
             }
         }
     }
@@ -123,10 +164,10 @@ object AdMobInitializer {
 /**
  * Lightweight LRU cache for loaded AdMob NativeAds so scrolling inside a LazyColumn
  * preserves already-loaded native ads without blank flicker or repeated network fetches.
- * Automatically purges stale unit IDs when Admin edits Placement IDs dynamically.
+ * Automatically purges stale entries when Admin edits Placement IDs dynamically.
  */
 private object AdMobNativeAdCache {
-    private const val MAX_ENTRIES = 10
+    private const val MAX_ENTRIES = 12
     private val lock = Any()
     private val entries = object : LinkedHashMap<String, NativeAd>(MAX_ENTRIES, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, NativeAd>?): Boolean {
@@ -164,18 +205,20 @@ fun AdMobBannerAdView(
     adUnitId: String,
     modifier: Modifier = Modifier
 ) {
-    val cleanId = adUnitId.trim()
-    if (cleanId.isBlank()) return
+    val requestedId = adUnitId.trim()
+    if (requestedId.isBlank()) return
 
-    key(cleanId) {
+    var activeUnitId by remember(requestedId) { mutableStateOf(requestedId) }
+
+    key(activeUnitId) {
         val context = LocalContext.current
         val isDark = LocalIsDarkTheme.current
-        var loadFailed by remember(cleanId) { mutableStateOf(false) }
+        var loadFailed by remember(activeUnitId) { mutableStateOf(false) }
 
-        val adView = remember(cleanId) {
+        val adView = remember(activeUnitId) {
             AdView(context).apply {
                 setAdSize(AdSize.BANNER)
-                this.adUnitId = cleanId
+                this.adUnitId = activeUnitId
                 layoutParams = FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -187,17 +230,26 @@ fun AdMobBannerAdView(
                     }
 
                     override fun onAdFailedToLoad(error: LoadAdError) {
-                        Log.w("AdMobBanner", "Banner failed ($cleanId): ${error.message}")
-                        loadFailed = true
+                        Log.w("AdMobBanner", "Banner failed ($activeUnitId): code=${error.code} ${error.message}")
+                        val canFallbackToTest = (BuildConfig.DEBUG || AdMobInitializer.isRunningOnEmulator()) &&
+                            activeUnitId != AdMobRemoteConfig.DEFAULT_TEST_BANNER_ID
+                        if (canFallbackToTest) {
+                            activeUnitId = AdMobRemoteConfig.DEFAULT_TEST_BANNER_ID
+                        } else {
+                            loadFailed = true
+                        }
                     }
                 }
             }
         }
 
-        LaunchedEffect(cleanId, adView) {
+        LaunchedEffect(activeUnitId, adView) {
             AdMobInitializer.runWhenInitialized(context) {
                 runCatching { adView.loadAd(AdRequest.Builder().build()) }
-                    .onFailure { loadFailed = true }
+                    .onFailure { err ->
+                        Log.w("AdMobBanner", "Banner loadAd exception ($activeUnitId): ${err.message}")
+                        loadFailed = true
+                    }
             }
         }
 
@@ -236,19 +288,23 @@ fun AdMobBannerAdView(
  * Lifecycle-safe Google AdMob Native Ad rendered inside an authentic [NativeAdView]
  * styled to match the app's 300x100 Material 3 Native Ad card in both Light and Dark themes.
  * Wrapped in Compose [key] by [adUnitId] + [slotKey] so Admin Placement ID edits reload immediately.
- * Caches loaded ads across LazyColumn scrolls and collapses cleanly to 0dp only if load fails.
+ * Always executes AdLoader on the Android Main Thread with Activity context, caches loaded ads across
+ * LazyColumn scrolls, and falls back to Google Official Test Native Ad on Debug/Emulator if a live ID has no fill.
  */
 @Composable
 fun AdMobNativeAdCard(
     adUnitId: String,
     lang: AppLang,
     slotKey: String = "native",
+    onLoadFailed: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val cleanId = adUnitId.trim()
-    if (cleanId.isBlank()) return
+    val requestedId = adUnitId.trim()
+    if (requestedId.isBlank()) return
 
-    key(cleanId, slotKey) {
+    var activeUnitId by remember(requestedId, slotKey) { mutableStateOf(requestedId) }
+
+    key(activeUnitId, slotKey) {
         val context = LocalContext.current
         val isDark = LocalIsDarkTheme.current
         val surfaceArgb = SurfaceWhite.toArgb()
@@ -258,38 +314,50 @@ fun AdMobNativeAdCard(
         val badgeBgArgb = if (isDark) 0xFF10B96B.toInt() else MedicalTeal.toArgb()
         val adBadgeText = tr(lang, "বিজ্ঞাপন", "Ad")
         val defaultCtaText = tr(lang, "বিস্তারিত", "Open")
+        val mainHandler = remember { Handler(Looper.getMainLooper()) }
 
-        var loadedNativeAd by remember(cleanId, slotKey) {
-            mutableStateOf(AdMobNativeAdCache.get(cleanId, slotKey))
+        var loadedNativeAd by remember(activeUnitId, slotKey) {
+            mutableStateOf(AdMobNativeAdCache.get(activeUnitId, slotKey))
         }
-        var loadFailed by remember(cleanId, slotKey) { mutableStateOf(false) }
-        var retryAttempt by remember(cleanId, slotKey) { mutableIntStateOf(0) }
+        var loadFailed by remember(activeUnitId, slotKey) { mutableStateOf(false) }
+        var retryAttempt by remember(activeUnitId, slotKey) { mutableIntStateOf(0) }
 
-        LaunchedEffect(cleanId, slotKey, retryAttempt) {
-            val cached = AdMobNativeAdCache.get(cleanId, slotKey)
+        LaunchedEffect(activeUnitId, slotKey, retryAttempt) {
+            val cached = AdMobNativeAdCache.get(activeUnitId, slotKey)
             if (cached != null) {
                 loadedNativeAd = cached
                 loadFailed = false
                 return@LaunchedEffect
             }
             if (retryAttempt > 0) {
-                kotlinx.coroutines.delay(1800L)
+                delay(1500L)
             }
             AdMobInitializer.runWhenInitialized(context) {
                 runCatching {
-                    val loader = AdLoader.Builder(context.applicationContext, cleanId)
+                    val loader = AdLoader.Builder(context, activeUnitId)
                         .forNativeAd { nativeAd ->
-                            AdMobNativeAdCache.put(cleanId, slotKey, nativeAd)
-                            loadedNativeAd = nativeAd
-                            loadFailed = false
+                            AdMobNativeAdCache.put(activeUnitId, slotKey, nativeAd)
+                            mainHandler.post {
+                                loadedNativeAd = nativeAd
+                                loadFailed = false
+                            }
                         }
                         .withAdListener(object : AdListener() {
                             override fun onAdFailedToLoad(error: LoadAdError) {
-                                Log.w("AdMobNative", "Native failed ($cleanId, attempt=$retryAttempt): code=${error.code} ${error.message}")
-                                if (retryAttempt == 0 && (error.code == AdRequest.ERROR_CODE_INTERNAL_ERROR || error.code == AdRequest.ERROR_CODE_NETWORK_ERROR)) {
-                                    retryAttempt = 1
-                                } else {
-                                    loadFailed = true
+                                Log.w("AdMobNative", "Native failed ($activeUnitId, attempt=$retryAttempt): code=${error.code} ${error.message}")
+                                mainHandler.post {
+                                    val canFallbackToTest = (BuildConfig.DEBUG || AdMobInitializer.isRunningOnEmulator()) &&
+                                        activeUnitId != AdMobRemoteConfig.DEFAULT_TEST_NATIVE_ID
+                                    if (retryAttempt == 0 && (error.code == AdRequest.ERROR_CODE_INTERNAL_ERROR || error.code == AdRequest.ERROR_CODE_NETWORK_ERROR)) {
+                                        retryAttempt = 1
+                                    } else if (canFallbackToTest) {
+                                        Log.i("AdMobNative", "Falling back to Official Google Test Native Ad on debug/emulator")
+                                        retryAttempt = 0
+                                        activeUnitId = AdMobRemoteConfig.DEFAULT_TEST_NATIVE_ID
+                                    } else {
+                                        loadFailed = true
+                                        onLoadFailed()
+                                    }
                                 }
                             }
                         })
@@ -302,8 +370,11 @@ fun AdMobNativeAdCard(
 
                     loader.loadAd(AdRequest.Builder().build())
                 }.onFailure { err ->
-                    Log.w("AdMobNative", "AdLoader exception ($cleanId): ${err.message}")
-                    loadFailed = true
+                    Log.w("AdMobNative", "AdLoader exception ($activeUnitId): ${err.message}")
+                    mainHandler.post {
+                        loadFailed = true
+                        onLoadFailed()
+                    }
                 }
             }
         }
@@ -349,7 +420,6 @@ fun AdMobNativeAdCard(
                 }
             }
         } else if (!loadFailed) {
-            // Subtle compact loading placeholder while AdMob Native request is actively in flight
             Box(
                 modifier = modifier
                     .fillMaxWidth()
@@ -372,12 +442,12 @@ fun AdMobNativeAdCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        androidx.compose.material3.CircularProgressIndicator(
+                        CircularProgressIndicator(
                             modifier = Modifier.size(20.dp),
                             strokeWidth = 2.dp,
                             color = MedicalTeal
                         )
-                        androidx.compose.material3.Text(
+                        Text(
                             text = tr(lang, "বিজ্ঞাপন লোড হচ্ছে...", "Loading Sponsored Ad..."),
                             style = MaterialTheme.typography.labelMedium,
                             color = TextSecondary
@@ -562,5 +632,9 @@ private fun bindCompactNativeAdView(
         visibility = View.VISIBLE
     }
 
-    nativeAdView.setNativeAd(nativeAd)
+    if (nativeAdView.tag !== nativeAd) {
+        nativeAdView.tag = nativeAd
+        nativeAdView.setNativeAd(nativeAd)
+        nativeAdView.requestLayout()
+    }
 }

@@ -356,6 +356,7 @@ data class AdMobRemoteConfig(
     val nativeEnabled: Boolean = true,
     val nativeUnitId: String = DEFAULT_TEST_NATIVE_ID,
     val placementsManaged: Boolean = false,
+    val nativeExplicitlyCleared: Boolean = false,
     val placements: List<AdMobPlacementItem> = emptyList(),
     val updatedAt: Long = 0L
 ) {
@@ -406,7 +407,8 @@ data class AdMobRemoteConfig(
 
         if (allNativePlacements.isNotEmpty()) return emptyList()
         val legacy = nativeUnitId.trim()
-        return if (legacy.isNotBlank()) listOf(legacy) else emptyList()
+        if (legacy.isNotBlank()) return listOf(legacy)
+        return if (nativeExplicitlyCleared) emptyList() else listOf(DEFAULT_TEST_NATIVE_ID)
     }
 
     fun nativeUnitIdForSlot(placementTarget: String, slotIndex: Int): String? {

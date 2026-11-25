@@ -507,10 +507,15 @@ fun NativeAdSlotOrAdMob(
         admobConfig.nativeUnitIdForSlot(normPlacement, slotIndex)
     }
 
+    var admobSlotFailed by remember(admobNativeUnitId, queueKey, slotIndex) { mutableStateOf(false) }
+
     // Show Google AdMob Native Ad when no custom native campaign is active, or interleave on alternating 3-card slots
-    val preferAdMobForSlot = placementSettings.adsEnabled && !admobNativeUnitId.isNullOrBlank() && placementEnabled && (
-        customNative == null || (activeCustomCount >= 1 && slotIndex % 2 == 1)
-        )
+    val preferAdMobForSlot = placementSettings.adsEnabled &&
+        !admobNativeUnitId.isNullOrBlank() &&
+        !admobSlotFailed &&
+        placementEnabled && (
+            customNative == null || (activeCustomCount >= 1 && slotIndex % 2 == 1)
+            )
 
     when {
         preferAdMobForSlot && !admobNativeUnitId.isNullOrBlank() -> {
@@ -519,7 +524,8 @@ fun NativeAdSlotOrAdMob(
                 AdMobNativeAdCard(
                     adUnitId = admobNativeUnitId,
                     lang = lang,
-                    slotKey = "${queueKey}_$slotIndex"
+                    slotKey = "${queueKey}_$slotIndex",
+                    onLoadFailed = { admobSlotFailed = true }
                 )
             }
         }
