@@ -1,11 +1,7 @@
 package com.example.ui.screens
 
-import android.Manifest
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,10 +20,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -60,7 +54,6 @@ import com.example.ui.ads.ResolvedHomeSliderSlide
 import com.example.ui.ads.SponsorCampaignSelector
 import com.example.ui.components.*
 import com.example.ui.theme.*
-import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(
@@ -107,8 +100,6 @@ fun HomeScreen(
     onNativeAdClick: (AdCampaignItem, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
     val isDark = LocalIsDarkTheme.current
     val emeraldGreen = Color(0xFF10B96B)
@@ -116,7 +107,6 @@ fun HomeScreen(
     val cardBorder = if (isDark) Color(0xFF23384F) else Color(0xFFDCE9F5)
 
     var showDistrictPicker by remember { mutableStateOf(false) }
-    var isDetectingLocation by remember { mutableStateOf(false) }
 
     val activeDistrictInfo = remember(selectedHomeDistrict) {
         selectedHomeDistrict?.let { sel ->
@@ -130,69 +120,6 @@ fun HomeScreen(
         } else {
             tr(lang, "সারা বাংলাদেশ", "All Bangladesh")
         }
-    }
-
-    val locationSubLabel = remember(activeDistrictInfo, lang) {
-        if (activeDistrictInfo != null) {
-            tr(lang, "${activeDistrictInfo.nameBn}, বাংলাদেশ", "${activeDistrictInfo.nameEn}, Bangladesh")
-        } else {
-            tr(lang, "৬৪ জেলা, বাংলাদেশ", "64 Districts, Bangladesh")
-        }
-    }
-
-    fun runLocationAutoDetect() {
-        if (isDetectingLocation) return
-        scope.launch {
-            isDetectingLocation = true
-            val detected = DistrictAutoDetector.detectBangladeshDistrict(context)
-            isDetectingLocation = false
-            if (detected != null) {
-                onSelectHomeDistrict(detected.nameEn)
-                onShowMessage(
-                    tr(
-                        lang,
-                        "অবস্থান শনাক্ত হয়েছে: ${detected.nameBn}",
-                        "Location detected: ${detected.nameEn}, Bangladesh"
-                    )
-                )
-            } else {
-                onShowMessage(
-                    tr(
-                        lang,
-                        "স্বয়ংক্রিয়ভাবে জেলা পাওয়া যায়নি — তালিকা থেকে নির্বাচন করুন",
-                        "Could not auto-detect district — please select from list"
-                    )
-                )
-                showDistrictPicker = true
-            }
-        }
-    }
-
-    val locationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            runLocationAutoDetect()
-        } else {
-            onShowMessage(
-                tr(
-                    lang,
-                    "লোকেশন অনুমতি দেওয়া হয়নি — ম্যানুয়ালি জেলা নির্বাচন করুন",
-                    "Location permission denied — select your district manually"
-                )
-            )
-            showDistrictPicker = true
-        }
-    }
-
-    val availableTodayCount = remember(doctors, selectedHomeDistrict) {
-        val scoped = if (selectedHomeDistrict != null) {
-            val local = doctors.filter { doc ->
-                doc.chambers.any { it.chamber.district.equals(selectedHomeDistrict, ignoreCase = true) }
-            }
-            if (local.isNotEmpty()) local else doctors
-        } else doctors
-        scoped.count { it.isAvailableToday() }
     }
 
     val popularDoctors = remember(doctors, selectedHomeDistrict) {
@@ -304,250 +231,6 @@ fun HomeScreen(
                     onSlideVisible = onHomeSliderVisible,
                     onSlideClick = onHomeSliderClick
                 )
-            }
-        }
-
-        // 3. "YOUR LOCATION" CARD WITH WORKING "AUTO DETECT" BUTTON
-        item(key = "home_your_location_card") {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp)
-                    .clickable {
-                        if (activeDistrictInfo != null) {
-                            onSelectDistrict(activeDistrictInfo.nameEn)
-                        } else {
-                            showDistrictPicker = true
-                        }
-                    }
-                    .testTag("home_your_location_card"),
-                shape = RoundedCornerShape(18.dp),
-                color = cardBg,
-                border = BorderStroke(1.dp, cardBorder)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.LocationOn,
-                            contentDescription = null,
-                            tint = emeraldGreen,
-                            modifier = Modifier.size(30.dp)
-                        )
-                        Column {
-                            Text(
-                                text = tr(lang, "আপনার অবস্থান", "Your Location"),
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.onSurface
-                            )
-                            Text(
-                                text = locationSubLabel,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = colors.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.width(8.dp))
-
-                    Surface(
-                        onClick = {
-                            if (DistrictAutoDetector.hasLocationPermission(context)) {
-                                runLocationAutoDetect()
-                            } else {
-                                locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-                            }
-                        },
-                        shape = RoundedCornerShape(50),
-                        color = if (isDark) emeraldGreen else Color(0xFFCFF7E2),
-                        modifier = Modifier
-                            .heightIn(min = 36.dp)
-                            .testTag("home_auto_detect_btn")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            if (isDetectingLocation) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(14.dp),
-                                    strokeWidth = 2.dp,
-                                    color = if (isDark) Color.White else Color(0xFF0A663B)
-                                )
-                            }
-                            Text(
-                                text = if (isDetectingLocation) {
-                                    tr(lang, "খোঁজা হচ্ছে...", "Detecting...")
-                                } else {
-                                    tr(lang, "অটো শনাক্ত", "Auto Detect")
-                                },
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isDark) Color.White else Color(0xFF0A4D2E)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // 4. QUICK SERVICES (4-TILE ROW: Doctors, Hospitals, Diagnostics, Chambers)
-        item(key = "home_quick_services") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                HomeSectionHeading(
-                    icon = Icons.Rounded.GridView,
-                    title = tr(lang, "দ্রুত সেবা", "Quick Services"),
-                    actionLabel = tr(lang, "সব দেখুন", "View All"),
-                    onAction = { onNavigateFacilitiesTab(0) }
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    QuickServiceTile(
-                        icon = Icons.Rounded.MedicalServices,
-                        label = tr(lang, "ডাক্তার", "Doctors"),
-                        iconTint = if (isDark) Color(0xFF38BDF8) else Color(0xFF0284C7),
-                        cardBg = cardBg,
-                        cardBorder = cardBorder,
-                        onClick = { onNavigateFindDoctors(false) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("quick_service_doctors")
-                    )
-                    QuickServiceTile(
-                        icon = Icons.Rounded.LocalHospital,
-                        label = tr(lang, "হাসপাতাল", "Hospitals"),
-                        iconTint = if (isDark) Color(0xFF2DD4BF) else Color(0xFF0284C7),
-                        cardBg = cardBg,
-                        cardBorder = cardBorder,
-                        onClick = { onNavigateFacilitiesTab(0) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("quick_service_hospitals")
-                    )
-                    QuickServiceTile(
-                        icon = Icons.Rounded.Biotech,
-                        label = tr(lang, "ডায়াগনস্টিক", "Diagnostics"),
-                        iconTint = if (isDark) Color(0xFF60A5FA) else Color(0xFF0369A1),
-                        cardBg = cardBg,
-                        cardBorder = cardBorder,
-                        onClick = { onNavigateFacilitiesTab(1) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("quick_service_diagnostics")
-                    )
-                    QuickServiceTile(
-                        icon = Icons.Rounded.EventNote,
-                        label = tr(lang, "চেম্বার", "Chambers"),
-                        iconTint = if (isDark) Color(0xFF38BDF8) else Color(0xFF0284C7),
-                        cardBg = cardBg,
-                        cardBorder = cardBorder,
-                        onClick = { onNavigateFacilitiesTab(3) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("quick_service_chambers")
-                    )
-                }
-            }
-        }
-
-        // 5. TODAY'S CHAMBER SCHEDULE HIGHLIGHT BANNER CARD
-        item(key = "home_todays_chamber_banner") {
-            val bannerBrush = if (isDark) {
-                Brush.horizontalGradient(listOf(Color(0xFF0C3625), Color(0xFF104932)))
-            } else {
-                Brush.horizontalGradient(listOf(Color(0xFFE7FCEF), Color(0xFFBAF4D3)))
-            }
-            val bannerBorder = if (isDark) emeraldGreen.copy(alpha = 0.7f) else Color(0xFFA7EBC4)
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(bannerBrush)
-                    .border(1.dp, bannerBorder, RoundedCornerShape(16.dp))
-                    .clickable { onNavigateFindDoctors(true) }
-                    .padding(horizontal = 14.dp, vertical = 13.dp)
-                    .testTag("home_todays_chamber_card")
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(emeraldGreen.copy(alpha = if (isDark) 0.22f else 0.16f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.CalendarMonth,
-                                contentDescription = null,
-                                tint = emeraldGreen,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Column {
-                            Text(
-                                text = tr(lang, "আজকের চেম্বার সময়সূচী", "Today's Chamber Schedule"),
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = if (isDark) Color.White else Color(0xFF0B253A)
-                            )
-                            Text(
-                                text = if (availableTodayCount > 0) {
-                                    tr(
-                                        lang,
-                                        "আজ আপনার এলাকায় $availableTodayCount জন ডাক্তার বসছেন।",
-                                        "$availableTodayCount doctors available today in your area."
-                                    )
-                                } else {
-                                    tr(
-                                        lang,
-                                        "আপনার এলাকায় আজ যেসব ডাক্তার বসছেন।",
-                                        "Doctors available today in your area."
-                                    )
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (isDark) Color(0xFFC8EBD7) else Color(0xFF284B3C),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = if (isDark) Color.White else emeraldGreen,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
             }
         }
 
@@ -909,51 +592,6 @@ private fun HomeSectionHeading(
                     modifier = Modifier.size(15.dp)
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun QuickServiceTile(
-    icon: ImageVector,
-    label: String,
-    iconTint: Color,
-    cardBg: Color,
-    cardBorder: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val colors = MaterialTheme.colorScheme
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
-        color = cardBg,
-        border = BorderStroke(1.dp, cardBorder),
-        modifier = modifier.heightIn(min = 78.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = iconTint,
-                modifier = Modifier.size(30.dp)
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.5.sp),
-                fontWeight = FontWeight.Bold,
-                color = colors.onSurface,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
     }
 }
