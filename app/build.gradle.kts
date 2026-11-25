@@ -16,8 +16,8 @@ android {
     applicationId = "com.doctorlist.bd"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.25.11.26"
+    versionCode = 2
+    versionName = "1.0.1.25.11.26"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -107,6 +107,7 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)
   implementation(libs.play.services.ads)
+  implementation(libs.unity.ads)
   // implementation(libs.converter.moshi)
   // implementation(libs.firebase.ai)
   // Uncomment to use Firestore:

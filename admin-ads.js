@@ -22,8 +22,11 @@ const AD_PLACEMENTS = [
 const ADMOB_OFFICIAL_TEST_IDS = {
   appId: "ca-app-pub-3940256099942544~3347511713",
   bannerUnitId: "ca-app-pub-3940256099942544/6300978111",
-  nativeUnitId: "ca-app-pub-3940256099942544/2247696110"
+  nativeUnitId: "ca-app-pub-3940256099942544/2247696110",
+  rewardedUnitId: "ca-app-pub-3940256099942544/5224354917"
 };
+
+const UNITY_DEFAULT_REWARDED_PLACEMENT = "Rewarded_Android";
 
 const ROTATION_QUEUE_LABELS = [
   { key: "home_slider", label: "Home Slider Rotation Queue" },
@@ -44,12 +47,26 @@ let adState = {
     enabled: true,
     testMode: true,
     placementsManaged: false,
+    nativeExplicitlyCleared: false,
+    rewardedExplicitlyCleared: false,
     appId: ADMOB_OFFICIAL_TEST_IDS.appId,
     bannerEnabled: true,
     bannerUnitId: ADMOB_OFFICIAL_TEST_IDS.bannerUnitId,
     nativeEnabled: true,
     nativeUnitId: ADMOB_OFFICIAL_TEST_IDS.nativeUnitId,
-    placements: {}
+    rewardedEnabled: true,
+    rewardedUnitId: ADMOB_OFFICIAL_TEST_IDS.rewardedUnitId,
+    placements: {},
+    unityEnabled: false,
+    unityTestMode: true,
+    unityGameId: "",
+    unityRewardedEnabled: true,
+    unityRewardedPlacementId: UNITY_DEFAULT_REWARDED_PLACEMENT,
+    unityPlacementsManaged: false,
+    unityPlacements: {},
+    doctorClickRewardEnabled: true,
+    rewardedNetworkPriority: "ADMOB_FIRST",
+    rewardedCooldownSec: 0
   },
   payments: {},
   trxIndex: {},
@@ -130,10 +147,11 @@ async function loadAdvertisingData() {
     adState.bottomBanners = a.bottomBanners && typeof a.bottomBanners === "object" ? a.bottomBanners : {};
     const remoteAdMob = a.admob && typeof a.admob === "object" ? a.admob : {};
     const parsedPlacements = remoteAdMob.placements && typeof remoteAdMob.placements === "object" ? { ...remoteAdMob.placements } : {};
-    // Auto-surface legacy bannerUnitId / nativeUnitId if placements have not been explicitly managed yet
+    // Auto-surface legacy bannerUnitId / nativeUnitId / rewardedUnitId if placements have not been explicitly managed yet
     if (!remoteAdMob.placementsManaged && Object.keys(parsedPlacements).length === 0) {
       const legacyBanner = String(remoteAdMob.bannerUnitId || "").trim();
       const legacyNative = String(remoteAdMob.nativeUnitId || "").trim();
+      const legacyRewarded = String(remoteAdMob.rewardedUnitId || "").trim();
       if (legacyBanner) {
         parsedPlacements["amp_legacy_banner"] = {
           id: "amp_legacy_banner",
@@ -156,11 +174,26 @@ async function loadAdvertisingData() {
           createdAt: Number(remoteAdMob.updatedAt || Date.now()) + 1
         };
       }
+      if (legacyRewarded) {
+        parsedPlacements["amp_legacy_rewarded"] = {
+          id: "amp_legacy_rewarded",
+          label: "Doctor Click Rewarded Ad",
+          adFormat: "REWARDED",
+          placement: "DOCTOR_CLICK_REWARDED",
+          adUnitId: legacyRewarded,
+          status: remoteAdMob.rewardedEnabled === false ? "INACTIVE" : "ACTIVE",
+          createdAt: Number(remoteAdMob.updatedAt || Date.now()) + 2
+        };
+      }
     }
+    const parsedUnityPlacements = remoteAdMob.unityPlacements && typeof remoteAdMob.unityPlacements === "object"
+      ? { ...remoteAdMob.unityPlacements }
+      : {};
     adState.admob = {
       ...adState.admob,
       ...remoteAdMob,
-      placements: parsedPlacements
+      placements: parsedPlacements,
+      unityPlacements: parsedUnityPlacements
     };
     adState.payments = a.payments && typeof a.payments === "object" ? a.payments : {};
     adState.trxIndex = a.trxIndex && typeof a.trxIndex === "object" ? a.trxIndex : {};
@@ -296,7 +329,7 @@ function getAdTabTitle(tabKey) {
     ad_payment_methods: "Payment Methods",
     ad_custom_slider: "Custom Slider Management",
     ad_bottom_banners: "Bottom Banner Advertisement",
-    ad_admob: "Google AdMob App ID & Placement IDs",
+    ad_admob: "AdMob & Unity Ads Setup (Banner, Native & Rewarded)",
     ad_rotation: "Rotation Management",
     ad_history: "Campaign History",
     ad_reports: "Advertisement Reports & CSV",
@@ -313,6 +346,7 @@ function updateAdNavBadges() {
   const pendingPayCount = Object.values(adState.payments || {}).filter(p => String(p.status || "PENDING").toUpperCase() === "PENDING").length;
   const activeBottomBanners = Object.values(adState.bottomBanners || {}).filter(b => getEffectiveBottomBannerStatus(b, now) === "ACTIVE").length;
   const activeAdMobPlacements = Object.values((adState.admob && adState.admob.placements) || {}).filter(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE").length;
+  const activeUnityPlacements = Object.values((adState.admob && adState.admob.unityPlacements) || {}).filter(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE").length;
 
   const setB = (id, count) => {
     const el = document.getElementById(id);
@@ -324,7 +358,7 @@ function updateAdNavBadges() {
   setB("navBadgePendingAds", pendingCampCount);
   setB("navBadgePayments", pendingPayCount);
   setB("navBadgeBottomBanners", activeBottomBanners);
-  setB("navBadgeAdMob", activeAdMobPlacements);
+  setB("navBadgeAdMob", activeAdMobPlacements + activeUnityPlacements);
 }
 
 function renderAdvertisingTab(tabKey) {
@@ -2429,7 +2463,8 @@ const ADMOB_PLACEMENT_OPTIONS = [
   { key: "DOCTOR_LIST", format: "NATIVE", label: "Doctor List & Home Popular Doctors (জনপ্রিয় ডাক্তারবৃন্দ)" },
   { key: "HOSPITAL_LIST", format: "NATIVE", label: "Hospital List (হাসপাতাল)" },
   { key: "DIAGNOSTIC_LIST", format: "NATIVE", label: "Diagnostic Center List (ডায়াগনস্টিক)" },
-  { key: "FAVORITE_LIST", format: "NATIVE", label: "Favorite List (প্রিয় তালিকা)" }
+  { key: "FAVORITE_LIST", format: "NATIVE", label: "Favorite List (প্রিয় তালিকা)" },
+  { key: "DOCTOR_CLICK_REWARDED", format: "REWARDED", label: "Doctor Profile Click — Rewarded Video Ad" }
 ];
 
 function admobPlacementLabel(key) {
@@ -2441,58 +2476,86 @@ function isOfficialTestAdMobUnitId(unitId) {
   return String(unitId || "").trim().startsWith("ca-app-pub-3940256099942544/");
 }
 
-function syncAdMobPrimaryFieldsFromPlacements(admobObj, markManaged = true, clearedNative = false) {
+function syncAdMobPrimaryFieldsFromPlacements(admobObj, markManaged = true, clearedNative = false, clearedRewarded = false) {
   const placementsMap = admobObj.placements && typeof admobObj.placements === "object" ? admobObj.placements : {};
   const allList = Object.values(placementsMap).filter(p => p && typeof p === "object");
   const list = allList.filter(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE");
   const firstBanner = list.find(p => String(p.adFormat || "").toUpperCase() === "BANNER" && String(p.adUnitId || "").trim());
   const firstNative = list.find(p => String(p.adFormat || "").toUpperCase() === "NATIVE" && String(p.adUnitId || "").trim());
+  const firstRewarded = list.find(p => String(p.adFormat || "").toUpperCase() === "REWARDED" && String(p.adUnitId || "").trim());
   const hasAnyNativeRecord = allList.some(p => String(p.adFormat || "").toUpperCase() === "NATIVE");
+  const hasAnyRewardedRecord = allList.some(p => String(p.adFormat || "").toUpperCase() === "REWARDED");
   const isManaged = markManaged || Boolean(admobObj.placementsManaged) || allList.length > 0;
+
+  const unityPlacementsMap = admobObj.unityPlacements && typeof admobObj.unityPlacements === "object" ? admobObj.unityPlacements : {};
+  const allUnityList = Object.values(unityPlacementsMap).filter(p => p && typeof p === "object");
+  const activeUnity = allUnityList.find(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE" && String(p.placementId || "").trim());
+  const isUnityManaged = Boolean(admobObj.unityPlacementsManaged) || allUnityList.length > 0;
+
   return {
     ...admobObj,
     placements: placementsMap,
     placementsManaged: isManaged,
     nativeExplicitlyCleared: hasAnyNativeRecord ? false : (clearedNative || Boolean(admobObj.nativeExplicitlyCleared)),
+    rewardedExplicitlyCleared: hasAnyRewardedRecord ? false : (clearedRewarded || Boolean(admobObj.rewardedExplicitlyCleared)),
     bannerUnitId: firstBanner ? String(firstBanner.adUnitId).trim() : (isManaged ? "" : String(admobObj.bannerUnitId || "").trim()),
     nativeUnitId: firstNative ? String(firstNative.adUnitId).trim() : (hasAnyNativeRecord || clearedNative ? "" : String(admobObj.nativeUnitId || "").trim()),
+    rewardedUnitId: firstRewarded ? String(firstRewarded.adUnitId).trim() : (hasAnyRewardedRecord || clearedRewarded ? "" : String(admobObj.rewardedUnitId || "").trim()),
+    unityPlacements: unityPlacementsMap,
+    unityPlacementsManaged: isUnityManaged,
+    unityRewardedPlacementId: activeUnity ? String(activeUnity.placementId).trim() : (isUnityManaged ? "" : String(admobObj.unityRewardedPlacementId || UNITY_DEFAULT_REWARDED_PLACEMENT).trim()),
     updatedAt: Date.now()
   };
 }
 
-// 14B. DEDICATED GOOGLE ADMOB APP ID & PLACEMENT ID CRUD MANAGEMENT
+// 14B. DEDICATED GOOGLE ADMOB & UNITY ADS MANAGEMENT (BANNER, NATIVE, REWARDED)
 function renderAdMobManagement() {
   const am = adState.admob || {};
   const placementsList = Object.entries(am.placements || {})
     .filter(([, p]) => p && typeof p === "object")
     .map(([id, p]) => ({ id, ...p }))
     .sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0));
+  const unityPlacementsList = Object.entries(am.unityPlacements || {})
+    .filter(([, p]) => p && typeof p === "object")
+    .map(([id, p]) => ({ id, ...p }))
+    .sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0));
+
   const ed = editing.type === "admob_placement" ? editing.item : null;
+  const ued = editing.type === "unity_placement" ? editing.item : null;
   const selectedFormat = (ed && ed.adFormat) || "BANNER";
   const formatPlacements = ADMOB_PLACEMENT_OPTIONS.filter(p => p.format === selectedFormat);
+
   const activePlacements = placementsList.filter(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE");
   const activeCount = activePlacements.length;
   const activeBannerCount = activePlacements.filter(p => String(p.adFormat || "").toUpperCase() === "BANNER").length;
   const activeNativeCount = activePlacements.filter(p => String(p.adFormat || "").toUpperCase() === "NATIVE").length;
+  const activeRewardedCount = activePlacements.filter(p => String(p.adFormat || "").toUpperCase() === "REWARDED").length;
+  const activeUnityCount = unityPlacementsList.filter(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE").length;
+  const priorityVal = String(am.rewardedNetworkPriority || "ADMOB_FIRST").toUpperCase();
 
   return `
     <div class="space-y-5">
       <!-- Live Sync Summary Strip -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
           <div class="text-[11px] text-slate-500 font-semibold">AdMob Status</div>
           <div class="text-lg font-extrabold mt-0.5 ${am.enabled !== false ? "text-emerald-700" : "text-rose-700"}">${am.enabled !== false ? "ENABLED" : "DISABLED"}</div>
           <div class="text-[10px] text-slate-400 mt-0.5">${am.testMode === true ? "Force Test Mode ON" : "Live Placements Active"}</div>
         </div>
         <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-          <div class="text-[11px] text-slate-500 font-semibold">Active Banner IDs</div>
-          <div class="text-lg font-extrabold text-sky-700 mt-0.5">${activeBannerCount}</div>
-          <div class="text-[10px] text-slate-400 mt-0.5">${am.bannerEnabled !== false ? "Banner Enabled" : "Banner Paused"}</div>
+          <div class="text-[11px] text-slate-500 font-semibold">Banner &amp; Native IDs</div>
+          <div class="text-lg font-extrabold text-sky-700 mt-0.5">${activeBannerCount} B / ${activeNativeCount} N</div>
+          <div class="text-[10px] text-slate-400 mt-0.5">${am.bannerEnabled !== false ? "Banner On" : "Banner Off"} &bull; ${am.nativeEnabled !== false ? "Native On" : "Native Off"}</div>
         </div>
         <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-          <div class="text-[11px] text-slate-500 font-semibold">Active Native IDs</div>
-          <div class="text-lg font-extrabold text-indigo-700 mt-0.5">${activeNativeCount}</div>
-          <div class="text-[10px] text-slate-400 mt-0.5">${am.nativeEnabled !== false ? "Native Enabled" : "Native Paused"}</div>
+          <div class="text-[11px] text-slate-500 font-semibold">AdMob Rewarded IDs</div>
+          <div class="text-lg font-extrabold text-purple-700 mt-0.5">${activeRewardedCount}</div>
+          <div class="text-[10px] text-slate-400 mt-0.5">${am.rewardedEnabled !== false ? "Doctor Click Reward On" : "AdMob Reward Paused"}</div>
+        </div>
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <div class="text-[11px] text-slate-500 font-semibold">Unity Ads Rewarded</div>
+          <div class="text-lg font-extrabold mt-0.5 ${am.unityEnabled === true && am.unityGameId ? "text-emerald-700" : "text-slate-500"}">${am.unityEnabled === true ? (activeUnityCount + " Active") : "OFF"}</div>
+          <div class="text-[10px] text-slate-400 mt-0.5">${am.unityGameId ? ("Game ID: " + esc(am.unityGameId)) : "No Game ID set"}</div>
         </div>
         <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
           <div class="text-[11px] text-slate-500 font-semibold">Last Synced</div>
@@ -2501,16 +2564,16 @@ function renderAdMobManagement() {
         </div>
       </div>
 
-      <!-- Section 1: AdMob App ID & Global Mode Control (Add / Edit / Delete) -->
+      <!-- Section 1: AdMob App ID, Doctor Click Rewarded Flow & Live Sync Control -->
       <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h3 class="font-bold text-base text-slate-900">1. Google AdMob App ID &amp; Live Sync Control</h3>
-            <p class="text-xs text-slate-500 mt-0.5">Add, edit, or delete your AdMob App ID and toggle live/test mode. Changes sync automatically to the Android app within 10 seconds.</p>
+            <h3 class="font-bold text-base text-slate-900">1. Google AdMob App ID &amp; Doctor Click Rewarded Ad Flow</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Configure AdMob App ID, Banner/Native/Rewarded toggles, and Doctor Profile Click rewarded ad routing. Changes sync automatically to the Android app within 10 seconds.</p>
           </div>
           <div class="flex flex-wrap gap-2">
             <button type="button" onclick="addOfficialAdMobTestPlacements()" class="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold hover:bg-amber-100">
-              + Add Official Google Test IDs
+              + Add Official Google Test IDs (Banner, Native &amp; Rewarded)
             </button>
           </div>
         </div>
@@ -2527,50 +2590,77 @@ function renderAdMobManagement() {
             </label>
           </div>
           <div class="lg:col-span-2">
-            <label class="flex items-center justify-between p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 cursor-pointer" title="When checked, overrides your custom Placement IDs with Google's official Test IDs">
+            <label class="flex items-center justify-between p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 cursor-pointer" title="When checked, overrides your custom AdMob Placement IDs with Google's official Test IDs">
               <span class="text-xs font-bold text-amber-900">Force Test</span>
               <input type="checkbox" id="am_test_mode" ${am.testMode === true ? "checked" : ""} />
             </label>
           </div>
           <div class="lg:col-span-3 flex gap-2">
             <button type="submit" class="flex-1 py-2.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold">
-              ${am.appId ? "Update App ID" : "Save App ID"}
+              Save AdMob &amp; Flow
             </button>
             ${am.appId ? `<button type="button" onclick="deleteAdMobAppId()" class="py-2.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold">Delete</button>` : ""}
           </div>
 
-          <div class="lg:col-span-12 grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+          <div class="lg:col-span-12 grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
             <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
-              <span class="text-xs font-semibold text-slate-800">Enable AdMob Banner Placements</span>
+              <span class="text-xs font-semibold text-slate-800">Enable AdMob Banner Ads</span>
               <input type="checkbox" id="am_banner_enabled" ${am.bannerEnabled !== false ? "checked" : ""} />
             </label>
             <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
-              <span class="text-xs font-semibold text-slate-800">Enable AdMob Native Placements</span>
+              <span class="text-xs font-semibold text-slate-800">Enable AdMob Native Ads</span>
               <input type="checkbox" id="am_native_enabled" ${am.nativeEnabled !== false ? "checked" : ""} />
             </label>
+            <label class="flex items-center justify-between p-2.5 rounded-xl bg-purple-50/70 border border-purple-200 cursor-pointer">
+              <span class="text-xs font-semibold text-purple-900">Enable AdMob Rewarded Ads</span>
+              <input type="checkbox" id="am_rewarded_enabled" ${am.rewardedEnabled !== false ? "checked" : ""} />
+            </label>
+          </div>
+
+          <!-- Doctor Click Rewarded Ad Flow Controls -->
+          <div class="lg:col-span-12 grid grid-cols-1 md:grid-cols-12 gap-3 p-3.5 rounded-xl bg-indigo-50/70 border border-indigo-200 items-end">
+            <div class="md:col-span-4">
+              <label class="flex items-center justify-between p-2.5 rounded-xl bg-white border border-indigo-200 cursor-pointer">
+                <span class="text-xs font-bold text-indigo-950">Doctor Click → Rewarded Ad → Profile</span>
+                <input type="checkbox" id="am_doctor_click_reward" ${am.doctorClickRewardEnabled !== false ? "checked" : ""} />
+              </label>
+            </div>
+            <div class="md:col-span-5">
+              <label class="block text-[11px] font-bold text-indigo-900 mb-1">Rewarded Ad Network Priority (Waterfall)</label>
+              <select id="am_rewarded_priority" class="input text-xs">
+                <option value="ADMOB_FIRST" ${priorityVal === "ADMOB_FIRST" ? "selected" : ""}>AdMob First → Unity Ads Fallback (Recommended)</option>
+                <option value="UNITY_FIRST" ${priorityVal === "UNITY_FIRST" ? "selected" : ""}>Unity Ads First → AdMob Fallback</option>
+                <option value="ADMOB_ONLY" ${priorityVal === "ADMOB_ONLY" ? "selected" : ""}>AdMob Rewarded Only</option>
+                <option value="UNITY_ONLY" ${priorityVal === "UNITY_ONLY" ? "selected" : ""}>Unity Ads Rewarded Only</option>
+              </select>
+            </div>
+            <div class="md:col-span-3">
+              <label class="block text-[11px] font-bold text-indigo-900 mb-1">Cooldown (Seconds, 0 = Every Click)</label>
+              <input id="am_rewarded_cooldown" type="number" min="0" max="86400" class="input text-xs" value="${esc(Number(am.rewardedCooldownSec || 0))}" />
+            </div>
           </div>
         </form>
 
         <div class="p-3 rounded-xl ${am.testMode === true ? "bg-amber-50 border-amber-200 text-amber-900" : "bg-emerald-50 border-emerald-200 text-emerald-900"} border text-xs">
           ${am.testMode === true
-            ? "<b>Force Test Mode is ON:</b> Android app is currently serving Google Official Test Banner &amp; Native ads. Uncheck <b>Force Test</b> or save any Placement ID below to use your configured Placement IDs."
-            : `<b>Live Placement Mode is ACTIVE:</b> Android app automatically syncs and renders the <b>${activeCount}</b> active Placement ID(s) listed below. Any Add, Edit, Toggle, or Delete updates the app automatically.`
+            ? "<b>Force Test Mode is ON:</b> Android app is currently serving Google Official Test Banner, Native &amp; Rewarded ads. Uncheck <b>Force Test</b> or save any Placement ID below to use your configured Placement IDs."
+            : `<b>Live Placement Mode is ACTIVE:</b> Android app automatically syncs and renders the <b>${activeCount}</b> active AdMob Placement ID(s) and <b>${activeUnityCount}</b> active Unity Placement ID(s) below.`
           }
         </div>
       </div>
 
-      <!-- Section 2: Add / Edit AdMob Placement ID + Live Table -->
+      <!-- Section 2: Add / Edit AdMob Placement ID (Banner / Native / Rewarded) + Live Table -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm h-fit">
-          <h3 class="font-bold text-base mb-1">${ed ? "Edit AdMob Placement ID" : "Add AdMob Placement ID"}</h3>
-          <p class="text-xs text-slate-500 mb-3">Configure Banner or Native Ad Unit IDs (uses <code class="px-1 bg-slate-100 rounded">/</code>) for any screen placement. Saved IDs take effect automatically in the app.</p>
+          <h3 class="font-bold text-base mb-1">${ed ? "Edit AdMob Placement ID" : "2. Add AdMob Placement ID"}</h3>
+          <p class="text-xs text-slate-500 mb-3">Configure Banner, Native, or Rewarded Ad Unit IDs (uses <code class="px-1 bg-slate-100 rounded">/</code>). Saved IDs sync live to the Android app.</p>
 
           <form onsubmit="submitAdMobPlacement(event)" class="space-y-3">
             <input type="hidden" id="amp_id" value="${esc(ed ? ed.id : "")}" />
 
             <div>
               <label class="block text-xs font-semibold mb-1">Placement Label *</label>
-              <input id="amp_label" required class="input" placeholder="e.g., Home Bottom Banner / Doctor List Native" value="${esc(ed ? ed.label : "")}" />
+              <input id="amp_label" required class="input" placeholder="e.g., Doctor Click Rewarded / Bottom Banner" value="${esc(ed ? ed.label : "")}" />
             </div>
 
             <div>
@@ -2578,6 +2668,7 @@ function renderAdMobManagement() {
               <select id="amp_format" required class="input" onchange="onAdMobFormatChange()">
                 <option value="BANNER" ${selectedFormat === "BANNER" ? "selected" : ""}>Banner Ad (Bottom Bar)</option>
                 <option value="NATIVE" ${selectedFormat === "NATIVE" ? "selected" : ""}>Native Ad (300x100 In-List)</option>
+                <option value="REWARDED" ${selectedFormat === "REWARDED" ? "selected" : ""}>Rewarded Ad (Doctor Profile Click)</option>
               </select>
             </div>
 
@@ -2592,8 +2683,9 @@ function renderAdMobManagement() {
               <label class="block text-xs font-semibold mb-1">AdMob Placement / Ad Unit ID *</label>
               <input id="amp_unit_id" required class="input font-mono text-xs" placeholder="ca-app-pub-XXXXXXXXXXXXXXXX/YYYYYYYYYY" value="${esc(ed ? ed.adUnitId : "")}" />
               <div class="flex flex-wrap gap-1.5 mt-1.5">
-                <button type="button" onclick="fillSingleTestUnitId('BANNER')" class="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-[10px] font-semibold text-slate-700">Use Test Banner ID</button>
-                <button type="button" onclick="fillSingleTestUnitId('NATIVE')" class="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-[10px] font-semibold text-slate-700">Use Test Native ID</button>
+                <button type="button" onclick="fillSingleTestUnitId('BANNER')" class="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-[10px] font-semibold text-slate-700">Test Banner</button>
+                <button type="button" onclick="fillSingleTestUnitId('NATIVE')" class="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-[10px] font-semibold text-slate-700">Test Native</button>
+                <button type="button" onclick="fillSingleTestUnitId('REWARDED')" class="px-2 py-0.5 rounded bg-purple-100 hover:bg-purple-200 text-[10px] font-semibold text-purple-800">Test Rewarded</button>
               </div>
             </div>
 
@@ -2618,7 +2710,7 @@ function renderAdMobManagement() {
           <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
             <div>
               <h3 class="font-bold text-base">AdMob Placement IDs (${placementsList.length})</h3>
-              <p class="text-xs text-slate-500">Add, edit, activate/deactivate, or delete any placement ID — the Android app updates automatically.</p>
+              <p class="text-xs text-slate-500">Add, edit, activate/deactivate, or delete Banner, Native, or Rewarded placement IDs.</p>
             </div>
             <span class="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold">${activeCount} Active</span>
           </div>
@@ -2637,18 +2729,22 @@ function renderAdMobManagement() {
               ${placementsList.length === 0 ? `
                 <tr>
                   <td colspan="5" class="py-8 text-center text-slate-400">
-                    No AdMob Placement IDs added yet. Add a Banner or Native Placement ID on the left, or click <b>+ Add Official Google Test IDs</b> above.
+                    No AdMob Placement IDs added yet. Add a Banner, Native, or Rewarded Placement ID on the left, or click <b>+ Add Official Google Test IDs</b> above.
                   </td>
                 </tr>
               ` : placementsList.map(p => {
                 const isAct = String(p.status || "ACTIVE").toUpperCase() === "ACTIVE";
                 const isTest = isOfficialTestAdMobUnitId(p.adUnitId);
+                const fmtUpper = String(p.adFormat || "BANNER").toUpperCase();
+                const fmtBadgeCls = fmtUpper === "BANNER"
+                  ? "bg-sky-100 text-sky-800"
+                  : (fmtUpper === "REWARDED" ? "bg-purple-100 text-purple-800" : "bg-indigo-100 text-indigo-800");
                 return `
                   <tr class="border-b border-slate-100 hover:bg-slate-50/70">
                     <td class="py-2.5 pr-3">
                       <div class="font-bold text-slate-900">${esc(p.label || p.adFormat)}</div>
                       <div class="flex items-center gap-1.5 mt-0.5">
-                        <span class="px-1.5 py-0.5 rounded ${p.adFormat === "BANNER" ? "bg-sky-100 text-sky-800" : "bg-indigo-100 text-indigo-800"} text-[10px] font-bold">${esc(p.adFormat || "BANNER")}</span>
+                        <span class="px-1.5 py-0.5 rounded ${fmtBadgeCls} text-[10px] font-bold">${esc(fmtUpper)}</span>
                         ${isTest ? `<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">TEST ID</span>` : `<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">LIVE ID</span>`}
                       </div>
                     </td>
@@ -2667,6 +2763,117 @@ function renderAdMobManagement() {
           </table>
         </div>
       </div>
+
+      <!-- Section 3: Unity Ads Game ID & Rewarded Placement IDs CRUD -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 class="font-bold text-base text-slate-900">3. Unity Ads Setup &amp; Rewarded Placement IDs</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Enter your Unity Ads Android Game ID and Rewarded Placement IDs (e.g. <code class="px-1 bg-slate-100 rounded">Rewarded_Android</code>). Doctor profile clicks automatically play Unity Rewarded Ads according to your Network Priority above.</p>
+          </div>
+          <button type="button" onclick="addDefaultUnityRewardedPlacement()" class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800">
+            + Add Default Rewarded_Android
+          </button>
+        </div>
+
+        <form onsubmit="saveUnityAdsConfig(event)" class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
+          <div class="lg:col-span-4">
+            <label class="block text-xs font-semibold mb-1">Unity Ads Android Game ID *</label>
+            <input id="unity_game_id" class="input font-mono text-xs" placeholder="e.g., 5678910" value="${esc(am.unityGameId || "")}" />
+          </div>
+          <div class="lg:col-span-2">
+            <label class="flex items-center justify-between p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200 cursor-pointer">
+              <span class="text-xs font-bold text-emerald-900">Unity On</span>
+              <input type="checkbox" id="unity_enabled" ${am.unityEnabled === true ? "checked" : ""} />
+            </label>
+          </div>
+          <div class="lg:col-span-3">
+            <label class="flex items-center justify-between p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 cursor-pointer">
+              <span class="text-xs font-bold text-amber-900">Unity Test Mode</span>
+              <input type="checkbox" id="unity_test_mode" ${am.unityTestMode !== false ? "checked" : ""} />
+            </label>
+          </div>
+          <div class="lg:col-span-3 flex gap-2">
+            <button type="submit" class="flex-1 py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold">
+              ${am.unityGameId ? "Update Unity Config" : "Save Unity Config"}
+            </button>
+            ${am.unityGameId ? `<button type="button" onclick="deleteUnityGameId()" class="py-2.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold">Delete</button>` : ""}
+          </div>
+        </form>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 pt-2 border-t border-slate-100">
+          <div class="bg-slate-50/80 p-4 rounded-2xl border border-slate-200 h-fit">
+            <h4 class="font-bold text-sm mb-1">${ued ? "Edit Unity Placement ID" : "Add Unity Rewarded Placement ID"}</h4>
+            <p class="text-[11px] text-slate-500 mb-3">Add your Unity Dashboard Ad Unit / Placement ID (default: <code class="px-1 bg-white rounded">Rewarded_Android</code>).</p>
+            <form onsubmit="submitUnityPlacement(event)" class="space-y-3">
+              <input type="hidden" id="up_id" value="${esc(ued ? ued.id : "")}" />
+              <div>
+                <label class="block text-xs font-semibold mb-1">Label *</label>
+                <input id="up_label" required class="input bg-white" placeholder="e.g., Doctor Click Unity Rewarded" value="${esc(ued ? ued.label : "")}" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold mb-1">Unity Placement / Ad Unit ID *</label>
+                <input id="up_placement_id" required class="input bg-white font-mono text-xs" placeholder="Rewarded_Android" value="${esc(ued ? ued.placementId : "")}" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold mb-1">Status</label>
+                <select id="up_status" class="input bg-white">
+                  <option value="ACTIVE" ${!ued || String(ued.status || "ACTIVE").toUpperCase() === "ACTIVE" ? "selected" : ""}>ACTIVE (Live in App)</option>
+                  <option value="INACTIVE" ${ued && String(ued.status || "").toUpperCase() === "INACTIVE" ? "selected" : ""}>INACTIVE (Hidden)</option>
+                </select>
+              </div>
+              <div class="flex gap-2">
+                <button type="submit" class="flex-1 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold">
+                  ${ued ? "Update Unity Placement" : "Add Unity Placement"}
+                </button>
+                ${ued ? `<button type="button" onclick="editing={};renderTab()" class="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold">Cancel</button>` : ""}
+              </div>
+            </form>
+          </div>
+
+          <div class="lg:col-span-2 overflow-x-auto">
+            <div class="flex items-center justify-between mb-2">
+              <h4 class="font-bold text-sm text-slate-900">Unity Rewarded Placements (${unityPlacementsList.length})</h4>
+              <span class="px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 text-[11px] font-bold">${activeUnityCount} Active</span>
+            </div>
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="text-left text-slate-500 border-b">
+                  <th class="py-2 pr-3">Label</th>
+                  <th class="py-2 pr-3">Unity Placement ID</th>
+                  <th class="py-2 pr-3">Target</th>
+                  <th class="py-2 pr-3">Status</th>
+                  <th class="py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${unityPlacementsList.length === 0 ? `
+                  <tr>
+                    <td colspan="5" class="py-6 text-center text-slate-400">
+                      No Unity Rewarded Placements added yet. Add <code class="px-1 bg-slate-100 rounded">Rewarded_Android</code> on the left or click <b>+ Add Default Rewarded_Android</b>.
+                    </td>
+                  </tr>
+                ` : unityPlacementsList.map(up => {
+                  const isAct = String(up.status || "ACTIVE").toUpperCase() === "ACTIVE";
+                  return `
+                    <tr class="border-b border-slate-100 hover:bg-slate-50/70">
+                      <td class="py-2.5 pr-3 font-bold text-slate-900">${esc(up.label || "Unity Rewarded")}</td>
+                      <td class="py-2.5 pr-3 font-mono text-[11px] text-slate-800">${esc(up.placementId)}</td>
+                      <td class="py-2.5 pr-3 text-slate-600">Doctor Profile Click</td>
+                      <td class="py-2.5 pr-3">${adStatusPill(isAct ? "ACTIVE" : "INACTIVE")}</td>
+                      <td class="py-2.5 whitespace-nowrap space-x-1">
+                        <button type="button" onclick="editUnityPlacement('${esc(up.id)}')" class="px-2 py-1 rounded bg-sky-100 text-sky-800 font-semibold">Edit</button>
+                        <button type="button" onclick="toggleUnityPlacementStatus('${esc(up.id)}')" class="px-2 py-1 rounded ${isAct ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"} font-semibold">${isAct ? "Deactivate" : "Activate"}</button>
+                        <button type="button" onclick="deleteUnityPlacement('${esc(up.id)}')" class="px-2 py-1 rounded bg-rose-100 text-rose-800 font-semibold">Delete</button>
+                      </td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -2676,10 +2883,10 @@ async function reloadAdMobFromFirebase() {
     await loadAdvertisingData();
     updateAdNavBadges();
     renderTab();
-    toast("AdMob configuration reloaded from Firebase!");
+    toast("AdMob & Unity Ads configuration reloaded from Firebase!");
   } catch (err) {
     console.error("reloadAdMobFromFirebase failed:", err);
-    alert("Failed to reload AdMob config: " + (err && err.message ? err.message : err));
+    alert("Failed to reload AdMob/Unity config: " + (err && err.message ? err.message : err));
   }
 }
 
@@ -2700,10 +2907,14 @@ function fillSingleTestUnitId(format) {
     onAdMobFormatChange();
   }
   if (idEl) {
-    idEl.value = format === "BANNER" ? ADMOB_OFFICIAL_TEST_IDS.bannerUnitId : ADMOB_OFFICIAL_TEST_IDS.nativeUnitId;
+    idEl.value = format === "BANNER"
+      ? ADMOB_OFFICIAL_TEST_IDS.bannerUnitId
+      : (format === "REWARDED" ? ADMOB_OFFICIAL_TEST_IDS.rewardedUnitId : ADMOB_OFFICIAL_TEST_IDS.nativeUnitId);
   }
   if (labelEl && !labelEl.value.trim()) {
-    labelEl.value = format === "BANNER" ? "Google Test Bottom Banner" : "Google Test Native Ad";
+    labelEl.value = format === "BANNER"
+      ? "Google Test Bottom Banner"
+      : (format === "REWARDED" ? "Google Test Doctor Click Rewarded" : "Google Test Native Ad");
   }
 }
 
@@ -2719,23 +2930,29 @@ async function saveAdMobAppConfig(e) {
         return alert("Invalid AdMob App ID format. Expected: ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY");
       }
     }
+    const cooldownVal = Math.max(0, Math.min(86400, parseInt(document.getElementById("am_rewarded_cooldown")?.value || "0", 10) || 0));
+    const priorityVal = (document.getElementById("am_rewarded_priority")?.value || "ADMOB_FIRST").toUpperCase();
     const updated = syncAdMobPrimaryFieldsFromPlacements({
       ...(adState.admob || {}),
       enabled: Boolean(document.getElementById("am_enabled")?.checked),
       testMode: Boolean(document.getElementById("am_test_mode")?.checked),
       appId,
       bannerEnabled: Boolean(document.getElementById("am_banner_enabled")?.checked),
-      nativeEnabled: Boolean(document.getElementById("am_native_enabled")?.checked)
+      nativeEnabled: Boolean(document.getElementById("am_native_enabled")?.checked),
+      rewardedEnabled: Boolean(document.getElementById("am_rewarded_enabled")?.checked),
+      doctorClickRewardEnabled: Boolean(document.getElementById("am_doctor_click_reward")?.checked),
+      rewardedNetworkPriority: priorityVal,
+      rewardedCooldownSec: cooldownVal
     }, false);
     await rtdbAdPut("advertising/admob", updated);
     adState.admob = updated;
     updateAdNavBadges();
-    await writeAuditLog("UPDATE_ADMOB_APP_CONFIG", "ADMOB", "admob", `Saved AdMob App ID (${appId || "cleared"}) | enabled=${updated.enabled} | testMode=${updated.testMode}`);
-    toast("AdMob App ID & settings saved and synced!");
+    await writeAuditLog("UPDATE_ADMOB_APP_CONFIG", "ADMOB", "admob", `Saved AdMob config (appId=${appId || "cleared"}, rewardFlow=${updated.doctorClickRewardEnabled}, priority=${priorityVal})`);
+    toast("AdMob & Doctor Click Rewarded settings saved and synced!");
     renderTab();
   } catch (err) {
     console.error("saveAdMobAppConfig error:", err);
-    alert("Failed to save AdMob App ID: " + (err && err.message ? err.message : err));
+    alert("Failed to save AdMob config: " + (err && err.message ? err.message : err));
   }
 }
 
@@ -2764,7 +2981,8 @@ async function submitAdMobPlacement(e) {
     const id = (document.getElementById("amp_id")?.value || "").trim() || uid("amp");
     const label = (document.getElementById("amp_label")?.value || "").trim();
     const adFormat = (document.getElementById("amp_format")?.value || "BANNER").toUpperCase();
-    const placement = (document.getElementById("amp_placement")?.value || (adFormat === "BANNER" ? "BOTTOM_ALL_SCREENS" : "ALL_NATIVE_LISTS")).toUpperCase();
+    const defaultPl = adFormat === "BANNER" ? "BOTTOM_ALL_SCREENS" : (adFormat === "REWARDED" ? "DOCTOR_CLICK_REWARDED" : "ALL_NATIVE_LISTS");
+    const placement = (document.getElementById("amp_placement")?.value || defaultPl).toUpperCase();
     const adUnitId = (document.getElementById("amp_unit_id")?.value || "").replace(/\s+/g, "");
     const status = (document.getElementById("amp_status")?.value || "ACTIVE").toUpperCase() === "INACTIVE" ? "INACTIVE" : "ACTIVE";
 
@@ -2790,13 +3008,13 @@ async function submitAdMobPlacement(e) {
       updatedAt: now
     };
 
-    // Always switch Force Test Mode OFF when managing placements so the placements table is the exact source of truth
     const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
       ...(adState.admob || {}),
       enabled: true,
       testMode: false,
       bannerEnabled: adFormat === "BANNER" ? true : (adState.admob?.bannerEnabled !== false),
       nativeEnabled: adFormat === "NATIVE" ? true : (adState.admob?.nativeEnabled !== false),
+      rewardedEnabled: adFormat === "REWARDED" ? true : (adState.admob?.rewardedEnabled !== false),
       placements: oldPlacements
     }, true);
 
@@ -2854,11 +3072,12 @@ async function deleteAdMobPlacement(id) {
     const deletedFormat = String(oldPlacements[id]?.adFormat || "").toUpperCase();
     delete oldPlacements[id];
     const remainingNative = Object.values(oldPlacements).some(p => p && String(p.adFormat || "").toUpperCase() === "NATIVE");
+    const remainingRewarded = Object.values(oldPlacements).some(p => p && String(p.adFormat || "").toUpperCase() === "REWARDED");
     const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
       ...(adState.admob || {}),
       testMode: false,
       placements: oldPlacements
-    }, true, deletedFormat === "NATIVE" && !remainingNative);
+    }, true, deletedFormat === "NATIVE" && !remainingNative, deletedFormat === "REWARDED" && !remainingRewarded);
     await rtdbAdPut("advertising/admob", nextAdMob);
     adState.admob = nextAdMob;
     if (editing.type === "admob_placement" && editing.item && editing.item.id === id) editing = {};
@@ -2896,6 +3115,16 @@ async function addOfficialAdMobTestPlacements() {
       createdAt: oldPlacements["amp_test_native"]?.createdAt || (now + 1),
       updatedAt: now
     };
+    oldPlacements["amp_test_rewarded"] = {
+      id: "amp_test_rewarded",
+      label: "Google Test Doctor Click Rewarded",
+      adFormat: "REWARDED",
+      placement: "DOCTOR_CLICK_REWARDED",
+      adUnitId: ADMOB_OFFICIAL_TEST_IDS.rewardedUnitId,
+      status: "ACTIVE",
+      createdAt: oldPlacements["amp_test_rewarded"]?.createdAt || (now + 2),
+      updatedAt: now
+    };
     const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
       ...(adState.admob || {}),
       enabled: true,
@@ -2903,17 +3132,215 @@ async function addOfficialAdMobTestPlacements() {
       appId: (adState.admob && adState.admob.appId) || ADMOB_OFFICIAL_TEST_IDS.appId,
       bannerEnabled: true,
       nativeEnabled: true,
+      rewardedEnabled: true,
+      doctorClickRewardEnabled: true,
       placements: oldPlacements
     }, true);
     await rtdbAdPut("advertising/admob", nextAdMob);
     adState.admob = nextAdMob;
     updateAdNavBadges();
-    await writeAuditLog("ADD_ADMOB_TEST_PLACEMENTS", "ADMOB", "admob", "Added official Google AdMob Test Banner & Native placements");
-    toast("Official Google Test Banner & Native Placement IDs added!");
+    await writeAuditLog("ADD_ADMOB_TEST_PLACEMENTS", "ADMOB", "admob", "Added official Google AdMob Test Banner, Native & Rewarded placements");
+    toast("Official Google Test Banner, Native & Rewarded Placement IDs added!");
     renderTab();
   } catch (err) {
     console.error("addOfficialAdMobTestPlacements error:", err);
     alert("Failed to add test placements: " + (err && err.message ? err.message : err));
+  }
+}
+
+// UNITY ADS MANAGEMENT HANDLERS (Game ID + Rewarded Placements CRUD)
+async function saveUnityAdsConfig(e) {
+  e.preventDefault();
+  try {
+    const unityGameId = (document.getElementById("unity_game_id")?.value || "").replace(/\s+/g, "");
+    const unityEnabled = Boolean(document.getElementById("unity_enabled")?.checked);
+    const unityTestMode = Boolean(document.getElementById("unity_test_mode")?.checked);
+    if (unityEnabled && !unityGameId) {
+      return alert("Please enter your Unity Ads Android Game ID before enabling Unity Ads.");
+    }
+    if (unityGameId && !/^[A-Za-z0-9_-]{3,30}$/.test(unityGameId)) {
+      return alert("Invalid Unity Game ID format (expected numeric/alphanumeric Game ID from Unity Dashboard, e.g. 5678910).");
+    }
+    const oldUnityPlacements = { ...((adState.admob && adState.admob.unityPlacements) || {}) };
+    if (unityGameId && Object.keys(oldUnityPlacements).length === 0) {
+      const now = Date.now();
+      oldUnityPlacements["up_default_rewarded"] = {
+        id: "up_default_rewarded",
+        label: "Doctor Click Unity Rewarded",
+        adFormat: "REWARDED",
+        placement: "DOCTOR_CLICK_REWARDED",
+        placementId: UNITY_DEFAULT_REWARDED_PLACEMENT,
+        status: "ACTIVE",
+        createdAt: now,
+        updatedAt: now
+      };
+    }
+    const updated = syncAdMobPrimaryFieldsFromPlacements({
+      ...(adState.admob || {}),
+      unityEnabled,
+      unityTestMode,
+      unityGameId,
+      unityRewardedEnabled: true,
+      unityPlacements: oldUnityPlacements
+    }, false);
+    await rtdbAdPut("advertising/admob", updated);
+    adState.admob = updated;
+    updateAdNavBadges();
+    await writeAuditLog("UPDATE_UNITY_ADS_CONFIG", "UNITY_ADS", "admob", `Saved Unity Ads config (gameId=${unityGameId || "cleared"}, enabled=${unityEnabled}, testMode=${unityTestMode})`);
+    toast("Unity Ads Game ID & settings saved and synced!");
+    renderTab();
+  } catch (err) {
+    console.error("saveUnityAdsConfig error:", err);
+    alert("Failed to save Unity Ads config: " + (err && err.message ? err.message : err));
+  }
+}
+
+async function deleteUnityGameId() {
+  if (!confirm("Delete the saved Unity Ads Game ID and disable Unity Ads?")) return;
+  try {
+    const updated = syncAdMobPrimaryFieldsFromPlacements({
+      ...(adState.admob || {}),
+      unityEnabled: false,
+      unityGameId: ""
+    }, false);
+    await rtdbAdPut("advertising/admob", updated);
+    adState.admob = updated;
+    updateAdNavBadges();
+    await writeAuditLog("DELETE_UNITY_GAME_ID", "UNITY_ADS", "admob", "Deleted Unity Ads Game ID");
+    toast("Unity Ads Game ID deleted!");
+    renderTab();
+  } catch (err) {
+    console.error("deleteUnityGameId error:", err);
+    alert("Failed to delete Unity Game ID: " + (err && err.message ? err.message : err));
+  }
+}
+
+async function submitUnityPlacement(e) {
+  e.preventDefault();
+  try {
+    const id = (document.getElementById("up_id")?.value || "").trim() || uid("up");
+    const label = (document.getElementById("up_label")?.value || "").trim();
+    const placementId = (document.getElementById("up_placement_id")?.value || "").trim();
+    const status = (document.getElementById("up_status")?.value || "ACTIVE").toUpperCase() === "INACTIVE" ? "INACTIVE" : "ACTIVE";
+    if (label.length < 2) return alert("Placement label is required.");
+    if (!placementId) return alert("Unity Placement / Ad Unit ID is required (e.g. Rewarded_Android).");
+
+    const now = Date.now();
+    const oldMap = { ...((adState.admob && adState.admob.unityPlacements) || {}) };
+    const prev = oldMap[id] || {};
+    oldMap[id] = {
+      id,
+      label,
+      adFormat: "REWARDED",
+      placement: "DOCTOR_CLICK_REWARDED",
+      placementId,
+      status,
+      createdAt: prev.createdAt || now,
+      updatedAt: now
+    };
+    const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
+      ...(adState.admob || {}),
+      unityRewardedEnabled: true,
+      unityPlacementsManaged: true,
+      unityPlacements: oldMap
+    }, false);
+    await rtdbAdPut("advertising/admob", nextAdMob);
+    adState.admob = nextAdMob;
+    editing = {};
+    updateAdNavBadges();
+    await writeAuditLog("SAVE_UNITY_PLACEMENT", "UNITY_ADS", id, `Saved Unity Rewarded placement "${label}" -> ${placementId}`);
+    toast("Unity Rewarded Placement ID saved & synced!");
+    renderTab();
+  } catch (err) {
+    console.error("submitUnityPlacement error:", err);
+    alert("Failed to save Unity Placement ID: " + (err && err.message ? err.message : err));
+  }
+}
+
+function editUnityPlacement(id) {
+  const item = adState.admob && adState.admob.unityPlacements && adState.admob.unityPlacements[id];
+  if (!item) return;
+  editing = { type: "unity_placement", item: { id, ...item } };
+  renderTab();
+}
+
+async function toggleUnityPlacementStatus(id) {
+  try {
+    const oldMap = { ...((adState.admob && adState.admob.unityPlacements) || {}) };
+    const item = oldMap[id];
+    if (!item) return;
+    const nextStatus = String(item.status || "ACTIVE").toUpperCase() === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+    oldMap[id] = { ...item, status: nextStatus, updatedAt: Date.now() };
+    const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
+      ...(adState.admob || {}),
+      unityPlacementsManaged: true,
+      unityPlacements: oldMap
+    }, false);
+    await rtdbAdPut("advertising/admob", nextAdMob);
+    adState.admob = nextAdMob;
+    updateAdNavBadges();
+    await writeAuditLog("TOGGLE_UNITY_PLACEMENT", "UNITY_ADS", id, `Set Unity placement "${item.label}" to ${nextStatus}`);
+    toast(`Unity Placement marked ${nextStatus}!`);
+    renderTab();
+  } catch (err) {
+    console.error("toggleUnityPlacementStatus error:", err);
+    alert("Failed to toggle Unity placement: " + (err && err.message ? err.message : err));
+  }
+}
+
+async function deleteUnityPlacement(id) {
+  try {
+    const oldMap = { ...((adState.admob && adState.admob.unityPlacements) || {}) };
+    const item = oldMap[id];
+    if (!item) return;
+    if (!confirm(`Delete Unity Rewarded placement "${item.label}" (${item.placementId})?`)) return;
+    delete oldMap[id];
+    const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
+      ...(adState.admob || {}),
+      unityPlacementsManaged: true,
+      unityPlacements: oldMap
+    }, false);
+    await rtdbAdPut("advertising/admob", nextAdMob);
+    adState.admob = nextAdMob;
+    if (editing.type === "unity_placement" && editing.item && editing.item.id === id) editing = {};
+    updateAdNavBadges();
+    await writeAuditLog("DELETE_UNITY_PLACEMENT", "UNITY_ADS", id, `Deleted Unity placement "${item.label}"`);
+    toast("Unity Placement ID deleted!");
+    renderTab();
+  } catch (err) {
+    console.error("deleteUnityPlacement error:", err);
+    alert("Failed to delete Unity placement: " + (err && err.message ? err.message : err));
+  }
+}
+
+async function addDefaultUnityRewardedPlacement() {
+  try {
+    const now = Date.now();
+    const oldMap = { ...((adState.admob && adState.admob.unityPlacements) || {}) };
+    oldMap["up_default_rewarded"] = {
+      id: "up_default_rewarded",
+      label: "Doctor Click Unity Rewarded",
+      adFormat: "REWARDED",
+      placement: "DOCTOR_CLICK_REWARDED",
+      placementId: UNITY_DEFAULT_REWARDED_PLACEMENT,
+      status: "ACTIVE",
+      createdAt: oldMap["up_default_rewarded"]?.createdAt || now,
+      updatedAt: now
+    };
+    const nextAdMob = syncAdMobPrimaryFieldsFromPlacements({
+      ...(adState.admob || {}),
+      unityRewardedEnabled: true,
+      unityPlacementsManaged: true,
+      unityPlacements: oldMap
+    }, false);
+    await rtdbAdPut("advertising/admob", nextAdMob);
+    adState.admob = nextAdMob;
+    updateAdNavBadges();
+    toast("Default Unity placement (Rewarded_Android) added!");
+    renderTab();
+  } catch (err) {
+    console.error("addDefaultUnityRewardedPlacement error:", err);
+    alert("Failed to add default Unity placement: " + (err && err.message ? err.message : err));
   }
 }
 
@@ -2922,21 +3349,23 @@ function renderAdSettings() {
   const s = adState.placements || {};
   const am = adState.admob || {};
   const placementCount = Object.values(am.placements || {}).filter(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE").length;
+  const unityCount = Object.values(am.unityPlacements || {}).filter(p => String(p.status || "ACTIVE").toUpperCase() === "ACTIVE").length;
   return `
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
-      <!-- Quick Link to Dedicated Google AdMob App ID & Placement IDs CRUD -->
+      <!-- Quick Link to Dedicated AdMob & Unity Ads Manager -->
       <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 h-fit">
         <div>
-          <h3 class="font-bold text-base text-slate-900">Google AdMob App ID &amp; Placement IDs</h3>
-          <p class="text-xs text-slate-500 mt-0.5">Add, edit, activate/deactivate, or delete your AdMob App ID and Banner/Native Placement IDs. Changes update automatically in the Android app.</p>
+          <h3 class="font-bold text-base text-slate-900">AdMob &amp; Unity Ads Setup (Banner, Native &amp; Rewarded)</h3>
+          <p class="text-xs text-slate-500 mt-0.5">Manage AdMob App ID, Banner/Native/Rewarded Unit IDs, Unity Game ID, Unity Rewarded Placements, and the Doctor Profile Click Rewarded Ad flow.</p>
         </div>
         <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
-          <div><span class="text-slate-500">Status:</span> <b class="${am.enabled !== false ? "text-emerald-700" : "text-rose-700"}">${am.enabled !== false ? "ENABLED" : "DISABLED"}</b> (${am.testMode ? "Test Mode" : "Live Placements Mode"})</div>
-          <div><span class="text-slate-500">App ID:</span> <span class="font-mono text-[11px]">${esc(am.appId || "Not set")}</span></div>
-          <div><span class="text-slate-500">Active Placement IDs:</span> <b>${placementCount}</b></div>
+          <div><span class="text-slate-500">AdMob Status:</span> <b class="${am.enabled !== false ? "text-emerald-700" : "text-rose-700"}">${am.enabled !== false ? "ENABLED" : "DISABLED"}</b> (${am.testMode ? "Test Mode" : "Live Placements Mode"})</div>
+          <div><span class="text-slate-500">AdMob App ID:</span> <span class="font-mono text-[11px]">${esc(am.appId || "Not set")}</span></div>
+          <div><span class="text-slate-500">Active AdMob IDs:</span> <b>${placementCount}</b> &bull; <span class="text-slate-500">Unity Rewarded:</span> <b>${am.unityEnabled === true ? (unityCount + " Active") : "OFF"}</b></div>
+          <div><span class="text-slate-500">Doctor Click Rewarded Flow:</span> <b>${am.doctorClickRewardEnabled !== false ? ("ON (" + esc(am.rewardedNetworkPriority || "ADMOB_FIRST") + ")") : "OFF"}</b></div>
         </div>
         <button type="button" onclick="switchTab('ad_admob')" class="w-full py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold">
-          Open Google AdMob IDs Manager (Add / Edit / Delete) →
+          Open AdMob &amp; Unity Ads Manager (Add / Edit / Delete) →
         </button>
       </div>
 

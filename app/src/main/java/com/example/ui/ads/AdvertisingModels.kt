@@ -56,6 +56,7 @@ object AdPlacements {
     const val ALL_NATIVE_LISTS = "ALL_NATIVE_LISTS"
     const val BOTTOM_ALL_SCREENS = "BOTTOM_ALL_SCREENS"
     const val APP_LAUNCH = "APP_LAUNCH"
+    const val DOCTOR_CLICK_REWARDED = "DOCTOR_CLICK_REWARDED"
 
     val NATIVE_PLACEMENTS: Set<String> = setOf(
         ALL_NATIVE_LISTS,
@@ -74,6 +75,7 @@ object AdPlacements {
         "FAVORITE_LIST", "FAVORITES", "FAVOURITE_LIST" -> FAVORITE_LIST
         "BOTTOM_ALL_SCREENS", "BOTTOM_BANNER", "ALL_SCREENS" -> BOTTOM_ALL_SCREENS
         "APP_LAUNCH", "APP_OPEN" -> APP_LAUNCH
+        "DOCTOR_CLICK_REWARDED", "DOCTOR_CLICK", "DOCTOR_PROFILE_REWARDED", "REWARDED_DOCTOR", "REWARDED" -> DOCTOR_CLICK_REWARDED
         else -> raw.trim().uppercase()
     }
 
@@ -86,6 +88,7 @@ object AdPlacements {
         FAVORITE_LIST -> if (isBn) "প্রিয় তালিকা" else "Favorite List"
         BOTTOM_ALL_SCREENS -> if (isBn) "সব স্ক্রিনের নিচে (বটম ব্যানার)" else "Bottom of All Screens"
         APP_LAUNCH -> if (isBn) "অ্যাপ ওপেন পপআপ (প্রতি সেশনে ১ বার)" else "App Launch Popup (Once / Session)"
+        DOCTOR_CLICK_REWARDED -> if (isBn) "ডাক্তার প্রোফাইল ক্লিক রিওয়ার্ড অ্যাড" else "Doctor Profile Click Rewarded Ad"
         else -> raw.replace('_', ' ')
     }
 }
@@ -331,7 +334,7 @@ data class AdminBottomBannerItem(
 data class AdMobPlacementItem(
     val id: String,
     val label: String = "",
-    val adFormat: String = "BANNER", // BANNER | NATIVE
+    val adFormat: String = "BANNER", // BANNER | NATIVE | REWARDED
     val placement: String = AdPlacements.BOTTOM_ALL_SCREENS,
     val adUnitId: String = "",
     val status: String = AdStatuses.ACTIVE, // ACTIVE | INACTIVE
@@ -343,9 +346,41 @@ data class AdMobPlacementItem(
 }
 
 /**
- * Dynamic Google AdMob Configuration synced from Firebase RTDB (/advertising/admob).
+ * Individual Unity Ads Placement ID managed dynamically from Admin Panel (/advertising/admob/unityPlacements/{id}).
+ */
+data class UnityAdPlacementItem(
+    val id: String,
+    val label: String = "",
+    val adFormat: String = "REWARDED", // REWARDED
+    val placement: String = AdPlacements.DOCTOR_CLICK_REWARDED,
+    val placementId: String = "",
+    val status: String = AdStatuses.ACTIVE, // ACTIVE | INACTIVE
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L
+) {
+    val isActive: Boolean
+        get() = status.equals(AdStatuses.ACTIVE, ignoreCase = true) && placementId.isNotBlank()
+}
+
+object RewardedNetworkPriorities {
+    const val ADMOB_FIRST = "ADMOB_FIRST"
+    const val UNITY_FIRST = "UNITY_FIRST"
+    const val ADMOB_ONLY = "ADMOB_ONLY"
+    const val UNITY_ONLY = "UNITY_ONLY"
+
+    fun normalize(raw: String): String = when (raw.trim().uppercase()) {
+        UNITY_FIRST, "UNITY" -> UNITY_FIRST
+        ADMOB_ONLY -> ADMOB_ONLY
+        UNITY_ONLY -> UNITY_ONLY
+        else -> ADMOB_FIRST
+    }
+}
+
+/**
+ * Dynamic Google AdMob & Unity Ads Configuration synced from Firebase RTDB (/advertising/admob).
  * Supports unlimited Admin-managed Placement IDs (Add, Edit, Activate/Deactivate, Delete)
- * with automatic live sync to the Android app, plus Official Google Test Ads when Test Mode is enabled.
+ * for AdMob Banner, Native, Rewarded, and Unity Ads Rewarded (triggered on Doctor click before profile),
+ * with automatic live sync to the Android app.
  */
 data class AdMobRemoteConfig(
     val enabled: Boolean = true,
@@ -355,15 +390,32 @@ data class AdMobRemoteConfig(
     val bannerUnitId: String = DEFAULT_TEST_BANNER_ID,
     val nativeEnabled: Boolean = true,
     val nativeUnitId: String = DEFAULT_TEST_NATIVE_ID,
+    val rewardedEnabled: Boolean = true,
+    val rewardedUnitId: String = DEFAULT_TEST_REWARDED_ID,
     val placementsManaged: Boolean = false,
     val nativeExplicitlyCleared: Boolean = false,
+    val rewardedExplicitlyCleared: Boolean = false,
     val placements: List<AdMobPlacementItem> = emptyList(),
+    // Unity Ads Remote Configuration (Admin Panel Managed)
+    val unityEnabled: Boolean = false,
+    val unityTestMode: Boolean = true,
+    val unityGameId: String = "",
+    val unityRewardedEnabled: Boolean = true,
+    val unityRewardedPlacementId: String = DEFAULT_UNITY_REWARDED_PLACEMENT,
+    val unityPlacementsManaged: Boolean = false,
+    val unityPlacements: List<UnityAdPlacementItem> = emptyList(),
+    // Doctor Profile Click Rewarded Ad Flow
+    val doctorClickRewardEnabled: Boolean = true,
+    val rewardedNetworkPriority: String = RewardedNetworkPriorities.ADMOB_FIRST,
+    val rewardedCooldownSec: Int = 0,
     val updatedAt: Long = 0L
 ) {
     companion object {
         const val DEFAULT_TEST_APP_ID = "ca-app-pub-3940256099942544~3347511713"
         const val DEFAULT_TEST_BANNER_ID = "ca-app-pub-3940256099942544/6300978111"
         const val DEFAULT_TEST_NATIVE_ID = "ca-app-pub-3940256099942544/2247696110"
+        const val DEFAULT_TEST_REWARDED_ID = "ca-app-pub-3940256099942544/5224354917"
+        const val DEFAULT_UNITY_REWARDED_PLACEMENT = "Rewarded_Android"
     }
 
     fun activeBannerUnitIds(): List<String> {
@@ -411,6 +463,40 @@ data class AdMobRemoteConfig(
         return if (nativeExplicitlyCleared) emptyList() else listOf(DEFAULT_TEST_NATIVE_ID)
     }
 
+    fun activeRewardedUnitIds(): List<String> {
+        if (!enabled || !rewardedEnabled) return emptyList()
+        if (testMode) return listOf(DEFAULT_TEST_REWARDED_ID)
+        val allRewardedPlacements = placements.filter {
+            it.adFormat.equals("REWARDED", ignoreCase = true)
+        }
+        val activeRewarded = allRewardedPlacements
+            .filter { it.isActive }
+            .map { it.adUnitId.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        if (activeRewarded.isNotEmpty()) return activeRewarded
+        if (allRewardedPlacements.isNotEmpty()) return emptyList()
+        val legacy = rewardedUnitId.trim()
+        if (legacy.isNotBlank()) return listOf(legacy)
+        return if (rewardedExplicitlyCleared) emptyList() else listOf(DEFAULT_TEST_REWARDED_ID)
+    }
+
+    fun activeUnityRewardedPlacementIds(): List<String> {
+        if (!unityEnabled || !unityRewardedEnabled || unityGameId.isBlank()) return emptyList()
+        val allUnityRewarded = unityPlacements.filter {
+            it.adFormat.equals("REWARDED", ignoreCase = true) || it.adFormat.isBlank()
+        }
+        val activeIds = allUnityRewarded
+            .filter { it.isActive }
+            .map { it.placementId.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        if (activeIds.isNotEmpty()) return activeIds
+        if (allUnityRewarded.isNotEmpty() || unityPlacementsManaged) return emptyList()
+        val fallback = unityRewardedPlacementId.trim()
+        return if (fallback.isNotBlank()) listOf(fallback) else emptyList()
+    }
+
     fun nativeUnitIdForSlot(placementTarget: String, slotIndex: Int): String? {
         val ids = activeNativeUnitIdsFor(placementTarget)
         if (ids.isEmpty()) return null
@@ -423,11 +509,29 @@ data class AdMobRemoteConfig(
     val effectiveNativeUnitId: String
         get() = activeNativeUnitIdsFor(AdPlacements.ALL_NATIVE_LISTS).firstOrNull().orEmpty()
 
+    val effectiveRewardedUnitId: String
+        get() = activeRewardedUnitIds().firstOrNull().orEmpty()
+
+    val effectiveUnityRewardedPlacementId: String
+        get() = activeUnityRewardedPlacementIds().firstOrNull().orEmpty()
+
     val isBannerActive: Boolean
         get() = activeBannerUnitIds().isNotEmpty()
 
     val isNativeActive: Boolean
         get() = activeNativeUnitIdsFor(AdPlacements.ALL_NATIVE_LISTS).isNotEmpty()
+
+    val isDoctorClickRewardActive: Boolean
+        get() {
+            if (!doctorClickRewardEnabled) return false
+            val hasAdMob = activeRewardedUnitIds().isNotEmpty()
+            val hasUnity = activeUnityRewardedPlacementIds().isNotEmpty()
+            return when (RewardedNetworkPriorities.normalize(rewardedNetworkPriority)) {
+                RewardedNetworkPriorities.ADMOB_ONLY -> hasAdMob
+                RewardedNetworkPriorities.UNITY_ONLY -> hasUnity
+                else -> hasAdMob || hasUnity
+            }
+        }
 }
 
 /**

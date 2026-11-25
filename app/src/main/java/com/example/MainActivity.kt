@@ -40,6 +40,7 @@ import com.example.ui.ads.AdMobInitializer
 import com.example.ui.ads.AdvertisingRotationEngine
 import com.example.ui.ads.AppOpenPopup300x200Dialog
 import com.example.ui.ads.ConnectivityMonitor
+import com.example.ui.ads.RewardedAdManager
 import com.example.ui.ads.RotatingBottomBannerBar
 import com.example.ui.ads.SliderRecordTypes
 import com.example.ui.ads.openAdUrl
@@ -133,8 +134,9 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(adSnapshot.admobConfig.appId) {
+    LaunchedEffect(adSnapshot.admobConfig, adSnapshot.placementSettings) {
         AdMobInitializer.syncRemoteAppId(appContext, adSnapshot.admobConfig.appId)
+        RewardedAdManager.syncConfig(appContext, adSnapshot.admobConfig, adSnapshot.placementSettings)
     }
 
     // App Open Popup (300x200) — shown STRICTLY ONCE per app session (guarded in MainViewModel)
@@ -200,10 +202,48 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
 
     var pendingRewardDoctorId by remember { mutableStateOf<String?>(null) }
 
-    // Doctor profiles open directly; no rewarded-ad network is required.
+    // Clicking any doctor plays an Admin-configured AdMob or Unity Rewarded Ad first;
+    // once the reward completes (or if ads are disabled/unavailable), the doctor profile opens.
     val openDoctorProfile: (String) -> Unit = { doctorId ->
-        navController.navigate(Routes.doctorProfile(doctorId)) {
-            launchSingleTop = true
+        val navigateDirect = {
+            navController.navigate(Routes.doctorProfile(doctorId)) {
+                launchSingleTop = true
+            }
+        }
+        val activity = RewardedAdManager.findActivity(appContext)
+        val shouldShowReward = activity != null &&
+            isOnline &&
+            RewardedAdManager.shouldShowRewardedForDoctorClick(
+                config = adSnapshot.admobConfig,
+                placementSettings = adSnapshot.placementSettings
+            )
+        if (pendingRewardDoctorId != null) {
+            // Prevent duplicate taps while rewarded ad is loading
+        } else if (shouldShowReward && activity != null) {
+            pendingRewardDoctorId = doctorId
+            RewardedAdManager.showRewardedForDoctorClick(
+                activity = activity,
+                config = adSnapshot.admobConfig,
+                placementSettings = adSnapshot.placementSettings,
+                isOnline = isOnline,
+                onAdOpening = { pendingRewardDoctorId = null },
+                onUnlocked = {
+                    pendingRewardDoctorId = null
+                    navigateDirect()
+                },
+                onIncomplete = {
+                    pendingRewardDoctorId = null
+                    vm.showMessage(
+                        tr(
+                            lang,
+                            "ডাক্তারের প্রোফাইল দেখতে সম্পূর্ণ বিজ্ঞাপন দেখুন",
+                            "Watch the full ad to view the doctor profile"
+                        )
+                    )
+                }
+            )
+        } else {
+            navigateDirect()
         }
     }
 

@@ -1161,6 +1161,7 @@ object AdvertisingRemoteService {
         val testMode = obj.optBoolean("testMode", true)
         val rawBanner = obj.optString("bannerUnitId", "").trim()
         val rawNative = obj.optString("nativeUnitId", "").trim()
+        val rawRewarded = obj.optString("rewardedUnitId", "").trim()
         val rawAppId = obj.optString("appId", "").trim()
         val placementsManaged = obj.optBoolean("placementsManaged", false) || obj.has("placements")
         val placementsList = mutableListOf<AdMobPlacementItem>()
@@ -1171,11 +1172,15 @@ object AdvertisingRemoteService {
                 val id = keys.next()
                 val p = placementsObj.optJSONObject(id) ?: continue
                 val formatRaw = p.optString("adFormat", "BANNER").trim().uppercase()
-                val normFormat = if (formatRaw == "NATIVE") "NATIVE" else "BANNER"
-                val defaultPlacement = if (normFormat == "BANNER") {
-                    AdPlacements.BOTTOM_ALL_SCREENS
-                } else {
-                    AdPlacements.ALL_NATIVE_LISTS
+                val normFormat = when (formatRaw) {
+                    "NATIVE" -> "NATIVE"
+                    "REWARDED" -> "REWARDED"
+                    else -> "BANNER"
+                }
+                val defaultPlacement = when (normFormat) {
+                    "BANNER" -> AdPlacements.BOTTOM_ALL_SCREENS
+                    "REWARDED" -> AdPlacements.DOCTOR_CLICK_REWARDED
+                    else -> AdPlacements.ALL_NATIVE_LISTS
                 }
                 val rawPlacement = p.optString("placement", defaultPlacement).trim()
                 placementsList.add(
@@ -1195,6 +1200,34 @@ object AdvertisingRemoteService {
         val sortedPlacements = placementsList.sortedWith(
             compareBy<AdMobPlacementItem> { it.createdAt }.thenBy { it.id }
         )
+
+        val unityPlacementsList = mutableListOf<UnityAdPlacementItem>()
+        val unityPlacementsObj = obj.optJSONObject("unityPlacements")
+        if (unityPlacementsObj != null) {
+            val keys = unityPlacementsObj.keys()
+            while (keys.hasNext()) {
+                val id = keys.next()
+                val p = unityPlacementsObj.optJSONObject(id) ?: continue
+                val rawPlacement = p.optString("placement", AdPlacements.DOCTOR_CLICK_REWARDED).trim()
+                unityPlacementsList.add(
+                    UnityAdPlacementItem(
+                        id = id,
+                        label = p.optString("label", "").trim(),
+                        adFormat = p.optString("adFormat", "REWARDED").trim().uppercase().ifBlank { "REWARDED" },
+                        placement = if (rawPlacement.isBlank()) AdPlacements.DOCTOR_CLICK_REWARDED else AdPlacements.normalize(rawPlacement),
+                        placementId = p.optString("placementId", "").trim(),
+                        status = p.optString("status", AdStatuses.ACTIVE).trim().uppercase(),
+                        createdAt = p.optLong("createdAt", 0L),
+                        updatedAt = p.optLong("updatedAt", 0L)
+                    )
+                )
+            }
+        }
+        val sortedUnityPlacements = unityPlacementsList.sortedWith(
+            compareBy<UnityAdPlacementItem> { it.createdAt }.thenBy { it.id }
+        )
+        val unityPlacementsManaged = obj.optBoolean("unityPlacementsManaged", false) || obj.has("unityPlacements")
+
         return AdMobRemoteConfig(
             enabled = obj.optBoolean("enabled", true),
             testMode = testMode,
@@ -1203,9 +1236,26 @@ object AdvertisingRemoteService {
             bannerUnitId = rawBanner.ifBlank { if (testMode) AdMobRemoteConfig.DEFAULT_TEST_BANNER_ID else "" },
             nativeEnabled = obj.optBoolean("nativeEnabled", true),
             nativeUnitId = rawNative.ifBlank { if (testMode) AdMobRemoteConfig.DEFAULT_TEST_NATIVE_ID else "" },
+            rewardedEnabled = obj.optBoolean("rewardedEnabled", true),
+            rewardedUnitId = rawRewarded.ifBlank { if (testMode) AdMobRemoteConfig.DEFAULT_TEST_REWARDED_ID else "" },
             placementsManaged = placementsManaged,
             nativeExplicitlyCleared = obj.optBoolean("nativeExplicitlyCleared", false),
+            rewardedExplicitlyCleared = obj.optBoolean("rewardedExplicitlyCleared", false),
             placements = sortedPlacements,
+            unityEnabled = obj.optBoolean("unityEnabled", false),
+            unityTestMode = obj.optBoolean("unityTestMode", true),
+            unityGameId = obj.optString("unityGameId", "").trim(),
+            unityRewardedEnabled = obj.optBoolean("unityRewardedEnabled", true),
+            unityRewardedPlacementId = obj.optString("unityRewardedPlacementId", AdMobRemoteConfig.DEFAULT_UNITY_REWARDED_PLACEMENT)
+                .trim()
+                .ifBlank { AdMobRemoteConfig.DEFAULT_UNITY_REWARDED_PLACEMENT },
+            unityPlacementsManaged = unityPlacementsManaged,
+            unityPlacements = sortedUnityPlacements,
+            doctorClickRewardEnabled = obj.optBoolean("doctorClickRewardEnabled", true),
+            rewardedNetworkPriority = RewardedNetworkPriorities.normalize(
+                obj.optString("rewardedNetworkPriority", RewardedNetworkPriorities.ADMOB_FIRST)
+            ),
+            rewardedCooldownSec = obj.optInt("rewardedCooldownSec", 0).coerceIn(0, 86400),
             updatedAt = obj.optLong("updatedAt", 0L)
         )
     }
