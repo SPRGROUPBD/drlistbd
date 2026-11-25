@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.local.DiagnosticCenterEntity
 import com.example.data.local.HospitalEntity
@@ -830,6 +831,7 @@ fun NotificationCenterBottomSheet(
     onMarkRead: (String) -> Unit,
     onMarkAllRead: () -> Unit,
     onRefresh: () -> Unit,
+    onOpenNotification: (NotificationEntity) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val unreadCount = notifications.count { !it.isRead }
@@ -942,8 +944,33 @@ fun NotificationCenterBottomSheet(
                             item.messageEn.ifBlank { item.messageBn }
                         )
 
+                        val typePill = when (item.messageType.uppercase()) {
+                            "NEW_DOCTOR" -> Triple(
+                                tr(lang, "নতুন ডাক্তার", "New Doctor"),
+                                Color(0xFFDCFCE7),
+                                Color(0xFF15803D)
+                            )
+                            "APP_UPDATE" -> Triple(
+                                tr(lang, "অ্যাপ আপডেট", "App Update"),
+                                Color(0xFFDBEAFE),
+                                Color(0xFF1D4ED8)
+                            )
+                            else -> Triple(
+                                tr(lang, "সাধারণ", "General"),
+                                Color(0xFFEDE9FE),
+                                Color(0xFF6D28D9)
+                            )
+                        }
+                        val hasValidImage = item.imageUrl.trim().let {
+                            it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true)
+                        }
+                        val hasActionTarget = item.selectedDoctorId.isNotBlank() || item.deepLink.isNotBlank()
+
                         Surface(
-                            onClick = { if (!item.isRead) onMarkRead(item.id) },
+                            onClick = {
+                                if (!item.isRead) onMarkRead(item.id)
+                                if (hasActionTarget) onOpenNotification(item)
+                            },
                             shape = RoundedCornerShape(16.dp),
                             color = if (item.isRead) BackgroundIce else MedicalBlueLight.copy(alpha = 0.45f),
                             border = BorderStroke(
@@ -972,12 +999,10 @@ fun NotificationCenterBottomSheet(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(
-                                            text = title,
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = if (item.isRead) FontWeight.Medium else FontWeight.Bold,
-                                            color = TextPrimary,
-                                            modifier = Modifier.weight(1f)
+                                        StatusPill(
+                                            text = typePill.first,
+                                            bgColor = typePill.second,
+                                            textColor = typePill.third
                                         )
                                         Spacer(Modifier.width(8.dp))
                                         Text(
@@ -986,6 +1011,13 @@ fun NotificationCenterBottomSheet(
                                             color = TextMuted
                                         )
                                     }
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        text = title,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = if (item.isRead) FontWeight.Medium else FontWeight.Bold,
+                                        color = TextPrimary
+                                    )
                                     if (body.isNotBlank()) {
                                         Spacer(Modifier.height(4.dp))
                                         Text(
@@ -994,7 +1026,27 @@ fun NotificationCenterBottomSheet(
                                             color = TextSecondary
                                         )
                                     }
-                                    if (!item.isRead) {
+                                    if (hasValidImage) {
+                                        Spacer(Modifier.height(8.dp))
+                                        AsyncImage(
+                                            model = item.imageUrl.trim(),
+                                            contentDescription = title,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(120.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                        )
+                                    }
+                                    if (hasActionTarget) {
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(
+                                            text = tr(lang, "বিস্তারিত দেখতে ট্যাপ করুন →", "Tap to view details →"),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MedicalBlueDark,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    } else if (!item.isRead) {
                                         Spacer(Modifier.height(6.dp))
                                         Text(
                                             text = tr(lang, "পঠিত হিসেবে চিহ্নিত করতে ট্যাপ করুন", "Tap to mark as read"),

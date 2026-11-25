@@ -1,9 +1,14 @@
 package com.example
 
+import android.Manifest
+import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,10 +36,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.auth.GoogleAuthManager
+import com.example.data.local.NotificationEntity
 import com.example.data.model.GlobalSearchType
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
+import com.example.notifications.PushNotificationManager
 import com.example.ui.ads.AdCampaignItem
 import com.example.ui.ads.AdMobInitializer
 import com.example.ui.ads.AdvertisingRotationEngine
@@ -74,11 +82,21 @@ private data class BottomTabItem(
     val tag: String
 )
 
+data class PendingPushTarget(
+    val notificationId: String = "",
+    val doctorId: String = "",
+    val deepLink: String = ""
+)
+
 class MainActivity : ComponentActivity() {
+    private val pendingPushTarget = mutableStateOf<PendingPushTarget?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         AdMobInitializer.ensureInitialized(applicationContext)
+        PushNotificationManager.ensureNotificationChannel(applicationContext)
+        capturePushIntent(intent)
         setContent {
             val vm: MainViewModel = viewModel()
             val isDarkTheme by vm.isDarkTheme.collectAsStateWithLifecycle()
@@ -89,14 +107,45 @@ class MainActivity : ComponentActivity() {
                 controller.isAppearanceLightNavigationBars = !isDarkTheme
             }
             DoctorDirectoryTheme(darkTheme = isDarkTheme) {
-                DoctorListBdApp(vm = vm, isDarkTheme = isDarkTheme)
+                DoctorListBdApp(
+                    vm = vm,
+                    isDarkTheme = isDarkTheme,
+                    pendingPushTarget = pendingPushTarget.value,
+                    onConsumePushTarget = { pendingPushTarget.value = null }
+                )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        capturePushIntent(intent)
+    }
+
+    private fun capturePushIntent(intent: Intent?) {
+        if (intent == null) return
+        val docId = intent.getStringExtra(PushNotificationManager.EXTRA_DOCTOR_ID).orEmpty().trim()
+        val deepLink = intent.getStringExtra(PushNotificationManager.EXTRA_DEEP_LINK).orEmpty().trim()
+            .ifBlank { intent.dataString.orEmpty().trim() }
+        val notifId = intent.getStringExtra(PushNotificationManager.EXTRA_NOTIFICATION_ID).orEmpty().trim()
+        if (docId.isNotBlank() || deepLink.isNotBlank()) {
+            pendingPushTarget.value = PendingPushTarget(
+                notificationId = notifId,
+                doctorId = docId,
+                deepLink = PushNotificationManager.sanitizeDeepLink(deepLink)
+            )
         }
     }
 }
 
 @Composable
-fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = LocalIsDarkTheme.current) {
+fun DoctorListBdApp(
+    vm: MainViewModel = viewModel(),
+    isDarkTheme: Boolean = LocalIsDarkTheme.current,
+    pendingPushTarget: PendingPushTarget? = null,
+    onConsumePushTarget: () -> Unit = {}
+) {
     val lang by vm.currentLang.collectAsStateWithLifecycle()
     val storedAdConfig by vm.adConfig.collectAsStateWithLifecycle()
     // Keep legacy static sponsor slots disabled so only the 4 dynamic RTDB Ad Packages render
@@ -149,6 +198,30 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
             activeAppOpenPopup = popup
             vm.markAppOpenPopupShown()
         }
+    }
+
+    val googleUser by GoogleAuthManager.currentUser.collectAsStateWithLifecycle()
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            PushNotificationManager.syncCurrentFcmToken(appContext, googleUser?.uid)
+        }
+    }
+
+    LaunchedEffect(showSplash) {
+        if (!showSplash) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                !PushNotificationManager.hasNotificationPermission(appContext)
+            ) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            PushNotificationManager.syncCurrentFcmToken(appContext, googleUser?.uid)
+        }
+    }
+
+    LaunchedEffect(googleUser?.uid) {
+        PushNotificationManager.syncCurrentFcmToken(appContext, googleUser?.uid)
     }
 
     if (showSplash) {
@@ -824,6 +897,35 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
             )
         }
 
+        val handleNotificationTarget: (String, String) -> Unit = { doctorId, rawDeepLink ->
+            val cleanDocId = doctorId.trim()
+            val cleanLink = PushNotificationManager.sanitizeDeepLink(rawDeepLink)
+            when {
+                cleanDocId.isNotBlank() -> openDoctorProfile(cleanDocId)
+                cleanLink.startsWith("doctorlistbd://doctor/", ignoreCase = true) -> {
+                    val targetId = cleanLink.substringAfter("doctorlistbd://doctor/").substringBefore("?").trim()
+                    if (targetId.isNotBlank()) openDoctorProfile(targetId)
+                }
+                cleanLink.equals("app://doctors", ignoreCase = true) -> navigateToTab(Routes.FIND_DOCTORS)
+                cleanLink.equals("app://hospitals", ignoreCase = true) -> {
+                    facilitiesTab = 0
+                    navigateToTab(Routes.FACILITIES)
+                }
+                cleanLink.equals("app://notifications", ignoreCase = true) -> showNotificationCenter = true
+                cleanLink.equals("app://home", ignoreCase = true) -> navigateToTab(Routes.HOME)
+                cleanLink.startsWith("https://", ignoreCase = true) -> openAdUrl(appContext, cleanLink, lang)
+            }
+        }
+
+        LaunchedEffect(pendingPushTarget) {
+            val target = pendingPushTarget ?: return@LaunchedEffect
+            if (target.notificationId.isNotBlank()) {
+                vm.markNotificationRead(target.notificationId)
+            }
+            handleNotificationTarget(target.doctorId, target.deepLink)
+            onConsumePushTarget()
+        }
+
         if (showNotificationCenter) {
             NotificationCenterBottomSheet(
                 lang = lang,
@@ -832,6 +934,10 @@ fun DoctorListBdApp(vm: MainViewModel = viewModel(), isDarkTheme: Boolean = Loca
                 onMarkRead = vm::markNotificationRead,
                 onMarkAllRead = vm::markAllNotificationsRead,
                 onRefresh = { vm.syncNow(showToast = false) },
+                onOpenNotification = { item: NotificationEntity ->
+                    showNotificationCenter = false
+                    handleNotificationTarget(item.selectedDoctorId, item.deepLink)
+                },
                 onDismiss = { showNotificationCenter = false }
             )
         }

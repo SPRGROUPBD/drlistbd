@@ -206,6 +206,11 @@ data class NotificationEntity(
     val messageBn: String,
     val messageEn: String,
     val targetRole: String = "ALL",
+    val messageType: String = "GENERAL",
+    val selectedDoctorId: String = "",
+    val selectedDoctorName: String = "",
+    val imageUrl: String = "",
+    val deepLink: String = "",
     val isRead: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 )

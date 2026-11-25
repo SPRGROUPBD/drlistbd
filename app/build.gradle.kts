@@ -113,8 +113,9 @@ dependencies {
   // Uncomment to use Firestore:
   // implementation(libs.firebase.firestore)
 
-  // Firebase Auth and Google Sign-In via Jetpack Credential Manager:
+  // Firebase Auth, Cloud Messaging (FCM), and Google Sign-In via Jetpack Credential Manager:
   implementation(libs.firebase.auth)
+  implementation(libs.firebase.messaging)
   implementation(libs.androidx.credentials)
   implementation(libs.androidx.credentials.play.services)
   implementation(libs.googleid)

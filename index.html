@@ -93,7 +93,7 @@
       </form>
 
       <div class="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-xs gap-2">
-        <a href="visitor.html" class="font-bold text-sky-700 hover:underline">Visitor Portal &rarr;</a>
+        <a href="Visitor.html" class="font-bold text-sky-700 hover:underline">Push Notification Panel (Visitor.html) &rarr;</a>
         </div>
     </div>
   </div>
@@ -343,8 +343,8 @@
       </nav>
 
       <div class="p-3 border-t border-slate-100 flex-shrink-0 space-y-1.5">
-        <a href="visitor.html" target="_blank" class="block text-center py-2 px-3 rounded-xl bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 text-xs font-bold">
-          Open Visitor Portal &nearr;
+        <a href="Visitor.html" target="_blank" class="block text-center py-2 px-3 rounded-xl bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 text-xs font-bold">
+          Push Notification Panel &nearr;
         </a>
         </div>
     </aside>
@@ -2306,7 +2306,10 @@ function renderNotifications() {
   const editN = editing.notif || {};
   return `
     <div class="bg-white p-5 rounded-2xl border border-slate-200 mb-6">
-      <h3 class="font-bold text-sky-800 mb-3">${editN.id ? "Edit Notification" : "Send Notification to App Users"}</h3>
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h3 class="font-bold text-sky-800">${editN.id ? "Edit Notification" : "Send Notification to App Users"}</h3>
+        <a href="Visitor.html" target="_blank" class="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold">Open Full Push Notification Panel &nearr;</a>
+      </div>
       <form onsubmit="submitNotif(event)" class="space-y-2.5">
         <input type="hidden" id="n_id" value="${esc(editN.id || "")}" />
         <input id="n_tBn" value="${esc(editN.titleBn || "")}" required placeholder="Title (Bangla) *" class="input" />

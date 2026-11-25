@@ -271,34 +271,29 @@ object RtdbSyncService {
             // Notifications (preserve local read status across auto-syncs & merge optional root /notifications)
             val existingReadIds = runCatching { db.notificationDao().getReadIds().toSet() }.getOrDefault(emptySet())
             val mergedNotifications = linkedMapOf<String, NotificationEntity>()
+            fun parseNotificationRecord(id: String, o: JSONObject): NotificationEntity = NotificationEntity(
+                id = cleanOptString(o, "notificationId").ifBlank { id },
+                titleBn = cleanOptString(o, "titleBn").ifBlank { cleanOptString(o, "title") },
+                titleEn = cleanOptString(o, "titleEn").ifBlank { cleanOptString(o, "title") },
+                messageBn = cleanOptString(o, "messageBn").ifBlank { cleanOptString(o, "message") },
+                messageEn = cleanOptString(o, "messageEn").ifBlank { cleanOptString(o, "message") },
+                targetRole = cleanOptString(o, "targetRole", "ALL"),
+                messageType = cleanOptString(o, "messageType", "GENERAL").uppercase(),
+                selectedDoctorId = cleanOptString(o, "selectedDoctorId"),
+                selectedDoctorName = cleanOptString(o, "selectedDoctorName"),
+                imageUrl = cleanOptString(o, "imageUrl"),
+                deepLink = cleanOptString(o, "deepLink"),
+                isRead = id in existingReadIds,
+                createdAt = o.optLong("createdAt", System.currentTimeMillis())
+            )
             root.optJSONObject("notifications")?.let { obj ->
-                parseMap(obj) { id, o ->
-                    NotificationEntity(
-                        id = id,
-                        titleBn = cleanOptString(o, "titleBn").ifBlank { cleanOptString(o, "title") },
-                        titleEn = cleanOptString(o, "titleEn").ifBlank { cleanOptString(o, "title") },
-                        messageBn = cleanOptString(o, "messageBn").ifBlank { cleanOptString(o, "message") },
-                        messageEn = cleanOptString(o, "messageEn").ifBlank { cleanOptString(o, "message") },
-                        targetRole = cleanOptString(o, "targetRole", "ALL"),
-                        isRead = id in existingReadIds,
-                        createdAt = o.optLong("createdAt", System.currentTimeMillis())
-                    )
-                }.forEach { mergedNotifications[it.id] = it }
+                parseMap(obj) { id, o -> parseNotificationRecord(id, o) }
+                    .forEach { mergedNotifications[it.id] = it }
             }
             if (rootNotifBody.isNotBlank() && rootNotifBody != "null") {
                 runCatching {
-                    parseMap(JSONObject(rootNotifBody)) { id, o ->
-                        NotificationEntity(
-                            id = id,
-                            titleBn = cleanOptString(o, "titleBn").ifBlank { cleanOptString(o, "title") },
-                            titleEn = cleanOptString(o, "titleEn").ifBlank { cleanOptString(o, "title") },
-                            messageBn = cleanOptString(o, "messageBn").ifBlank { cleanOptString(o, "message") },
-                            messageEn = cleanOptString(o, "messageEn").ifBlank { cleanOptString(o, "message") },
-                            targetRole = cleanOptString(o, "targetRole", "ALL"),
-                            isRead = id in existingReadIds,
-                            createdAt = o.optLong("createdAt", System.currentTimeMillis())
-                        )
-                    }.forEach { mergedNotifications.putIfAbsent(it.id, it) }
+                    parseMap(JSONObject(rootNotifBody)) { id, o -> parseNotificationRecord(id, o) }
+                        .forEach { mergedNotifications[it.id] = it }
                 }
             }
             val shouldUpdateNotifications = root.has("notifications") || mergedNotifications.isNotEmpty()

@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import android.util.Log
+import com.example.notifications.PushNotificationManager
 import com.example.ui.ads.ConnectivityMonitor
 import com.google.firebase.FirebaseApp
 
@@ -15,6 +16,11 @@ class DoctorListApplication : Application() {
             }
         }.onFailure { err ->
             Log.w("DoctorListApp", "FirebaseApp init fallback warning: ${err.message}")
+        }
+        runCatching {
+            PushNotificationManager.ensureNotificationChannel(this)
+        }.onFailure { err ->
+            Log.w("DoctorListApp", "Notification channel init warning: ${err.message}")
         }
         runCatching {
             ConnectivityMonitor.start(this)
