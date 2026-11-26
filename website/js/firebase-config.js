@@ -6,8 +6,13 @@ import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/11.6.
 import { getDatabase } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-database.js";
 
 const DEFAULT_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCfOJu1lzqyJmqmtiJiCGehSQ7Jr89FYPE",
+  authDomain: "octor-aad88.firebaseapp.com",
+  databaseURL: "https://octor-aad88-default-rtdb.europe-west1.firebasedatabase.app",
   projectId: "octor-aad88",
-  databaseURL: "https://octor-aad88-default-rtdb.europe-west1.firebasedatabase.app"
+  storageBucket: "octor-aad88.firebasestorage.app",
+  messagingSenderId: "606146627263",
+  appId: "1:606146627263:android:363cc6ec7e217db259280a"
 };
 
 export function getFirebaseConfig() {
