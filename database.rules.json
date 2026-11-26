@@ -309,6 +309,31 @@
         ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (root.child('subAdmins').child(auth.uid).exists() && root.child('subAdmins').child(auth.uid).child('status').val() == 'ACTIVE') || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
         ".validate": "!newData.exists() || (newData.hasChildren(['notificationId', 'title', 'message', 'messageType', 'recipientType', 'createdAt', 'status']) && newData.child('notificationId').val() == $notificationId && newData.child('title').isString() && newData.child('title').val().length >= 2 && newData.child('title').val().length <= 160 && newData.child('message').isString() && newData.child('message').val().length >= 2 && newData.child('message').val().length <= 1200 && newData.child('messageType').val().matches(/^(GENERAL|APP_UPDATE|NEW_DOCTOR)$/) && newData.child('recipientType').val() == 'all_users' && newData.child('createdAt').isNumber() && newData.child('status').val().matches(/^(SENT|PARTIAL|INBOX_ONLY|FAILED)$/))"
       }
+    },
+
+    "doctors": {
+      ".read": true,
+      ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (root.child('subAdmins').child(auth.uid).exists() && root.child('subAdmins').child(auth.uid).child('status').val() == 'ACTIVE') || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))"
+    },
+
+    "hospitals": {
+      ".read": true,
+      ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (root.child('subAdmins').child(auth.uid).exists() && root.child('subAdmins').child(auth.uid).child('status').val() == 'ACTIVE') || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))"
+    },
+
+    "specialties": {
+      ".read": true,
+      ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (root.child('subAdmins').child(auth.uid).exists() && root.child('subAdmins').child(auth.uid).child('status').val() == 'ACTIVE') || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))"
+    },
+
+    "locations": {
+      ".read": true,
+      ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (root.child('subAdmins').child(auth.uid).exists() && root.child('subAdmins').child(auth.uid).child('status').val() == 'ACTIVE') || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))"
+    },
+
+    "settings": {
+      ".read": true,
+      ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))"
     }
   }
 }
