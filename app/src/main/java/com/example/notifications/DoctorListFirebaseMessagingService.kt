@@ -11,8 +11,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Receives real Firebase Cloud Messaging (FCM) push notifications from the Doctor List BD
- * Admin Push Notification backend, persists them immediately to the local Notification Inbox,
- * and shows a rich Android system notification.
+ * Notification backend, deduplicates deliveries, persists them to Room & userNotifications,
+ * emits foreground General events, and displays a rich Android system notification.
  */
 class DoctorListFirebaseMessagingService : FirebaseMessagingService() {
 
@@ -31,51 +31,108 @@ class DoctorListFirebaseMessagingService : FirebaseMessagingService() {
         val notificationId = data["notificationId"]?.trim().orEmpty()
             .ifBlank { remoteMessage.messageId?.trim().orEmpty() }
             .ifBlank { "fcm_${System.currentTimeMillis()}" }
+
         val title = data["title"]?.trim().orEmpty()
             .ifBlank { notif?.title?.trim().orEmpty() }
             .ifBlank { "Doctor List BD" }
-        val message = data["message"]?.trim().orEmpty()
-            .ifBlank { data["body"]?.trim().orEmpty() }
+
+        val body = data["body"]?.trim().orEmpty()
+            .ifBlank { data["message"]?.trim().orEmpty() }
             .ifBlank { notif?.body?.trim().orEmpty() }
-        val messageType = data["messageType"]?.trim().orEmpty().uppercase().ifBlank { "GENERAL" }
-        val selectedDoctorId = data["selectedDoctorId"]?.trim().orEmpty()
-        val selectedDoctorName = data["selectedDoctorName"]?.trim().orEmpty()
+
+        val messageType = PushNotificationManager.normalizeType(
+            data["type"]?.trim().orEmpty().ifBlank { data["messageType"] }
+        )
+
+        val doctorId = data["doctorId"]?.trim().orEmpty()
+            .ifBlank { data["selectedDoctorId"]?.trim().orEmpty() }
+
+        val doctorName = data["selectedDoctorName"]?.trim().orEmpty()
+            .ifBlank { data["doctorName"]?.trim().orEmpty() }
+
         val imageUrl = PushNotificationManager.sanitizeHttpUrl(
             data["imageUrl"]?.trim().orEmpty().ifBlank { notif?.imageUrl?.toString().orEmpty() }
         )
-        val deepLink = PushNotificationManager.sanitizeDeepLink(data["deepLink"]?.trim().orEmpty())
+
+        val actionUrl = PushNotificationManager.sanitizeActionUrl(
+            data["actionUrl"]?.trim().orEmpty().ifBlank { data["updateUrl"]?.trim().orEmpty() }
+        )
+
+        val updateMode = data["updateMode"]?.trim().orEmpty().uppercase().let {
+            if (it == "IMMEDIATE" || it == "FLEXIBLE") it else ""
+        }
+
+        val version = data["version"]?.trim().orEmpty()
+            .ifBlank { data["updateVersion"]?.trim().orEmpty() }
+
+        val deepLink = PushNotificationManager.sanitizeDeepLink(
+            data["deepLink"]?.trim().orEmpty().ifBlank { actionUrl }
+        )
+
+        // Prevent duplicate system notification display if FCM delivers the same notificationId twice
+        val isFirstDelivery = PushNotificationManager.claimReceivedFcmId(applicationContext, notificationId)
 
         serviceScope.launch {
+            val alreadyDisplayed = PushNotificationManager.hasDisplayedGeneral(applicationContext, notificationId)
+            val entity = NotificationEntity(
+                id = notificationId,
+                titleBn = title,
+                titleEn = title,
+                messageBn = body,
+                messageEn = body,
+                targetRole = "ALL",
+                messageType = messageType,
+                selectedDoctorId = doctorId,
+                selectedDoctorName = doctorName,
+                imageUrl = imageUrl,
+                deepLink = deepLink,
+                actionUrl = actionUrl,
+                updateMode = updateMode,
+                version = version,
+                isDisplayed = alreadyDisplayed,
+                isRead = alreadyDisplayed,
+                createdAt = System.currentTimeMillis()
+            )
+
             runCatching {
                 val db = AppDatabase.getInstance(applicationContext)
+                val existing = db.notificationDao().getById(notificationId)
                 db.notificationDao().insert(
-                    NotificationEntity(
-                        id = notificationId,
-                        titleBn = title,
-                        titleEn = title,
-                        messageBn = message,
-                        messageEn = message,
-                        targetRole = "ALL",
-                        messageType = messageType,
-                        selectedDoctorId = selectedDoctorId,
-                        selectedDoctorName = selectedDoctorName,
-                        imageUrl = imageUrl,
-                        deepLink = deepLink,
-                        isRead = false,
-                        createdAt = System.currentTimeMillis()
+                    entity.copy(
+                        isRead = existing?.isRead ?: alreadyDisplayed,
+                        isDisplayed = existing?.isDisplayed ?: alreadyDisplayed
                     )
                 )
             }
-            PushNotificationManager.showSystemNotification(
+
+            PushNotificationManager.syncUserNotificationState(
                 context = applicationContext,
                 notificationId = notificationId,
-                title = title,
-                message = message,
-                messageType = messageType,
-                selectedDoctorId = selectedDoctorId,
-                imageUrl = imageUrl,
-                deepLink = deepLink
+                type = messageType,
+                isRead = alreadyDisplayed,
+                isDisplayed = alreadyDisplayed
             )
+
+            // If foreground and GENERAL (and not yet displayed), emit to show in-app dialog once
+            if (messageType == PushNotificationManager.TYPE_GENERAL && !alreadyDisplayed) {
+                PushNotificationManager.emitForegroundGeneral(entity)
+            }
+
+            if (isFirstDelivery) {
+                PushNotificationManager.showSystemNotification(
+                    context = applicationContext,
+                    notificationId = notificationId,
+                    title = title,
+                    message = body,
+                    messageType = messageType,
+                    selectedDoctorId = doctorId,
+                    imageUrl = imageUrl,
+                    actionUrl = actionUrl,
+                    updateMode = updateMode,
+                    version = version,
+                    deepLink = deepLink
+                )
+            }
         }
     }
 }

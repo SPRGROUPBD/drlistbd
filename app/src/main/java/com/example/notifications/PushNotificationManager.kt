@@ -9,7 +9,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -18,11 +20,15 @@ import com.example.BuildConfig
 import com.example.MainActivity
 import com.example.R
 import com.example.auth.GoogleAuthManager
+import com.example.data.local.NotificationEntity
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -34,26 +40,56 @@ import java.net.URLEncoder
 import java.util.UUID
 
 /**
- * Manages Android Notification Channels, Android 13+ permission checks,
+ * Manages Android Notification Channels, Android 13+ permission checks & settings redirect,
  * multi-device FCM token registration in Firebase Realtime Database,
- * and rich local system notification display for Doctor List BD.
+ * per-user notification read/display synchronization (userNotifications/{userKey}/{notificationId}),
+ * one-time General dialog deduplication, and rich local system notification display for Doctor List BD.
  */
 object PushNotificationManager {
     private const val TAG = "PushNotifManager"
     const val CHANNEL_ID = "doctor_list_bd_alerts"
     const val TOPIC_ALL_USERS = "all_app_users"
 
+    const val TYPE_GENERAL = "GENERAL"
+    const val TYPE_APP_UPDATE = "APP_UPDATE"
+    const val TYPE_NEW_DOCTOR = "NEW_DOCTOR"
+
     const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
     const val EXTRA_MESSAGE_TYPE = "extra_message_type"
+    const val EXTRA_TITLE = "extra_title"
+    const val EXTRA_BODY = "extra_body"
+    const val EXTRA_IMAGE_URL = "extra_image_url"
     const val EXTRA_DOCTOR_ID = "extra_selected_doctor_id"
+    const val EXTRA_ACTION_URL = "extra_action_url"
+    const val EXTRA_UPDATE_MODE = "extra_update_mode"
+    const val EXTRA_VERSION = "extra_version"
     const val EXTRA_DEEP_LINK = "extra_deep_link"
 
     private const val RTDB_ROOT = "https://octor-aad88-default-rtdb.europe-west1.firebasedatabase.app"
     private const val PREFS_NAME = "dlbd_fcm_device_prefs"
     private const val KEY_DEVICE_KEY = "device_fcm_key"
     private const val KEY_LAST_TOKEN = "last_synced_fcm_token"
+    private const val KEY_DISPLAYED_GENERAL_IDS = "displayed_general_notification_ids"
+    private const val KEY_RECEIVED_FCM_IDS = "received_fcm_notification_ids"
+    private const val KEY_NOTIF_PERM_ASKED = "notif_permission_asked_v1"
 
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val _foregroundGeneralEvents = MutableSharedFlow<NotificationEntity>(extraBufferCapacity = 4)
+    val foregroundGeneralEvents: SharedFlow<NotificationEntity> = _foregroundGeneralEvents.asSharedFlow()
+
+    fun emitForegroundGeneral(entity: NotificationEntity) {
+        _foregroundGeneralEvents.tryEmit(entity)
+    }
+
+    fun normalizeType(raw: String?): String {
+        val cleaned = raw?.trim().orEmpty().uppercase()
+        return when (cleaned) {
+            "APP_UPDATE", "APP UPDATE", "UPDATE" -> TYPE_APP_UPDATE
+            "NEW_DOCTOR", "NEW DOCTOR", "DOCTOR" -> TYPE_NEW_DOCTOR
+            else -> TYPE_GENERAL
+        }
+    }
 
     fun ensureNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -64,7 +100,7 @@ object PushNotificationManager {
             "Doctor List BD Alerts",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "Announcements, app updates, and newly added doctors from Doctor List BD."
+            description = "General announcements, app updates, and newly added doctors from Doctor List BD."
             enableLights(true)
             enableVibration(true)
         }
@@ -79,6 +115,52 @@ object PushNotificationManager {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    fun hasAskedNotificationPermissionBefore(context: Context): Boolean {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_NOTIF_PERM_ASKED, false)
+    }
+
+    fun markNotificationPermissionAsked(context: Context) {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_NOTIF_PERM_ASKED, true).apply()
+    }
+
+    fun openAppNotificationSettings(context: Context) {
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            }
+        } else {
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", context.packageName, null)
+            }
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { context.startActivity(intent) }
+            .onFailure {
+                val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.fromParts("package", context.packageName, null)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                runCatching { context.startActivity(fallback) }
+            }
+    }
+
+    fun openExternalUpdateUrl(context: Context, rawUrl: String): Boolean {
+        val safeUrl = sanitizeActionUrl(rawUrl)
+        if (safeUrl.isBlank()) return false
+        return runCatching {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            true
+        }.getOrElse { err ->
+            Log.w(TAG, "Unable to open update URL: ${err.message}")
+            false
+        }
+    }
+
     fun getOrCreateDeviceKey(context: Context): String {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val existing = prefs.getString(KEY_DEVICE_KEY, null).orEmpty()
@@ -89,8 +171,138 @@ object PushNotificationManager {
     }
 
     /**
+     * Returns the stable RTDB userNotifications / fcmTokens key:
+     * Authenticated Firebase UID when signed in, or guest_{deviceKey} when browsing as guest.
+     */
+    fun getUserNotificationKey(context: Context, explicitUid: String? = null): String {
+        val uid = explicitUid?.trim().orEmpty().ifBlank {
+            GoogleAuthManager.currentUser.value?.uid.orEmpty().trim()
+        }
+        return if (uid.isNotBlank()) uid else "guest_${getOrCreateDeviceKey(context)}"
+    }
+
+    @Synchronized
+    fun hasDisplayedGeneral(context: Context, notificationId: String): Boolean {
+        val id = notificationId.trim()
+        if (id.isBlank()) return true
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val set = prefs.getStringSet(KEY_DISPLAYED_GENERAL_IDS, emptySet()) ?: emptySet()
+        return id in set
+    }
+
+    @Synchronized
+    fun getDisplayedGeneralIds(context: Context): Set<String> {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getStringSet(KEY_DISPLAYED_GENERAL_IDS, emptySet())?.toSet() ?: emptySet()
+    }
+
+    @Synchronized
+    fun markGeneralDisplayedLocally(context: Context, notificationId: String) {
+        val id = notificationId.trim()
+        if (id.isBlank()) return
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val existing = prefs.getStringSet(KEY_DISPLAYED_GENERAL_IDS, emptySet())?.toMutableSet() ?: mutableSetOf()
+        if (existing.size > 300) {
+            val trimmed = existing.toList().takeLast(200).toMutableSet()
+            trimmed.add(id)
+            prefs.edit().putStringSet(KEY_DISPLAYED_GENERAL_IDS, trimmed).apply()
+        } else {
+            existing.add(id)
+            prefs.edit().putStringSet(KEY_DISPLAYED_GENERAL_IDS, existing).apply()
+        }
+    }
+
+    /**
+     * Marks a received FCM notificationId as processed to prevent duplicate system notifications
+     * if FCM redelivers the same notificationId.
+     * Returns true if this is the first time seeing this notificationId.
+     */
+    @Synchronized
+    fun claimReceivedFcmId(context: Context, notificationId: String): Boolean {
+        val id = notificationId.trim()
+        if (id.isBlank()) return true
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val existing = prefs.getStringSet(KEY_RECEIVED_FCM_IDS, emptySet())?.toMutableSet() ?: mutableSetOf()
+        if (id in existing) return false
+        val updated = if (existing.size > 300) existing.toList().takeLast(200).toMutableSet() else existing
+        updated.add(id)
+        prefs.edit().putStringSet(KEY_RECEIVED_FCM_IDS, updated).apply()
+        return true
+    }
+
+    /**
+     * Syncs the user's personal read / displayed status to RTDB under userNotifications/{userKey}/{notificationId}.
+     */
+    fun syncUserNotificationState(
+        context: Context,
+        notificationId: String,
+        type: String = TYPE_GENERAL,
+        isRead: Boolean = false,
+        isDisplayed: Boolean = false
+    ) {
+        val id = notificationId.trim()
+        if (id.isBlank()) return
+        val appCtx = context.applicationContext
+        ioScope.launch {
+            runCatching {
+                val userKey = getUserNotificationKey(appCtx)
+                val idToken = runCatching { GoogleAuthManager.getIdToken(false) }.getOrNull()
+                val now = System.currentTimeMillis()
+                val payload = JSONObject().apply {
+                    put("notificationId", id)
+                    put("type", normalizeType(type))
+                    put("isRead", isRead)
+                    put("isDisplayed", isDisplayed)
+                    put("receivedAt", now)
+                    put("updatedAt", now)
+                }
+                putJson(buildRtdbUrl("userNotifications/$userKey/$id", idToken), payload.toString())
+            }
+        }
+    }
+
+    /**
+     * Fetches the current user's notification read/display state from userNotifications/{userKey}.
+     * Returns pair of (readIds, displayedIds).
+     */
+    suspend fun fetchUserNotificationStates(context: Context): Pair<Set<String>, Set<String>> = withContext(Dispatchers.IO) {
+        val appCtx = context.applicationContext
+        val readIds = mutableSetOf<String>()
+        val displayedIds = mutableSetOf<String>()
+        runCatching {
+            val userKey = getUserNotificationKey(appCtx)
+            val idToken = runCatching { GoogleAuthManager.getIdToken(false) }.getOrNull()
+            val url = buildRtdbUrl("userNotifications/$userKey", idToken)
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 5000
+                readTimeout = 5000
+            }
+            val body = if (conn.responseCode in 200..299) {
+                conn.inputStream.bufferedReader().use { it.readText() }
+            } else ""
+            conn.disconnect()
+            if (body.isNotBlank() && body != "null") {
+                val obj = JSONObject(body)
+                val keys = obj.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    val rec = obj.optJSONObject(key) ?: continue
+                    if (rec.optBoolean("isRead", false)) readIds.add(key)
+                    if (rec.optBoolean("isDisplayed", false)) {
+                        displayedIds.add(key)
+                        markGeneralDisplayedLocally(appCtx, key)
+                    }
+                }
+            }
+        }
+        displayedIds.addAll(getDisplayedGeneralIds(appCtx))
+        readIds to displayedIds
+    }
+
+    /**
      * Fetches the current FCM registration token, subscribes to the broadcast topic,
-     * and uploads the token to Firebase RTDB for both all-users delivery and per-user multi-device tracking.
+     * and uploads the token to Firebase RTDB for all-users delivery and multi-device tracking.
      */
     fun syncCurrentFcmToken(context: Context, userUid: String? = null) {
         val appCtx = context.applicationContext
@@ -124,6 +336,7 @@ object PushNotificationManager {
             val uid = explicitUid?.trim().orEmpty().ifBlank {
                 GoogleAuthManager.currentUser.value?.uid.orEmpty()
             }
+            val userKey = getUserNotificationKey(context, uid)
             val now = System.currentTimeMillis()
             val idToken = runCatching { GoogleAuthManager.getIdToken(false) }.getOrNull()
 
@@ -138,6 +351,16 @@ object PushNotificationManager {
                 put("updatedAt", now)
             }
             putJson(buildRtdbUrl("fcm_tokens/$deviceKey", idToken), globalPayload.toString())
+
+            val scopedTokenPayload = JSONObject().apply {
+                put("token", token)
+                put("deviceKey", deviceKey)
+                put("platform", "android")
+                put("appVersion", BuildConfig.VERSION_NAME)
+                put("active", true)
+                put("updatedAt", now)
+            }
+            putJson(buildRtdbUrl("fcmTokens/$userKey/$deviceKey", idToken), scopedTokenPayload.toString())
 
             if (uid.isNotBlank() && !idToken.isNullOrBlank()) {
                 val userTokenPayload = JSONObject().apply {
@@ -165,6 +388,9 @@ object PushNotificationManager {
         messageType: String,
         selectedDoctorId: String = "",
         imageUrl: String = "",
+        actionUrl: String = "",
+        updateMode: String = "",
+        version: String = "",
         deepLink: String = ""
     ) {
         val appCtx = context.applicationContext
@@ -173,14 +399,22 @@ object PushNotificationManager {
 
         val safeTitle = title.trim().ifBlank { "Doctor List BD" }
         val safeMsg = message.trim()
+        val safeType = normalizeType(messageType)
         val safeImageUrl = sanitizeHttpUrl(imageUrl)
+        val safeActionUrl = sanitizeActionUrl(actionUrl)
         val safeDeepLink = sanitizeDeepLink(deepLink)
 
         val tapIntent = Intent(appCtx, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
-            putExtra(EXTRA_MESSAGE_TYPE, messageType)
-            if (selectedDoctorId.isNotBlank()) putExtra(EXTRA_DOCTOR_ID, selectedDoctorId)
+            putExtra(EXTRA_MESSAGE_TYPE, safeType)
+            putExtra(EXTRA_TITLE, safeTitle)
+            putExtra(EXTRA_BODY, safeMsg)
+            if (safeImageUrl.isNotBlank()) putExtra(EXTRA_IMAGE_URL, safeImageUrl)
+            if (selectedDoctorId.isNotBlank()) putExtra(EXTRA_DOCTOR_ID, selectedDoctorId.trim())
+            if (safeActionUrl.isNotBlank()) putExtra(EXTRA_ACTION_URL, safeActionUrl)
+            if (updateMode.isNotBlank()) putExtra(EXTRA_UPDATE_MODE, updateMode.trim().uppercase())
+            if (version.isNotBlank()) putExtra(EXTRA_VERSION, version.trim())
             if (safeDeepLink.isNotBlank()) putExtra(EXTRA_DEEP_LINK, safeDeepLink)
         }
 
@@ -229,12 +463,23 @@ object PushNotificationManager {
         } else ""
     }
 
+    fun sanitizeActionUrl(raw: String): String {
+        val trimmed = raw.trim()
+        return if (
+            trimmed.startsWith("https://", ignoreCase = true) ||
+            trimmed.startsWith("http://", ignoreCase = true) ||
+            trimmed.startsWith("market://", ignoreCase = true)
+        ) trimmed else ""
+    }
+
     fun sanitizeDeepLink(raw: String): String {
         val trimmed = raw.trim()
         return if (
             trimmed.startsWith("app://", ignoreCase = true) ||
             trimmed.startsWith("doctorlistbd://", ignoreCase = true) ||
-            trimmed.startsWith("https://", ignoreCase = true)
+            trimmed.startsWith("https://", ignoreCase = true) ||
+            trimmed.startsWith("http://", ignoreCase = true) ||
+            trimmed.startsWith("market://", ignoreCase = true)
         ) trimmed else ""
     }
 

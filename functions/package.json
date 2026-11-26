@@ -1,0 +1,17 @@
+{
+  "name": "doctor-list-bd-notifications-functions",
+  "description": "Firebase Cloud Functions (FCM HTTP v1) for Doctor List BD Notification Management System",
+  "version": "1.0.0",
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "scripts": {
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.2",
+    "firebase-functions": "^6.1.1"
+  }
+}

@@ -267,8 +267,14 @@ interface NotificationDao {
     @Query("SELECT * FROM notifications ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<NotificationEntity>>
 
+    @Query("SELECT * FROM notifications WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): NotificationEntity?
+
     @Query("SELECT id FROM notifications WHERE isRead = 1")
     suspend fun getReadIds(): List<String>
+
+    @Query("SELECT id FROM notifications WHERE isDisplayed = 1")
+    suspend fun getDisplayedIds(): List<String>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(notification: NotificationEntity)
@@ -281,6 +287,9 @@ interface NotificationDao {
 
     @Query("UPDATE notifications SET isRead = 1 WHERE id = :id")
     suspend fun markRead(id: String)
+
+    @Query("UPDATE notifications SET isDisplayed = 1, isRead = 1 WHERE id = :id")
+    suspend fun markDisplayed(id: String)
 
     @Query("UPDATE notifications SET isRead = 1")
     suspend fun markAllRead()

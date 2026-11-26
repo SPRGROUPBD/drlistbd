@@ -64,6 +64,8 @@ fun DoctorProfileScreen(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onBack: () -> Unit,
+    isLoadingProfile: Boolean = false,
+    onGoToDoctorList: () -> Unit = onBack,
     modifier: Modifier = Modifier
 ) {
     BackHandler(onBack = onBack)
@@ -71,8 +73,102 @@ fun DoctorProfileScreen(
     val context = LocalContext.current
 
     if (profile == null) {
-        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(tr(lang, "ডাক্তারের তথ্য পাওয়া যায়নি", "Doctor profile not found"))
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(BackgroundIce)
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isLoadingProfile) {
+                Surface(
+                    shape = RoundedCornerShape(22.dp),
+                    color = SurfaceWhite,
+                    border = BorderStroke(1.dp, OutlineSoft),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(color = MedicalBlue)
+                        Text(
+                            text = tr(lang, "ডাক্তারের সর্বশেষ তথ্য লোড হচ্ছে...", "Loading latest doctor profile..."),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(22.dp),
+                    color = SurfaceWhite,
+                    border = BorderStroke(1.dp, OutlineSoft),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("doctor_profile_unavailable_card")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(RoseSoft),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.PersonOff,
+                                contentDescription = tr(lang, "ডাক্তার পাওয়া যায়নি", "Doctor unavailable"),
+                                tint = RoseAlert,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+                        Text(
+                            text = tr(lang, "ডাক্তারের প্রোফাইল পাওয়া যায়নি", "Doctor Profile Unavailable"),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            text = tr(
+                                lang,
+                                "এই ডাক্তারের প্রোফাইলটি বর্তমানে মুছে ফেলা হয়েছে অথবা সক্রিয় নেই। অনুগ্রহ করে ডাক্তার তালিকা থেকে অন্য বিশেষজ্ঞ ডাক্তার খুঁজুন।",
+                                "This doctor profile may have been removed or is currently unavailable. Please browse the doctor directory."
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Button(
+                            onClick = onGoToDoctorList,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .testTag("back_to_doctor_list_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MedicalServices,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = tr(lang, "ডাক্তার তালিকায় ফিরে যান", "Back to Doctor List"),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
         }
         return
     }

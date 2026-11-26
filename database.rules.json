@@ -302,12 +302,35 @@
       }
     },
 
+    "fcmTokens": {
+      ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+      "$userKey": {
+        ".read": "auth != null && (auth.uid == $userKey || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
+        "$deviceId": {
+          ".write": "$deviceId.length >= 6 && $deviceId.length <= 128 && ((auth != null && (auth.uid == $userKey || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))) || ($userKey == 'guest_' + $deviceId && newData.exists()))",
+          ".validate": "!newData.exists() || (newData.hasChildren(['token', 'platform', 'active', 'updatedAt']) && newData.child('token').isString() && newData.child('token').val().length >= 20 && newData.child('token').val().length <= 512 && newData.child('platform').val().matches(/^(android|ios|web)$/) && newData.child('active').isBoolean() && newData.child('updatedAt').isNumber())"
+        }
+      }
+    },
+
     "notifications": {
       ".read": true,
-      ".indexOn": ["createdAt", "messageType", "status"],
+      ".indexOn": ["createdAt", "type", "messageType", "status"],
       "$notificationId": {
         ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (root.child('subAdmins').child(auth.uid).exists() && root.child('subAdmins').child(auth.uid).child('status').val() == 'ACTIVE') || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))",
-        ".validate": "!newData.exists() || (newData.hasChildren(['notificationId', 'title', 'message', 'messageType', 'recipientType', 'createdAt', 'status']) && newData.child('notificationId').val() == $notificationId && newData.child('title').isString() && newData.child('title').val().length >= 2 && newData.child('title').val().length <= 160 && newData.child('message').isString() && newData.child('message').val().length >= 2 && newData.child('message').val().length <= 1200 && newData.child('messageType').val().matches(/^(GENERAL|APP_UPDATE|NEW_DOCTOR)$/) && newData.child('recipientType').val() == 'all_users' && newData.child('createdAt').isNumber() && newData.child('status').val().matches(/^(SENT|PARTIAL|INBOX_ONLY|FAILED)$/))"
+        ".validate": "!newData.exists() || (newData.hasChildren(['notificationId', 'title', 'createdAt', 'status']) && newData.child('notificationId').val() == $notificationId && newData.child('title').isString() && newData.child('title').val().length >= 2 && newData.child('title').val().length <= 160 && ((newData.child('body').isString() && newData.child('body').val().length >= 2 && newData.child('body').val().length <= 1200) || (newData.child('message').isString() && newData.child('message').val().length >= 2 && newData.child('message').val().length <= 1200)) && ((!newData.child('type').exists() && newData.child('messageType').val().matches(/^(GENERAL|APP_UPDATE|NEW_DOCTOR)$/)) || newData.child('type').val().matches(/^(GENERAL|APP_UPDATE|NEW_DOCTOR)$/)) && (!newData.child('updateMode').exists() || newData.child('updateMode').val().matches(/^(|FLEXIBLE|IMMEDIATE)$/)) && newData.child('createdAt').isNumber() && newData.child('status').val().matches(/^(SENT|PARTIAL|INBOX_ONLY|FAILED|PENDING)$/))"
+      }
+    },
+
+    "userNotifications": {
+      ".read": false,
+      ".write": false,
+      "$userKey": {
+        ".read": "(auth != null && (auth.uid == $userKey || root.child('admins').child(auth.uid).exists() || (auth.token.email == 'mail.sajjadahmed@gmail.com' && auth.token.email_verified == true))) || $userKey.beginsWith('guest_dev_')",
+        "$notificationId": {
+          ".write": "(auth != null && auth.uid == $userKey) || ($userKey.beginsWith('guest_dev_') && $userKey.length >= 16 && $userKey.length <= 64)",
+          ".validate": "!newData.exists() || (newData.hasChildren(['notificationId', 'isRead', 'isDisplayed', 'receivedAt']) && newData.child('notificationId').val() == $notificationId && newData.child('isRead').isBoolean() && newData.child('isDisplayed').isBoolean() && newData.child('receivedAt').isNumber())"
+        }
       }
     },
 

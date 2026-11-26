@@ -5,6 +5,7 @@ import com.example.data.local.*
 import com.example.data.model.*
 import com.example.data.remote.RtdbSyncService
 import com.example.data.seed.SeedData
+import com.example.notifications.PushNotificationManager
 import kotlinx.coroutines.flow.*
 import java.util.UUID
 
@@ -20,6 +21,12 @@ class DirectoryRepository(context: Context) {
 
     suspend fun syncFromAdminCloud(): Result<Int> {
         return RtdbSyncService.pullDirectoryIntoRoom(db, appContext)
+    }
+
+    suspend fun forceSyncDoctorFromCloud(doctorId: String): Boolean {
+        RtdbSyncService.forcePullDirectoryIntoRoom(db, appContext)
+        val found = db.doctorDao().getById(doctorId.trim())
+        return found != null && found.isActive
     }
 
     val specialties: Flow<List<SpecialtyEntity>> = db.specialtyDao().observeAll()
@@ -150,7 +157,46 @@ class DirectoryRepository(context: Context) {
         return Result.success(Unit)
     }
 
-    suspend fun markNotificationRead(id: String) = db.notificationDao().markRead(id)
+    suspend fun markNotificationRead(id: String) {
+        val cleanId = id.trim()
+        if (cleanId.isBlank()) return
+        val existing = db.notificationDao().getById(cleanId)
+        db.notificationDao().markRead(cleanId)
+        PushNotificationManager.syncUserNotificationState(
+            context = appContext,
+            notificationId = cleanId,
+            type = existing?.messageType ?: PushNotificationManager.TYPE_GENERAL,
+            isRead = true,
+            isDisplayed = existing?.isDisplayed ?: false
+        )
+    }
 
-    suspend fun markAllNotificationsRead() = db.notificationDao().markAllRead()
+    suspend fun markNotificationDisplayed(id: String) {
+        val cleanId = id.trim()
+        if (cleanId.isBlank()) return
+        val existing = db.notificationDao().getById(cleanId)
+        PushNotificationManager.markGeneralDisplayedLocally(appContext, cleanId)
+        db.notificationDao().markDisplayed(cleanId)
+        PushNotificationManager.syncUserNotificationState(
+            context = appContext,
+            notificationId = cleanId,
+            type = existing?.messageType ?: PushNotificationManager.TYPE_GENERAL,
+            isRead = true,
+            isDisplayed = true
+        )
+    }
+
+    suspend fun markAllNotificationsRead() {
+        val unread = db.notificationDao().observeAll().first().filter { !it.isRead }
+        db.notificationDao().markAllRead()
+        unread.forEach { n ->
+            PushNotificationManager.syncUserNotificationState(
+                context = appContext,
+                notificationId = n.id,
+                type = n.messageType,
+                isRead = true,
+                isDisplayed = n.isDisplayed
+            )
+        }
+    }
 }

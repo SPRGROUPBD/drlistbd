@@ -1,6 +1,7 @@
 package com.example
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -24,6 +25,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.core.app.ActivityCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -42,6 +44,7 @@ import com.example.data.model.GlobalSearchType
 import com.example.i18n.AppLang
 import com.example.i18n.AppStrings
 import com.example.i18n.tr
+import com.example.notifications.InAppUpdateHelper
 import com.example.notifications.PushNotificationManager
 import com.example.ui.ads.AdCampaignItem
 import com.example.ui.ads.AdMobInitializer
@@ -52,8 +55,12 @@ import com.example.ui.ads.RewardedAdManager
 import com.example.ui.ads.RotatingBottomBannerBar
 import com.example.ui.ads.SliderRecordTypes
 import com.example.ui.ads.openAdUrl
+import com.example.ui.components.FlexibleUpdateBanner
+import com.example.ui.components.GeneralDialogPayload
+import com.example.ui.components.GeneralNotificationDialog
 import com.example.ui.components.GlobalTopAppBar
 import com.example.ui.components.NotificationCenterBottomSheet
+import com.example.ui.components.NotificationPermissionRationaleDialog
 import com.example.ui.components.SyncStatusBottomSheet
 import com.example.ui.screens.*
 import com.example.ui.theme.*
@@ -84,7 +91,14 @@ private data class BottomTabItem(
 
 data class PendingPushTarget(
     val notificationId: String = "",
+    val type: String = PushNotificationManager.TYPE_GENERAL,
+    val title: String = "",
+    val body: String = "",
+    val imageUrl: String = "",
     val doctorId: String = "",
+    val actionUrl: String = "",
+    val updateMode: String = "",
+    val version: String = "",
     val deepLink: String = ""
 )
 
@@ -125,15 +139,64 @@ class MainActivity : ComponentActivity() {
 
     private fun capturePushIntent(intent: Intent?) {
         if (intent == null) return
-        val docId = intent.getStringExtra(PushNotificationManager.EXTRA_DOCTOR_ID).orEmpty().trim()
-        val deepLink = intent.getStringExtra(PushNotificationManager.EXTRA_DEEP_LINK).orEmpty().trim()
-            .ifBlank { intent.dataString.orEmpty().trim() }
         val notifId = intent.getStringExtra(PushNotificationManager.EXTRA_NOTIFICATION_ID).orEmpty().trim()
-        if (docId.isNotBlank() || deepLink.isNotBlank()) {
+            .ifBlank { intent.getStringExtra("notificationId").orEmpty().trim() }
+        val rawType = intent.getStringExtra(PushNotificationManager.EXTRA_MESSAGE_TYPE).orEmpty().trim()
+            .ifBlank { intent.getStringExtra("type").orEmpty().trim() }
+            .ifBlank { intent.getStringExtra("messageType").orEmpty().trim() }
+        val title = intent.getStringExtra(PushNotificationManager.EXTRA_TITLE).orEmpty().trim()
+            .ifBlank { intent.getStringExtra("title").orEmpty().trim() }
+        val body = intent.getStringExtra(PushNotificationManager.EXTRA_BODY).orEmpty().trim()
+            .ifBlank { intent.getStringExtra("body").orEmpty().trim() }
+            .ifBlank { intent.getStringExtra("message").orEmpty().trim() }
+        val imageUrl = PushNotificationManager.sanitizeHttpUrl(
+            intent.getStringExtra(PushNotificationManager.EXTRA_IMAGE_URL).orEmpty().trim()
+                .ifBlank { intent.getStringExtra("imageUrl").orEmpty().trim() }
+        )
+        val docId = intent.getStringExtra(PushNotificationManager.EXTRA_DOCTOR_ID).orEmpty().trim()
+            .ifBlank { intent.getStringExtra("doctorId").orEmpty().trim() }
+            .ifBlank { intent.getStringExtra("selectedDoctorId").orEmpty().trim() }
+        val actionUrl = PushNotificationManager.sanitizeActionUrl(
+            intent.getStringExtra(PushNotificationManager.EXTRA_ACTION_URL).orEmpty().trim()
+                .ifBlank { intent.getStringExtra("actionUrl").orEmpty().trim() }
+                .ifBlank { intent.getStringExtra("updateUrl").orEmpty().trim() }
+        )
+        val updateMode = intent.getStringExtra(PushNotificationManager.EXTRA_UPDATE_MODE).orEmpty().trim()
+            .ifBlank { intent.getStringExtra("updateMode").orEmpty().trim() }
+            .uppercase()
+        val version = intent.getStringExtra(PushNotificationManager.EXTRA_VERSION).orEmpty().trim()
+            .ifBlank { intent.getStringExtra("version").orEmpty().trim() }
+            .ifBlank { intent.getStringExtra("updateVersion").orEmpty().trim() }
+        val deepLink = PushNotificationManager.sanitizeDeepLink(
+            intent.getStringExtra(PushNotificationManager.EXTRA_DEEP_LINK).orEmpty().trim()
+                .ifBlank { intent.getStringExtra("deepLink").orEmpty().trim() }
+                .ifBlank { intent.dataString.orEmpty().trim() }
+        )
+
+        val hasPushPayload = notifId.isNotBlank() ||
+            rawType.isNotBlank() ||
+            docId.isNotBlank() ||
+            actionUrl.isNotBlank() ||
+            deepLink.isNotBlank()
+
+        if (hasPushPayload) {
+            val resolvedType = when {
+                rawType.isNotBlank() -> PushNotificationManager.normalizeType(rawType)
+                docId.isNotBlank() -> PushNotificationManager.TYPE_NEW_DOCTOR
+                actionUrl.isNotBlank() || updateMode.isNotBlank() -> PushNotificationManager.TYPE_APP_UPDATE
+                else -> PushNotificationManager.TYPE_GENERAL
+            }
             pendingPushTarget.value = PendingPushTarget(
                 notificationId = notifId,
+                type = resolvedType,
+                title = title,
+                body = body,
+                imageUrl = imageUrl,
                 doctorId = docId,
-                deepLink = PushNotificationManager.sanitizeDeepLink(deepLink)
+                actionUrl = actionUrl,
+                updateMode = updateMode,
+                version = version,
+                deepLink = deepLink
             )
         }
     }
@@ -169,18 +232,48 @@ fun DoctorListBdApp(
     var showSplash by remember { mutableStateOf(true) }
     val appContext = LocalContext.current
 
+    val inAppUpdateHelper = remember { InAppUpdateHelper(appContext) }
+    val updateBannerState by inAppUpdateHelper.bannerState.collectAsStateWithLifecycle()
+    val inAppUpdateLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK && result.resultCode != Activity.RESULT_CANCELED) {
+            vm.showMessage(
+                tr(
+                    lang,
+                    "অ্যাপ আপডেট সম্পন্ন হয়নি। অনুগ্রহ করে পরে আবার চেষ্টা করুন।",
+                    "App update could not be completed. Please try again later."
+                )
+            )
+        }
+    }
+
+    var hasNotifPermission by remember {
+        mutableStateOf(PushNotificationManager.hasNotificationPermission(appContext))
+    }
+    var showNotifPermissionRationale by remember { mutableStateOf(false) }
+    var notifPermPermanentlyDenied by remember { mutableStateOf(false) }
+
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, lang) {
+        inAppUpdateHelper.registerListener(lang) { msg -> vm.showMessage(msg) }
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 ConnectivityMonitor.refreshNow(appContext)
+                hasNotifPermission = PushNotificationManager.hasNotificationPermission(appContext)
                 vm.recordForegroundActivity()
                 vm.triggerForegroundAutoSyncIfStale()
                 vm.refreshAdvertisingSystem()
+                RewardedAdManager.findActivity(appContext)?.let { act ->
+                    inAppUpdateHelper.resumeInProgressIfNeeded(act, inAppUpdateLauncher, lang)
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            inAppUpdateHelper.unregisterListener()
+        }
     }
 
     LaunchedEffect(adSnapshot.admobConfig, adSnapshot.placementSettings) {
@@ -204,19 +297,46 @@ fun DoctorListBdApp(
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
+        hasNotifPermission = granted
+        PushNotificationManager.markNotificationPermissionAsked(appContext)
         if (granted) {
             PushNotificationManager.syncCurrentFcmToken(appContext, googleUser?.uid)
         }
     }
 
+    val triggerNotificationPermissionFlow: (Boolean) -> Unit = { fromUserAction ->
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val alreadyGranted = PushNotificationManager.hasNotificationPermission(appContext)
+            hasNotifPermission = alreadyGranted
+            if (!alreadyGranted) {
+                val activity = RewardedAdManager.findActivity(appContext)
+                val askedBefore = PushNotificationManager.hasAskedNotificationPermissionBefore(appContext)
+                val shouldShowRationale = activity != null &&
+                    ActivityCompat.shouldShowRequestPermissionRationale(
+                        activity,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    )
+                if (fromUserAction && askedBefore && !shouldShowRationale) {
+                    notifPermPermanentlyDenied = true
+                    showNotifPermissionRationale = true
+                } else {
+                    notifPermPermanentlyDenied = false
+                    showNotifPermissionRationale = true
+                }
+            }
+        }
+    }
+
     LaunchedEffect(showSplash) {
         if (!showSplash) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                !PushNotificationManager.hasNotificationPermission(appContext)
-            ) {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
             PushNotificationManager.syncCurrentFcmToken(appContext, googleUser?.uid)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                !PushNotificationManager.hasNotificationPermission(appContext) &&
+                !PushNotificationManager.hasAskedNotificationPermissionBefore(appContext)
+            ) {
+                delay(450L)
+                triggerNotificationPermissionFlow(false)
+            }
         }
     }
 
@@ -441,6 +561,11 @@ fun DoctorListBdApp(
                 }
 
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    FlexibleUpdateBanner(
+                        state = updateBannerState,
+                        lang = lang,
+                        onInstallClick = { inAppUpdateHelper.completeFlexibleUpdate() }
+                    )
                     if (activeBottomBanners.isNotEmpty()) {
                         RotatingBottomBannerBar(
                             banners = activeBottomBanners,
@@ -821,6 +946,7 @@ fun DoctorListBdApp(
                     ) { backStack ->
                         val docId = backStack.arguments?.getString("doctorId").orEmpty()
                         val profile = publicDoctors.firstOrNull { it.doctor.id == docId }
+                        val isFetchingPushDoctor by vm.isFetchingPushDoctor.collectAsStateWithLifecycle()
                         DoctorProfileScreen(
                             profile = profile,
                             lang = lang,
@@ -833,7 +959,9 @@ fun DoctorListBdApp(
                             onSponsorClicked = vm::recordSponsorClick,
                             isFavorite = docId in favoriteIds,
                             onToggleFavorite = { vm.toggleFavorite(docId) },
-                            onBack = { navController.popBackStack() }
+                            onBack = { navController.popBackStack() },
+                            isLoadingProfile = isFetchingPushDoctor && profile == null,
+                            onGoToDoctorList = { navigateToTab(Routes.FIND_DOCTORS) }
                         )
                     }
 
@@ -897,33 +1025,196 @@ fun DoctorListBdApp(
             )
         }
 
-        val handleNotificationTarget: (String, String) -> Unit = { doctorId, rawDeepLink ->
-            val cleanDocId = doctorId.trim()
-            val cleanLink = PushNotificationManager.sanitizeDeepLink(rawDeepLink)
-            when {
-                cleanDocId.isNotBlank() -> openDoctorProfile(cleanDocId)
-                cleanLink.startsWith("doctorlistbd://doctor/", ignoreCase = true) -> {
-                    val targetId = cleanLink.substringAfter("doctorlistbd://doctor/").substringBefore("?").trim()
-                    if (targetId.isNotBlank()) openDoctorProfile(targetId)
+        var activeGeneralDialog by remember { mutableStateOf<GeneralDialogPayload?>(null) }
+
+        val openDoctorFromNotification: (String) -> Unit = { rawDoctorId ->
+            val cleanDocId = rawDoctorId.trim()
+            if (cleanDocId.isBlank()) {
+                vm.showMessage(tr(lang, "ডাক্তারের তথ্য পাওয়া যায়নি। ডাক্তার তালিকা দেখুন।", "Doctor info unavailable. Browse doctor list."))
+                navigateToTab(Routes.FIND_DOCTORS)
+            } else {
+                // Always sync latest doctor details from Firebase RTDB if newly added or stale
+                if (publicDoctors.none { it.doctor.id == cleanDocId }) {
+                    vm.refreshDoctorForPush(cleanDocId)
                 }
-                cleanLink.equals("app://doctors", ignoreCase = true) -> navigateToTab(Routes.FIND_DOCTORS)
-                cleanLink.equals("app://hospitals", ignoreCase = true) -> {
-                    facilitiesTab = 0
-                    navigateToTab(Routes.FACILITIES)
+                navController.navigate(Routes.doctorProfile(cleanDocId)) {
+                    launchSingleTop = true
                 }
-                cleanLink.equals("app://notifications", ignoreCase = true) -> showNotificationCenter = true
-                cleanLink.equals("app://home", ignoreCase = true) -> navigateToTab(Routes.HOME)
-                cleanLink.startsWith("https://", ignoreCase = true) -> openAdUrl(appContext, cleanLink, lang)
             }
         }
 
+        val handleAppUpdateNotification: (String, String) -> Unit = { rawActionUrl, rawUpdateMode ->
+            val safeUrl = PushNotificationManager.sanitizeActionUrl(rawActionUrl)
+            if (safeUrl.isNotBlank()) {
+                // Admin provided an explicit Update / Play Store URL -> open directly without Play In-App Update API
+                val opened = PushNotificationManager.openExternalUpdateUrl(appContext, safeUrl)
+                if (!opened) {
+                    vm.showMessage(
+                        tr(lang, "আপডেট লিংক খোলা যায়নি। অনুগ্রহ করে ব্রাউজার চেক করুন।", "Could not open update URL.")
+                    )
+                }
+            } else {
+                // No Update URL -> launch official Google Play In-App Updates API (Flexible or Immediate)
+                val activity = RewardedAdManager.findActivity(appContext)
+                if (activity != null) {
+                    inAppUpdateHelper.checkAndStartUpdate(
+                        activity = activity,
+                        launcher = inAppUpdateLauncher,
+                        updateMode = rawUpdateMode.ifBlank { "FLEXIBLE" },
+                        lang = lang,
+                        isOnline = isOnline,
+                        onStatusMessage = vm::showMessage
+                    )
+                } else {
+                    vm.showMessage(
+                        tr(lang, "এই মুহূর্তে অ্যাপ আপডেট চেক করা যাচ্ছে না।", "Unable to check for app updates right now.")
+                    )
+                }
+            }
+        }
+
+        val handleTypedNotification: (
+            notificationId: String,
+            type: String,
+            title: String,
+            body: String,
+            imageUrl: String,
+            doctorId: String,
+            actionUrl: String,
+            updateMode: String,
+            deepLink: String
+        ) -> Unit = { notifId, rawType, title, body, imageUrl, doctorId, actionUrl, updateMode, rawDeepLink ->
+            val normType = PushNotificationManager.normalizeType(rawType)
+            val cleanDocId = doctorId.trim()
+            val cleanLink = PushNotificationManager.sanitizeDeepLink(rawDeepLink)
+            when (normType) {
+                PushNotificationManager.TYPE_NEW_DOCTOR -> {
+                    val resolvedDocId = cleanDocId.ifBlank {
+                        if (cleanLink.startsWith("doctorlistbd://doctor/", ignoreCase = true)) {
+                            cleanLink.substringAfter("doctorlistbd://doctor/").substringBefore("?").trim()
+                        } else ""
+                    }
+                    openDoctorFromNotification(resolvedDocId)
+                }
+                PushNotificationManager.TYPE_APP_UPDATE -> {
+                    val resolvedUrl = PushNotificationManager.sanitizeActionUrl(actionUrl).ifBlank {
+                        PushNotificationManager.sanitizeActionUrl(cleanLink)
+                    }
+                    handleAppUpdateNotification(resolvedUrl, updateMode)
+                }
+                else -> {
+                    if (notifId.isNotBlank()) {
+                        vm.markNotificationDisplayed(notifId)
+                    }
+                    activeGeneralDialog = GeneralDialogPayload(
+                        notificationId = notifId,
+                        title = title.ifBlank { tr(lang, "গুরুত্বপূর্ণ বিজ্ঞপ্তি", "Announcement") },
+                        body = body,
+                        imageUrl = imageUrl
+                    )
+                }
+            }
+        }
+
+        // Handle cold-start, background, and warm notification taps
         LaunchedEffect(pendingPushTarget) {
             val target = pendingPushTarget ?: return@LaunchedEffect
             if (target.notificationId.isNotBlank()) {
                 vm.markNotificationRead(target.notificationId)
             }
-            handleNotificationTarget(target.doctorId, target.deepLink)
+            val stored = notifications.firstOrNull { it.id == target.notificationId }
+            val resolvedTitle = target.title.ifBlank {
+                stored?.let { tr(lang, it.titleBn.ifBlank { it.titleEn }, it.titleEn.ifBlank { it.titleBn }) }.orEmpty()
+            }
+            val resolvedBody = target.body.ifBlank {
+                stored?.let { tr(lang, it.messageBn.ifBlank { it.messageEn }, it.messageEn.ifBlank { it.messageBn }) }.orEmpty()
+            }
+            val resolvedImage = target.imageUrl.ifBlank { stored?.imageUrl.orEmpty() }
+            val resolvedDocId = target.doctorId.ifBlank { stored?.selectedDoctorId.orEmpty() }
+            val resolvedActionUrl = target.actionUrl.ifBlank { stored?.actionUrl.orEmpty() }
+            val resolvedUpdateMode = target.updateMode.ifBlank { stored?.updateMode.orEmpty() }
+            val resolvedDeepLink = target.deepLink.ifBlank { stored?.deepLink.orEmpty() }
+            handleTypedNotification(
+                target.notificationId,
+                target.type,
+                resolvedTitle,
+                resolvedBody,
+                resolvedImage,
+                resolvedDocId,
+                resolvedActionUrl,
+                resolvedUpdateMode,
+                resolvedDeepLink
+            )
             onConsumePushTarget()
+        }
+
+        // Listen for foreground General FCM events and display strictly once
+        LaunchedEffect(Unit) {
+            PushNotificationManager.foregroundGeneralEvents.collect { item ->
+                if (!PushNotificationManager.hasDisplayedGeneral(appContext, item.id)) {
+                    vm.markNotificationDisplayed(item.id)
+                    activeGeneralDialog = GeneralDialogPayload(
+                        notificationId = item.id,
+                        title = tr(lang, item.titleBn.ifBlank { item.titleEn }, item.titleEn.ifBlank { item.titleBn }),
+                        body = tr(lang, item.messageBn.ifBlank { item.messageEn }, item.messageEn.ifBlank { item.messageBn }),
+                        imageUrl = item.imageUrl
+                    )
+                }
+            }
+        }
+
+        // Auto-show the latest undisplayed GENERAL notification ONCE when the user opens the app
+        LaunchedEffect(notifications, pendingPushTarget, showNotifPermissionRationale) {
+            if (pendingPushTarget != null || activeGeneralDialog != null || showNotifPermissionRationale) return@LaunchedEffect
+            val thirtyDaysAgo = System.currentTimeMillis() - (30L * 24L * 60L * 60L * 1000L)
+            val candidate = notifications
+                .asSequence()
+                .filter { it.messageType.equals(PushNotificationManager.TYPE_GENERAL, ignoreCase = true) }
+                .filter { !it.isDisplayed && !PushNotificationManager.hasDisplayedGeneral(appContext, it.id) }
+                .filter { it.createdAt >= thirtyDaysAgo }
+                .maxByOrNull { it.createdAt }
+            if (candidate != null) {
+                vm.markNotificationDisplayed(candidate.id)
+                activeGeneralDialog = GeneralDialogPayload(
+                    notificationId = candidate.id,
+                    title = tr(lang, candidate.titleBn.ifBlank { candidate.titleEn }, candidate.titleEn.ifBlank { candidate.titleBn }),
+                    body = tr(lang, candidate.messageBn.ifBlank { candidate.messageEn }, candidate.messageEn.ifBlank { candidate.messageBn }),
+                    imageUrl = candidate.imageUrl
+                )
+            }
+        }
+
+        activeGeneralDialog?.let { payload ->
+            GeneralNotificationDialog(
+                payload = payload,
+                lang = lang,
+                onDismiss = {
+                    if (payload.notificationId.isNotBlank()) {
+                        vm.markNotificationDisplayed(payload.notificationId)
+                    }
+                    activeGeneralDialog = null
+                }
+            )
+        }
+
+        if (showNotifPermissionRationale) {
+            NotificationPermissionRationaleDialog(
+                lang = lang,
+                isPermanentlyDenied = notifPermPermanentlyDenied,
+                onConfirm = {
+                    showNotifPermissionRationale = false
+                    if (notifPermPermanentlyDenied) {
+                        PushNotificationManager.openAppNotificationSettings(appContext)
+                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        PushNotificationManager.markNotificationPermissionAsked(appContext)
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                },
+                onDismiss = {
+                    PushNotificationManager.markNotificationPermissionAsked(appContext)
+                    showNotifPermissionRationale = false
+                }
+            )
         }
 
         if (showNotificationCenter) {
@@ -936,7 +1227,22 @@ fun DoctorListBdApp(
                 onRefresh = { vm.syncNow(showToast = false) },
                 onOpenNotification = { item: NotificationEntity ->
                     showNotificationCenter = false
-                    handleNotificationTarget(item.selectedDoctorId, item.deepLink)
+                    handleTypedNotification(
+                        item.id,
+                        item.messageType,
+                        tr(lang, item.titleBn.ifBlank { item.titleEn }, item.titleEn.ifBlank { item.titleBn }),
+                        tr(lang, item.messageBn.ifBlank { item.messageEn }, item.messageEn.ifBlank { item.messageBn }),
+                        item.imageUrl,
+                        item.selectedDoctorId,
+                        item.actionUrl,
+                        item.updateMode,
+                        item.deepLink
+                    )
+                },
+                notificationPermissionGranted = hasNotifPermission,
+                onRequestEnableNotifications = {
+                    showNotificationCenter = false
+                    triggerNotificationPermissionFlow(true)
                 },
                 onDismiss = { showNotificationCenter = false }
             )

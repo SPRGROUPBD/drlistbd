@@ -832,6 +832,8 @@ fun NotificationCenterBottomSheet(
     onMarkAllRead: () -> Unit,
     onRefresh: () -> Unit,
     onOpenNotification: (NotificationEntity) -> Unit = {},
+    notificationPermissionGranted: Boolean = true,
+    onRequestEnableNotifications: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val unreadCount = notifications.count { !it.isRead }
@@ -909,6 +911,52 @@ fun NotificationCenterBottomSheet(
                 }
             }
 
+            if (!notificationPermissionGranted) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xFFFEF3C7),
+                    border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.45f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                        .testTag("notification_permission_disabled_banner")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.NotificationsOff,
+                            contentDescription = null,
+                            tint = Color(0xFFB45309)
+                        )
+                        Text(
+                            text = tr(
+                                lang,
+                                "পুশ নোটিফিকেশন বন্ধ আছে। নতুন ডাক্তার ও আপডেট পেতে চালু করুন।",
+                                "Push notifications are off. Enable to receive new doctor & update alerts."
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF78350F),
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = onRequestEnableNotifications,
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("enable_notifications_banner_btn")
+                        ) {
+                            Text(
+                                text = tr(lang, "চালু করুন", "Enable"),
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFB45309)
+                            )
+                        }
+                    }
+                }
+            }
+
             HorizontalDivider(color = OutlineSoft)
             Spacer(Modifier.height(10.dp))
 
@@ -944,7 +992,8 @@ fun NotificationCenterBottomSheet(
                             item.messageEn.ifBlank { item.messageBn }
                         )
 
-                        val typePill = when (item.messageType.uppercase()) {
+                        val normType = item.messageType.uppercase()
+                        val typePill = when (normType) {
                             "NEW_DOCTOR" -> Triple(
                                 tr(lang, "নতুন ডাক্তার", "New Doctor"),
                                 Color(0xFFDCFCE7),
@@ -961,15 +1010,23 @@ fun NotificationCenterBottomSheet(
                                 Color(0xFF6D28D9)
                             )
                         }
+                        val actionHint = when (normType) {
+                            "NEW_DOCTOR" -> tr(lang, "ডাক্তারের প্রোফাইল দেখতে ট্যাপ করুন →", "Tap to view doctor profile →")
+                            "APP_UPDATE" -> if (item.actionUrl.isNotBlank()) {
+                                tr(lang, "আপডেট লিংক খুলতে ট্যাপ করুন →", "Tap to open update link →")
+                            } else {
+                                tr(lang, "অ্যাপ আপডেট যাচাই করতে ট্যাপ করুন →", "Tap to check for app update →")
+                            }
+                            else -> tr(lang, "সম্পূর্ণ বার্তা পড়তে ট্যাপ করুন →", "Tap to read full notice →")
+                        }
                         val hasValidImage = item.imageUrl.trim().let {
                             it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true)
                         }
-                        val hasActionTarget = item.selectedDoctorId.isNotBlank() || item.deepLink.isNotBlank()
 
                         Surface(
                             onClick = {
                                 if (!item.isRead) onMarkRead(item.id)
-                                if (hasActionTarget) onOpenNotification(item)
+                                onOpenNotification(item)
                             },
                             shape = RoundedCornerShape(16.dp),
                             color = if (item.isRead) BackgroundIce else MedicalBlueLight.copy(alpha = 0.45f),
@@ -1023,7 +1080,8 @@ fun NotificationCenterBottomSheet(
                                         Text(
                                             text = body,
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = TextSecondary
+                                            color = TextSecondary,
+                                            maxLines = 3
                                         )
                                     }
                                     if (hasValidImage) {
@@ -1038,23 +1096,13 @@ fun NotificationCenterBottomSheet(
                                                 .clip(RoundedCornerShape(12.dp))
                                         )
                                     }
-                                    if (hasActionTarget) {
-                                        Spacer(Modifier.height(6.dp))
-                                        Text(
-                                            text = tr(lang, "বিস্তারিত দেখতে ট্যাপ করুন →", "Tap to view details →"),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MedicalBlueDark,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    } else if (!item.isRead) {
-                                        Spacer(Modifier.height(6.dp))
-                                        Text(
-                                            text = tr(lang, "পঠিত হিসেবে চিহ্নিত করতে ট্যাপ করুন", "Tap to mark as read"),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MedicalBlueDark,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        text = actionHint,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MedicalBlueDark,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }

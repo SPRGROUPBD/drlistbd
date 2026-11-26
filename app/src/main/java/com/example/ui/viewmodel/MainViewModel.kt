@@ -52,6 +52,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
+    private val _isFetchingPushDoctor = MutableStateFlow(false)
+    val isFetchingPushDoctor: StateFlow<Boolean> = _isFetchingPushDoctor.asStateFlow()
+
     private val syncMutex = Mutex()
     private val _syncUiState = MutableStateFlow(SyncUiState())
     val syncUiState: StateFlow<SyncUiState> = combine(
@@ -711,5 +714,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun markNotificationRead(id: String) = viewModelScope.launch(exceptionHandler) { repo.markNotificationRead(id) }
 
+    fun markNotificationDisplayed(id: String) = viewModelScope.launch(exceptionHandler) { repo.markNotificationDisplayed(id) }
+
     fun markAllNotificationsRead() = viewModelScope.launch(exceptionHandler) { repo.markAllNotificationsRead() }
+
+    fun refreshDoctorForPush(doctorId: String) {
+        val cleanId = doctorId.trim()
+        if (cleanId.isBlank()) return
+        viewModelScope.launch(exceptionHandler) {
+            _isFetchingPushDoctor.value = true
+            try {
+                repo.forceSyncDoctorFromCloud(cleanId)
+            } finally {
+                _isFetchingPushDoctor.value = false
+            }
+        }
+    }
 }

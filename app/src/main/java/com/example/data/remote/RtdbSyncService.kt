@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
 import com.example.data.local.*
+import com.example.notifications.PushNotificationManager
 import com.example.ui.ads.SponsorCampaignSelector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -31,6 +32,11 @@ object RtdbSyncService {
     private fun sha256(input: String): String {
         val bytes = MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
         return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    suspend fun forcePullDirectoryIntoRoom(db: AppDatabase, context: Context? = null): Result<Int> {
+        lastSyncedCombinedHash = null
+        return pullDirectoryIntoRoom(db, context)
     }
 
     suspend fun pullDirectoryIntoRoom(db: AppDatabase, context: Context? = null): Result<Int> = withContext(Dispatchers.IO) {
@@ -268,24 +274,54 @@ object RtdbSyncService {
                 } ?: emptyList()
             } else emptyList()
 
-            // Notifications (preserve local read status across auto-syncs & merge optional root /notifications)
-            val existingReadIds = runCatching { db.notificationDao().getReadIds().toSet() }.getOrDefault(emptySet())
+            // Notifications (preserve local & remote userNotifications read/display status across auto-syncs)
+            val existingReadIds = runCatching { db.notificationDao().getReadIds().toMutableSet() }.getOrDefault(mutableSetOf())
+            val existingDisplayedIds = runCatching { db.notificationDao().getDisplayedIds().toMutableSet() }.getOrDefault(mutableSetOf())
+            if (context != null) {
+                val (remoteRead, remoteDisplayed) = PushNotificationManager.fetchUserNotificationStates(context)
+                existingReadIds.addAll(remoteRead)
+                existingDisplayedIds.addAll(remoteDisplayed)
+            }
             val mergedNotifications = linkedMapOf<String, NotificationEntity>()
-            fun parseNotificationRecord(id: String, o: JSONObject): NotificationEntity = NotificationEntity(
-                id = cleanOptString(o, "notificationId").ifBlank { id },
-                titleBn = cleanOptString(o, "titleBn").ifBlank { cleanOptString(o, "title") },
-                titleEn = cleanOptString(o, "titleEn").ifBlank { cleanOptString(o, "title") },
-                messageBn = cleanOptString(o, "messageBn").ifBlank { cleanOptString(o, "message") },
-                messageEn = cleanOptString(o, "messageEn").ifBlank { cleanOptString(o, "message") },
-                targetRole = cleanOptString(o, "targetRole", "ALL"),
-                messageType = cleanOptString(o, "messageType", "GENERAL").uppercase(),
-                selectedDoctorId = cleanOptString(o, "selectedDoctorId"),
-                selectedDoctorName = cleanOptString(o, "selectedDoctorName"),
-                imageUrl = cleanOptString(o, "imageUrl"),
-                deepLink = cleanOptString(o, "deepLink"),
-                isRead = id in existingReadIds,
-                createdAt = o.optLong("createdAt", System.currentTimeMillis())
-            )
+            fun parseNotificationRecord(id: String, o: JSONObject): NotificationEntity {
+                val notifId = cleanOptString(o, "notificationId").ifBlank { id }
+                val rawType = cleanOptString(o, "type").ifBlank { cleanOptString(o, "messageType", "GENERAL") }
+                val normalizedType = PushNotificationManager.normalizeType(rawType)
+                val bodyFallback = cleanOptString(o, "body").ifBlank { cleanOptString(o, "message") }
+                val docId = cleanOptString(o, "doctorId").ifBlank { cleanOptString(o, "selectedDoctorId") }
+                val docName = cleanOptString(o, "selectedDoctorName").ifBlank { cleanOptString(o, "doctorName") }
+                val actionUrl = PushNotificationManager.sanitizeActionUrl(
+                    cleanOptString(o, "actionUrl").ifBlank { cleanOptString(o, "updateUrl") }
+                )
+                val updateMode = cleanOptString(o, "updateMode").uppercase().let {
+                    if (it == "IMMEDIATE" || it == "FLEXIBLE") it else ""
+                }
+                val version = cleanOptString(o, "version").ifBlank { cleanOptString(o, "updateVersion") }
+                val deepLink = PushNotificationManager.sanitizeDeepLink(
+                    cleanOptString(o, "deepLink").ifBlank { actionUrl }
+                )
+                val isDisplayed = notifId in existingDisplayedIds || id in existingDisplayedIds
+                val isRead = isDisplayed || notifId in existingReadIds || id in existingReadIds
+                return NotificationEntity(
+                    id = notifId,
+                    titleBn = cleanOptString(o, "titleBn").ifBlank { cleanOptString(o, "title") },
+                    titleEn = cleanOptString(o, "titleEn").ifBlank { cleanOptString(o, "title") },
+                    messageBn = cleanOptString(o, "messageBn").ifBlank { bodyFallback },
+                    messageEn = cleanOptString(o, "messageEn").ifBlank { bodyFallback },
+                    targetRole = cleanOptString(o, "targetRole", "ALL"),
+                    messageType = normalizedType,
+                    selectedDoctorId = docId,
+                    selectedDoctorName = docName,
+                    imageUrl = PushNotificationManager.sanitizeHttpUrl(cleanOptString(o, "imageUrl")),
+                    deepLink = deepLink,
+                    actionUrl = actionUrl,
+                    updateMode = updateMode,
+                    version = version,
+                    isDisplayed = isDisplayed,
+                    isRead = isRead,
+                    createdAt = o.optLong("createdAt", System.currentTimeMillis())
+                )
+            }
             root.optJSONObject("notifications")?.let { obj ->
                 parseMap(obj) { id, o -> parseNotificationRecord(id, o) }
                     .forEach { mergedNotifications[it.id] = it }

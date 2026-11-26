@@ -211,6 +211,10 @@ data class NotificationEntity(
     val selectedDoctorName: String = "",
     val imageUrl: String = "",
     val deepLink: String = "",
+    val actionUrl: String = "",
+    val updateMode: String = "",
+    val version: String = "",
+    val isDisplayed: Boolean = false,
     val isRead: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 )

@@ -343,10 +343,10 @@
       </nav>
 
       <div class="p-3 border-t border-slate-100 flex-shrink-0 space-y-1.5">
-        <a href="Visitor.html" target="_blank" class="block text-center py-2 px-3 rounded-xl bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 text-xs font-bold">
-          Push Notification Panel &nearr;
-        </a>
-        </div>
+        <button type="button" onclick="switchTab('notifications')" class="w-full text-center py-2 px-3 rounded-xl bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 text-xs font-bold">
+          App Notification Center
+        </button>
+      </div>
     </aside>
 
     <!-- Main Content -->
@@ -386,7 +386,8 @@ let rootState = {
   adDisplayLogs: {},
   users: {},
   visitors: {},
-  subAdmins: {}
+  subAdmins: {},
+  notifications: {}
 };
 const DAYS = ["SATURDAY", "SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
 const DAY_META = {
@@ -839,6 +840,7 @@ document.getElementById("setupAdminForm").addEventListener("submit", async (e) =
     return;
   }
   cachedAdminAuthConfig = payload;
+  window.__dlbdAdminProof = passwordHash;
   sessionStorage.setItem("dlbd_admin_auth", "1");
   sessionStorage.setItem("dlbd_admin_id", adminId);
   sessionStorage.setItem("dlbd_admin_uid", adminId);
@@ -865,6 +867,7 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
   }
   const computed = await hashCredential(pass, cachedAdminAuthConfig.salt);
   if (id === cachedAdminAuthConfig.adminId && computed === cachedAdminAuthConfig.passwordHash) {
+    window.__dlbdAdminProof = computed;
     sessionStorage.setItem("dlbd_admin_auth", "1");
     sessionStorage.setItem("dlbd_admin_id", id);
     sessionStorage.setItem("dlbd_admin_uid", id);
@@ -879,6 +882,7 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
     const subCheck = await verifySubAdminLogin(id, pass);
     if (subCheck && subCheck.ok) {
       const sub = subCheck.subAdmin;
+      window.__dlbdAdminProof = sub.passwordHash || "";
       sessionStorage.setItem("dlbd_admin_auth", "1");
       sessionStorage.setItem("dlbd_admin_id", sub.email || id);
       sessionStorage.setItem("dlbd_admin_uid", sub.id);
@@ -898,6 +902,7 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
 });
 
 function logout() {
+  window.__dlbdAdminProof = "";
   sessionStorage.removeItem("dlbd_admin_auth");
   sessionStorage.removeItem("dlbd_admin_id");
   sessionStorage.removeItem("dlbd_admin_uid");
@@ -2302,59 +2307,878 @@ async function submitLocation(e) {
   });
 }
 
-function renderNotifications() {
-  const editN = editing.notif || {};
+// --- APP NOTIFICATIONS (COMPLETE NOTIFICATION MANAGEMENT SYSTEM) ---
+const DEFAULT_FCM_BACKEND_URL = "https://asia-south1-octor-aad88.cloudfunctions.net/sendBroadcastNotification";
+
+let notifFormState = {
+  type: "GENERAL",
+  title: "",
+  body: "",
+  imageUrl: "",
+  version: "",
+  actionUrl: "",
+  updateMode: "FLEXIBLE",
+  doctorId: "",
+  doctorSearch: "",
+  lastAutoTemplate: false,
+  historySearch: "",
+  historyTypeFilter: "ALL",
+  sending: false,
+  showConfirmModal: false,
+  lastResult: null, // { ok, type, message, detail, canFallbackInbox, pendingPayload }
+  showBackendConfig: false
+};
+
+function sanitizeNotifHttpUrl(raw) {
+  const v = String(raw || "").trim();
+  if (!v) return "";
+  try {
+    const u = new URL(v);
+    return (u.protocol === "https:" || u.protocol === "http:") ? u.toString() : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function sanitizeNotifActionUrl(raw) {
+  const v = String(raw || "").trim();
+  if (!v) return "";
+  if (/^market:\/\/[a-zA-Z0-9._/?=&%-]+$/i.test(v)) return v;
+  return sanitizeNotifHttpUrl(v);
+}
+
+function getNotifSortedDoctors() {
+  const specs = dbState.specialties || {};
+  return Object.entries(dbState.doctors || {})
+    .map(([id, d]) => {
+      const nameBn = String(d.fullNameBn || "").trim();
+      const nameEn = String(d.fullNameEn || "").trim();
+      const displayName = nameBn && nameEn && nameBn !== nameEn ? `${nameBn} (${nameEn})` : (nameBn || nameEn || id);
+      const specObj = specs[d.mainSpecialtyId] || {};
+      const specialty = String(specObj.nameEn || specObj.nameBn || d.subSpecialty || "General Physician").trim();
+      const ts = Number(d.updatedAt || d.createdAt || 0);
+      return { id, displayName, nameBn: nameBn || nameEn, nameEn: nameEn || nameBn, specialty, ts, isActive: d.isActive !== false };
+    })
+    .filter(d => d.isActive)
+    .sort((a, b) => (b.ts - a.ts) || a.displayName.localeCompare(b.displayName));
+}
+
+function getMergedNotificationsList() {
+  const map = new Map();
+  const sources = [dbState.notifications || {}, rootState.notifications || {}];
+  sources.forEach(src => {
+    Object.entries(src).forEach(([id, n]) => {
+      if (!n || typeof n !== "object") return;
+      const key = String(n.notificationId || id).trim() || id;
+      const prev = map.get(key) || {};
+      map.set(key, { ...prev, ...n, _key: key });
+    });
+  });
+  return Array.from(map.values()).sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+}
+
+function getNotifTypeMeta(rawType) {
+  const t = String(rawType || "GENERAL").trim().toUpperCase();
+  if (t === "APP_UPDATE") {
+    return { code: "APP_UPDATE", label: "App Update", badgeCls: "bg-sky-100 text-sky-800 border-sky-200" };
+  }
+  if (t === "NEW_DOCTOR") {
+    return { code: "NEW_DOCTOR", label: "New Doctor", badgeCls: "bg-emerald-100 text-emerald-800 border-emerald-200" };
+  }
+  return { code: "GENERAL", label: "General", badgeCls: "bg-violet-100 text-violet-800 border-violet-200" };
+}
+
+function getNotifStatusBadge(status) {
+  const s = String(status || "INBOX_ONLY").trim().toUpperCase();
+  if (s === "SENT") return { label: "SENT", cls: "bg-emerald-100 text-emerald-800 border-emerald-200" };
+  if (s === "PARTIAL") return { label: "PARTIAL", cls: "bg-amber-100 text-amber-800 border-amber-200" };
+  if (s === "FAILED") return { label: "FAILED", cls: "bg-rose-100 text-rose-800 border-rose-200" };
+  return { label: "INBOX ONLY", cls: "bg-slate-100 text-slate-700 border-slate-200" };
+}
+
+function buildNotifPreviewInnerHtml() {
+  const st = notifFormState;
+  const meta = getNotifTypeMeta(st.type);
+  const titleText = st.title.trim() || "Notification title preview...";
+  const bodyText = st.body.trim() || "Write your notification message to see how it will appear on Doctor List BD users' phones.";
+  const validImg = sanitizeNotifHttpUrl(st.imageUrl);
+  const doctors = getNotifSortedDoctors();
+  const selDoc = doctors.find(d => d.id === st.doctorId);
+
+  let behaviorText = "Shows an in-app General announcement popup once when the user opens Doctor List BD.";
+  if (meta.code === "APP_UPDATE") {
+    const cleanUrl = sanitizeNotifActionUrl(st.actionUrl);
+    if (cleanUrl) {
+      behaviorText = `Tapping opens Update URL directly: ${cleanUrl}`;
+    } else {
+      behaviorText = `Tapping launches Google Play In-App Updates (${st.updateMode === "IMMEDIATE" ? "Immediate" : "Flexible"} mode).`;
+    }
+  } else if (meta.code === "NEW_DOCTOR") {
+    behaviorText = selDoc
+      ? `Tapping navigates directly to Dr. Profile: ${selDoc.displayName} (${selDoc.id}).`
+      : "Select a doctor from the list to bind destination doctorId.";
+  }
+
   return `
-    <div class="bg-white p-5 rounded-2xl border border-slate-200 mb-6">
-      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <h3 class="font-bold text-sky-800">${editN.id ? "Edit Notification" : "Send Notification to App Users"}</h3>
-        <a href="Visitor.html" target="_blank" class="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold">Open Full Push Notification Panel &nearr;</a>
+    <div class="rounded-2xl bg-slate-900 p-4 text-white shadow-inner">
+      <div class="flex items-center justify-between text-[11px] text-slate-400 mb-3 px-1">
+        <span>9:41</span>
+        <span>Android Push Preview</span>
+        <span>5G • 100%</span>
       </div>
-      <form onsubmit="submitNotif(event)" class="space-y-2.5">
-        <input type="hidden" id="n_id" value="${esc(editN.id || "")}" />
-        <input id="n_tBn" value="${esc(editN.titleBn || "")}" required placeholder="Title (Bangla) *" class="input" />
-        <input id="n_tEn" value="${esc(editN.titleEn || "")}" required placeholder="Title (English) *" class="input" />
-        <textarea id="n_mBn" required placeholder="Message (Bangla) *" class="input" rows="2">${esc(editN.messageBn || "")}</textarea>
-        <textarea id="n_mEn" required placeholder="Message (English) *" class="input" rows="2">${esc(editN.messageEn || "")}</textarea>
-        <div class="flex gap-2">
-          <button type="submit" class="px-5 py-2.5 rounded-xl bg-sky-600 text-white font-semibold text-sm">${editN.id ? "Update Notification" : "Publish Notification"}</button>
-          ${editN.id ? `<button type="button" onclick="editing={};renderTab()" class="px-4 py-2.5 rounded-xl bg-slate-100 text-sm">Cancel</button>` : ""}
-        </div>
-      </form>
-    </div>
-    <div class="space-y-2.5">
-      ${Object.entries(dbState.notifications).map(([id, n]) => `
-        <div class="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-start gap-3">
-          <div class="min-w-0">
-            <div class="font-bold">${esc(n.titleBn)} / ${esc(n.titleEn)}</div>
-            <div class="text-xs text-slate-600 mt-1">${esc(n.messageBn)}</div>
-            ${n.messageEn ? `<div class="text-[11px] text-slate-400 mt-0.5">${esc(n.messageEn)}</div>` : ""}
+      <div class="rounded-2xl bg-white text-slate-900 p-4 shadow-lg border border-slate-100">
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <div class="flex items-center gap-2 min-w-0">
+            <div class="w-6 h-6 rounded-lg bg-gradient-to-br from-sky-600 to-teal-500 text-white flex items-center justify-center text-[11px] font-extrabold flex-shrink-0">D</div>
+            <span class="text-xs font-bold text-slate-700 truncate">Doctor List BD</span>
+            <span class="text-[11px] text-slate-400">• now</span>
           </div>
-          <div class="flex gap-2 flex-shrink-0">
-            <button onclick='editing={notif:${JSON.stringify({...n, id}).replace(/'/g,"&#39;")}};renderTab();window.scrollTo({top:0,behavior:"smooth"})' class="px-2.5 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold">Edit</button>
-            <button onclick="deleteNode('notifications','${id}')" class="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-600 text-xs font-semibold">Delete</button>
-          </div>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${meta.badgeCls}">${esc(meta.label)}</span>
         </div>
-      `).join("")}
+        <div class="font-bold text-sm text-slate-900 break-words">${esc(titleText)}</div>
+        <div class="text-xs text-slate-600 mt-1 whitespace-pre-line break-words leading-relaxed">${esc(bodyText)}</div>
+        ${validImg ? `
+          <div class="mt-2.5 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+            <img src="${esc(validImg)}" alt="Notification banner preview" class="w-full h-32 object-cover" onerror="this.parentElement.style.display='none'" />
+          </div>
+        ` : ""}
+        ${meta.code === "APP_UPDATE" && st.version.trim() ? `
+          <div class="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-50 text-sky-800 text-[10px] font-semibold">
+            Target Version: ${esc(st.version.trim())} • ${esc(st.updateMode)}
+          </div>
+        ` : ""}
+        ${meta.code === "NEW_DOCTOR" && selDoc ? `
+          <div class="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 text-[10px] font-semibold">
+            Destination: ${esc(selDoc.displayName)} — ${esc(selDoc.specialty)}
+          </div>
+        ` : ""}
+      </div>
+      <div class="mt-3 rounded-xl bg-slate-800/80 border border-slate-700 p-3 text-[11px] text-slate-200 space-y-1">
+        <div class="font-bold text-sky-300">Tap Action Behavior</div>
+        <div class="text-slate-300 leading-relaxed">${esc(behaviorText)}</div>
+        <div class="text-[10px] text-slate-400 pt-1">Recipient: <strong class="text-white">All App Users</strong> (Fixed)</div>
+      </div>
     </div>
   `;
 }
 
-async function submitNotif(e) {
-  e.preventDefault();
-  const id = document.getElementById("n_id")?.value || uid("ntf");
-  const existing = dbState.notifications?.[id] || {};
-  editing = {};
-  await saveNode("notifications", id, {
-    ...existing,
-    titleBn: document.getElementById("n_tBn").value.trim(),
-    titleEn: document.getElementById("n_tEn").value.trim(),
-    messageBn: document.getElementById("n_mBn").value.trim(),
-    messageEn: document.getElementById("n_mEn").value.trim(),
-    targetRole: existing.targetRole || "ALL",
-    createdAt: existing.createdAt || Date.now(),
-    updatedAt: Date.now()
+function updateNotifLivePreview() {
+  const el = document.getElementById("notifLivePreviewHost");
+  if (el) el.innerHTML = buildNotifPreviewInnerHtml();
+}
+
+function onNotifFieldInput(field, value) {
+  notifFormState[field] = value;
+  if (field === "title" || field === "body") {
+    notifFormState.lastAutoTemplate = false;
+  }
+  updateNotifLivePreview();
+}
+
+function onNotifTypeChange(newType) {
+  const clean = ["GENERAL", "APP_UPDATE", "NEW_DOCTOR"].includes(newType) ? newType : "GENERAL";
+  notifFormState.type = clean;
+  notifFormState.lastResult = null;
+  if (clean === "APP_UPDATE" && !notifFormState.title.trim() && !notifFormState.body.trim()) {
+    notifFormState.title = "নতুন অ্যাপ আপডেট পাওয়া গেছে";
+    notifFormState.body = "Doctor List BD-এর নতুন ভার্সন প্রকাশিত হয়েছে। উন্নত পারফরম্যান্স ও নতুন ফিচার পেতে এখনই আপডেট করুন।";
+    notifFormState.lastAutoTemplate = true;
+  }
+  renderTab();
+}
+
+function onNotifDoctorSelected(doctorId) {
+  notifFormState.doctorId = doctorId;
+  const doctors = getNotifSortedDoctors();
+  const doc = doctors.find(d => d.id === doctorId);
+  if (doc && (!notifFormState.title.trim() && !notifFormState.body.trim() || notifFormState.lastAutoTemplate)) {
+    const labelName = doc.nameBn || doc.displayName;
+    notifFormState.title = "নতুন ডাক্তার যুক্ত হয়েছেন";
+    notifFormState.body = `${labelName} (${doc.specialty}) এখন Doctor List BD অ্যাপে যুক্ত হয়েছেন। চেম্বার ও বিস্তারিত তথ্য দেখতে ট্যাপ করুন।`;
+    notifFormState.lastAutoTemplate = true;
+    const tEl = document.getElementById("nf_title");
+    const bEl = document.getElementById("nf_body");
+    if (tEl) tEl.value = notifFormState.title;
+    if (bEl) bEl.value = notifFormState.body;
+  }
+  updateNotifLivePreview();
+}
+
+function onNotifDoctorSearchInput(query) {
+  notifFormState.doctorSearch = query;
+  const selectEl = document.getElementById("nf_doctorId");
+  if (!selectEl) return;
+  const q = String(query || "").trim().toLowerCase();
+  const doctors = getNotifSortedDoctors().filter(d =>
+    !q ||
+    d.displayName.toLowerCase().includes(q) ||
+    d.specialty.toLowerCase().includes(q) ||
+    d.id.toLowerCase().includes(q)
+  );
+  selectEl.innerHTML = `<option value="">-- Select Doctor (${doctors.length} available) --</option>` +
+    doctors.map(d =>
+      `<option value="${esc(d.id)}" ${d.id === notifFormState.doctorId ? "selected" : ""}>${esc(d.displayName)} — ${esc(d.specialty)}</option>`
+    ).join("");
+}
+
+function resetNotifForm() {
+  notifFormState.title = "";
+  notifFormState.body = "";
+  notifFormState.imageUrl = "";
+  notifFormState.version = "";
+  notifFormState.actionUrl = "";
+  notifFormState.updateMode = "FLEXIBLE";
+  notifFormState.doctorId = "";
+  notifFormState.doctorSearch = "";
+  notifFormState.lastAutoTemplate = false;
+  notifFormState.lastResult = null;
+  renderTab();
+}
+
+async function saveFcmBackendUrlSetting() {
+  const input = document.getElementById("nf_backendUrl");
+  const raw = String(input ? input.value : "").trim();
+  if (raw && !sanitizeNotifHttpUrl(raw)) {
+    toast("Please enter a valid https:// Cloud Function URL.");
+    return;
+  }
+  const nextSettings = { ...(dbState.settings || {}), fcmBackendUrl: raw || DEFAULT_FCM_BACKEND_URL };
+  await saveNode("settings", null, nextSettings);
+}
+
+function validateAndOpenNotifConfirm(e) {
+  if (e) e.preventDefault();
+  if (notifFormState.sending) return;
+
+  const title = notifFormState.title.trim();
+  const body = notifFormState.body.trim();
+  const type = notifFormState.type;
+
+  if (title.length < 2 || title.length > 160) {
+    notifFormState.lastResult = { ok: false, message: "Notification Title must be between 2 and 160 characters." };
+    renderTab();
+    return;
+  }
+  if (body.length < 2 || body.length > 1200) {
+    notifFormState.lastResult = { ok: false, message: "Notification Body must be between 2 and 1200 characters." };
+    renderTab();
+    return;
+  }
+  if (notifFormState.imageUrl.trim() && !sanitizeNotifHttpUrl(notifFormState.imageUrl)) {
+    notifFormState.lastResult = { ok: false, message: "Notification Image URL must start with http:// or https://." };
+    renderTab();
+    return;
+  }
+  if (type === "APP_UPDATE" && notifFormState.actionUrl.trim() && !sanitizeNotifActionUrl(notifFormState.actionUrl)) {
+    notifFormState.lastResult = { ok: false, message: "Update URL must be a valid https://, http://, or market:// Play Store URL." };
+    renderTab();
+    return;
+  }
+  if (type === "NEW_DOCTOR") {
+    if (!notifFormState.doctorId.trim() || !dbState.doctors?.[notifFormState.doctorId.trim()]) {
+      notifFormState.lastResult = { ok: false, message: "Please select a valid Doctor for New Doctor notification." };
+      renderTab();
+      return;
+    }
+  }
+
+  notifFormState.lastResult = null;
+  notifFormState.showConfirmModal = true;
+  renderTab();
+}
+
+function closeNotifConfirmModal() {
+  if (notifFormState.sending) return;
+  notifFormState.showConfirmModal = false;
+  renderTab();
+}
+
+async function resolveAdminProofForPush() {
+  if (window.__dlbdAdminProof) {
+    return {
+      adminId: sessionStorage.getItem("dlbd_admin_id") || "",
+      proof: window.__dlbdAdminProof
+    };
+  }
+  const passInput = document.getElementById("nf_confirmAdminPass");
+  const enteredPass = passInput ? passInput.value : "";
+  const adminId = sessionStorage.getItem("dlbd_admin_id") || "";
+  const role = sessionStorage.getItem("dlbd_admin_role") || "SUPER_ADMIN";
+  if (!enteredPass) {
+    return { error: "Please enter your Admin password to authorize server-side FCM broadcast." };
+  }
+  if (role === "SUB_ADMIN" && typeof verifySubAdminLogin === "function") {
+    const subCheck = await verifySubAdminLogin(adminId, enteredPass);
+    if (subCheck && subCheck.ok && subCheck.subAdmin?.passwordHash) {
+      window.__dlbdAdminProof = subCheck.subAdmin.passwordHash;
+      return { adminId, proof: window.__dlbdAdminProof };
+    }
+    return { error: "Admin password verification failed." };
+  }
+  if (!cachedAdminAuthConfig) {
+    const res = await fetch(`${RTDB_BASE}/admin_auth/config.json`);
+    cachedAdminAuthConfig = res.ok ? await res.json() : null;
+  }
+  if (!cachedAdminAuthConfig || !cachedAdminAuthConfig.salt) {
+    return { error: "Admin security configuration could not be loaded." };
+  }
+  const computed = await hashCredential(enteredPass, cachedAdminAuthConfig.salt);
+  if (computed !== cachedAdminAuthConfig.passwordHash) {
+    return { error: "Incorrect Admin password." };
+  }
+  window.__dlbdAdminProof = computed;
+  return { adminId, proof: computed };
+}
+
+function buildPendingNotifPayload() {
+  const st = notifFormState;
+  const doctors = getNotifSortedDoctors();
+  const selDoc = doctors.find(d => d.id === st.doctorId);
+  const cleanImageUrl = sanitizeNotifHttpUrl(st.imageUrl) || "";
+  const cleanActionUrl = st.type === "APP_UPDATE" ? (sanitizeNotifActionUrl(st.actionUrl) || "") : "";
+  const notificationId = "ntf_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+  return {
+    notificationId,
+    title: st.title.trim(),
+    body: st.body.trim(),
+    type: st.type,
+    recipient: "ALL_APP_USERS",
+    imageUrl: cleanImageUrl,
+    actionUrl: cleanActionUrl,
+    updateMode: st.type === "APP_UPDATE" ? st.updateMode : "",
+    version: st.type === "APP_UPDATE" ? st.version.trim() : "",
+    doctorId: st.type === "NEW_DOCTOR" ? st.doctorId.trim() : "",
+    selectedDoctorName: st.type === "NEW_DOCTOR" && selDoc ? selDoc.displayName : ""
+  };
+}
+
+async function confirmAndSendBroadcastNotification() {
+  if (notifFormState.sending) return;
+
+  const authCheck = await resolveAdminProofForPush();
+  if (authCheck.error) {
+    const modalErr = document.getElementById("nf_confirmError");
+    if (modalErr) {
+      modalErr.textContent = authCheck.error;
+      modalErr.classList.remove("hidden");
+    }
+    return;
+  }
+
+  const payload = buildPendingNotifPayload();
+  const endpoint = String(dbState.settings?.fcmBackendUrl || DEFAULT_FCM_BACKEND_URL).trim();
+
+  notifFormState.sending = true;
+  renderTab();
+
+  try {
+    const resp = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Admin-Id": authCheck.adminId,
+        "X-Admin-Proof": authCheck.proof
+      },
+      body: JSON.stringify(payload)
+    });
+
+    let data = null;
+    try { data = await resp.json(); } catch (_) {}
+
+    if (!resp.ok || !data || !data.ok) {
+      const serverErr = (data && data.error) ? data.error : `Backend HTTP ${resp.status}`;
+      notifFormState.sending = false;
+      notifFormState.showConfirmModal = false;
+      notifFormState.lastResult = {
+        ok: false,
+        message: `Push dispatch failed: ${serverErr}`,
+        detail: "FCM push was NOT sent. Verify that your Firebase Cloud Function (sendBroadcastNotification) is deployed and reachable.",
+        canFallbackInbox: resp.status === 404 || resp.status >= 500,
+        pendingPayload: payload
+      };
+      renderTab();
+      return;
+    }
+
+    // Update local caches with authoritative record returned by backend
+    const savedRec = data.record || {
+      ...payload,
+      titleBn: payload.title,
+      titleEn: payload.title,
+      message: payload.body,
+      messageBn: payload.body,
+      messageEn: payload.body,
+      messageType: payload.type,
+      selectedDoctorId: payload.doctorId,
+      recipientType: "all_users",
+      createdAt: Date.now(),
+      status: data.status || "SENT",
+      totalRecipients: data.totalRecipients || 0,
+      successCount: data.successCount || 0,
+      failureCount: data.failureCount || 0
+    };
+    if (!rootState.notifications) rootState.notifications = {};
+    if (!dbState.notifications) dbState.notifications = {};
+    rootState.notifications[savedRec.notificationId] = savedRec;
+    dbState.notifications[savedRec.notificationId] = savedRec;
+
+    const statusLabel = data.status || "SENT";
+    const summaryMsg = statusLabel === "INBOX_ONLY"
+      ? "Saved to App Notification Inbox (0 registered FCM device tokens found yet)."
+      : `Notification processed (${statusLabel}): ${data.successCount || 0} delivered, ${data.failureCount || 0} failed out of ${data.totalRecipients || 0} registered devices.`;
+
+    notifFormState.sending = false;
+    notifFormState.showConfirmModal = false;
+    notifFormState.title = "";
+    notifFormState.body = "";
+    notifFormState.imageUrl = "";
+    notifFormState.version = "";
+    notifFormState.actionUrl = "";
+    notifFormState.doctorId = "";
+    notifFormState.lastAutoTemplate = false;
+    notifFormState.lastResult = {
+      ok: true,
+      status: statusLabel,
+      message: summaryMsg,
+      detail: data.prunedInvalidTokens ? `Cleaned up ${data.prunedInvalidTokens} expired device token(s).` : ""
+    };
+    toast("Notification sent!");
+    renderTab();
+  } catch (err) {
+    notifFormState.sending = false;
+    notifFormState.showConfirmModal = false;
+    notifFormState.lastResult = {
+      ok: false,
+      message: `Could not reach FCM Cloud Function (${err.message || "Network/CORS error"}).`,
+      detail: "Deploy functions/index.js (`firebase deploy --only functions`) and verify the Backend Endpoint URL below. No fake push was sent.",
+      canFallbackInbox: true,
+      pendingPayload: payload
+    };
+    renderTab();
+  }
+}
+
+async function publishNotificationInboxOnlyFallback() {
+  const pending = notifFormState.lastResult && notifFormState.lastResult.pendingPayload;
+  if (!pending || notifFormState.sending) return;
+  notifFormState.sending = true;
+  renderTab();
+  try {
+    const now = Date.now();
+    const record = {
+      notificationId: pending.notificationId,
+      title: pending.title,
+      titleBn: pending.title,
+      titleEn: pending.title,
+      body: pending.body,
+      message: pending.body,
+      messageBn: pending.body,
+      messageEn: pending.body,
+      type: pending.type,
+      messageType: pending.type,
+      recipient: "ALL_APP_USERS",
+      recipientType: "all_users",
+      targetRole: "ALL",
+      imageUrl: pending.imageUrl || "",
+      actionUrl: pending.actionUrl || "",
+      doctorId: pending.doctorId || "",
+      selectedDoctorId: pending.doctorId || "",
+      selectedDoctorName: pending.selectedDoctorName || "",
+      updateMode: pending.updateMode || "",
+      version: pending.version || "",
+      deepLink: pending.type === "NEW_DOCTOR" && pending.doctorId ? `doctorlistbd://doctor/${pending.doctorId}` : (pending.actionUrl || ""),
+      createdAt: now,
+      updatedAt: now,
+      createdBy: sessionStorage.getItem("dlbd_admin_id") || "admin",
+      totalRecipients: 0,
+      successCount: 0,
+      failureCount: 0,
+      status: "INBOX_ONLY"
+    };
+    await fetch(`${RTDB_BASE}/notifications/${record.notificationId}.json`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(record)
+    });
+    if (!dbState.notifications) dbState.notifications = {};
+    dbState.notifications[record.notificationId] = record;
+
+    notifFormState.sending = false;
+    notifFormState.title = "";
+    notifFormState.body = "";
+    notifFormState.imageUrl = "";
+    notifFormState.version = "";
+    notifFormState.actionUrl = "";
+    notifFormState.doctorId = "";
+    notifFormState.lastAutoTemplate = false;
+    notifFormState.lastResult = {
+      ok: true,
+      status: "INBOX_ONLY",
+      message: "Published to In-App Notification Inbox (INBOX_ONLY). Deploy Cloud Functions for live FCM push delivery."
+    };
+    toast("Published to App Inbox!");
+    renderTab();
+  } catch (err) {
+    notifFormState.sending = false;
+    notifFormState.lastResult = { ok: false, message: "Inbox save failed: " + (err.message || err) };
+    renderTab();
+  }
+}
+
+async function deleteNotificationRecord(notificationId) {
+  if (!confirm("Are you sure you want to delete this notification from history?")) return;
+  await Promise.allSettled([
+    fetch(`${RTDB_BASE}/notifications/${notificationId}.json`, { method: "DELETE" }),
+    fetch(`${RTDB_ROOT}/notifications/${notificationId}.json`, { method: "DELETE" })
+  ]);
+  if (dbState.notifications) delete dbState.notifications[notificationId];
+  if (rootState.notifications) delete rootState.notifications[notificationId];
+  toast("Notification deleted.");
+  renderTab();
+}
+
+function renderNotifications() {
+  const st = notifFormState;
+  const doctors = getNotifSortedDoctors();
+  const filteredDoctors = doctors.filter(d => {
+    const q = st.doctorSearch.trim().toLowerCase();
+    return !q || d.displayName.toLowerCase().includes(q) || d.specialty.toLowerCase().includes(q) || d.id.toLowerCase().includes(q);
   });
+  const historyAll = getMergedNotificationsList();
+  const historyFiltered = historyAll.filter(n => {
+    const nType = getNotifTypeMeta(n.type || n.messageType).code;
+    if (st.historyTypeFilter !== "ALL" && nType !== st.historyTypeFilter) return false;
+    const q = st.historySearch.trim().toLowerCase();
+    if (!q) return true;
+    const hay = `${n.title || n.titleBn || n.titleEn || ""} ${n.body || n.message || n.messageBn || ""} ${n.selectedDoctorName || ""} ${n.doctorId || n.selectedDoctorId || ""} ${n.actionUrl || ""}`.toLowerCase();
+    return hay.includes(q);
+  });
+
+  const backendUrl = String(dbState.settings?.fcmBackendUrl || DEFAULT_FCM_BACKEND_URL);
+  const selectedDocObj = doctors.find(d => d.id === st.doctorId);
+
+  return `
+    <div class="space-y-6">
+      <!-- Top Header & Cloud Function Endpoint Toggle -->
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 class="text-lg font-extrabold text-slate-900">Doctor List BD — Notification Management System</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Send targeted-action push notifications (General, App Update, or New Doctor) to All App Users via FCM HTTP v1.</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              Recipient: All App Users (Fixed)
+            </span>
+            <button type="button" onclick="notifFormState.showBackendConfig=!notifFormState.showBackendConfig;renderTab()"
+              class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold">
+              ${st.showBackendConfig ? "Hide Backend Config" : "FCM Backend Endpoint"}
+            </button>
+          </div>
+        </div>
+
+        ${st.showBackendConfig ? `
+          <div class="mt-4 pt-4 border-t border-slate-100 flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
+            <div class="flex-1">
+              <label class="block text-xs font-bold text-slate-700 mb-1">Firebase Cloud Function URL (FCM HTTP v1)</label>
+              <input id="nf_backendUrl" type="url" value="${esc(backendUrl)}" placeholder="https://asia-south1-octor-aad88.cloudfunctions.net/sendBroadcastNotification" class="input text-xs font-mono" />
+            </div>
+            <button type="button" onclick="saveFcmBackendUrlSetting()" class="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold">Save Endpoint</button>
+          </div>
+        ` : ""}
+      </div>
+
+      ${st.lastResult ? `
+        <div class="p-4 rounded-2xl border ${st.lastResult.ok ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-rose-50 border-rose-200 text-rose-900"}">
+          <div class="font-bold text-sm">${esc(st.lastResult.message)}</div>
+          ${st.lastResult.detail ? `<div class="text-xs mt-1 opacity-90">${esc(st.lastResult.detail)}</div>` : ""}
+          ${!st.lastResult.ok && st.lastResult.canFallbackInbox ? `
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button type="button" onclick="publishNotificationInboxOnlyFallback()" class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold">
+                Save to In-App Notification Inbox Only (No Push)
+              </button>
+            </div>
+          ` : ""}
+        </div>
+      ` : ""}
+
+      <!-- Form + Live Notification Preview -->
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+        <div class="xl:col-span-7 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h4 class="font-bold text-sky-900 text-base mb-4">Create &amp; Send Push Notification</h4>
+          <form onsubmit="validateAndOpenNotifConfirm(event)" class="space-y-4">
+            <!-- A. Fixed Recipient -->
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">Notification Recipient</label>
+              <div class="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm">
+                <span class="font-bold text-slate-800">All App Users</span>
+                <span class="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold">Default &amp; Fixed</span>
+              </div>
+              <p class="text-[11px] text-slate-400 mt-1">All notification types are broadcast to every active Doctor List BD app user.</p>
+            </div>
+
+            <!-- B. Notification Type Dropdown (Exactly 3 types) -->
+            <div>
+              <label for="nf_type" class="block text-xs font-bold text-slate-700 mb-1">Notification Type *</label>
+              <select id="nf_type" onchange="onNotifTypeChange(this.value)" class="input font-semibold">
+                <option value="GENERAL" ${st.type === "GENERAL" ? "selected" : ""}>General</option>
+                <option value="APP_UPDATE" ${st.type === "APP_UPDATE" ? "selected" : ""}>App Update</option>
+                <option value="NEW_DOCTOR" ${st.type === "NEW_DOCTOR" ? "selected" : ""}>New Doctor</option>
+              </select>
+            </div>
+
+            <!-- Dynamic Type-Specific Fields -->
+            ${st.type === "GENERAL" ? `
+              <div class="p-3.5 rounded-xl bg-violet-50 border border-violet-200 text-xs text-violet-900">
+                <strong>General Notification Behavior:</strong> Delivered to all users via FCM and shown once inside an in-app popup dialog when the user opens Doctor List BD.
+              </div>
+            ` : ""}
+
+            ${st.type === "APP_UPDATE" ? `
+              <div class="p-4 rounded-xl bg-sky-50/70 border border-sky-200 space-y-3">
+                <div class="text-xs font-extrabold text-sky-900 uppercase tracking-wide">App Update Configuration</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label for="nf_version" class="block text-xs font-bold text-slate-700 mb-1">Update Version (Optional)</label>
+                    <input id="nf_version" type="text" value="${esc(st.version)}" oninput="onNotifFieldInput('version', this.value)"
+                      placeholder="e.g. 1.0.2.26.01.01" maxlength="40" class="input bg-white" />
+                  </div>
+                  <div>
+                    <label for="nf_updateMode" class="block text-xs font-bold text-slate-700 mb-1">Update Mode *</label>
+                    <select id="nf_updateMode" onchange="onNotifFieldInput('updateMode', this.value)" class="input bg-white font-semibold">
+                      <option value="FLEXIBLE" ${st.updateMode === "FLEXIBLE" ? "selected" : ""}>Flexible (Background download + Restart prompt)</option>
+                      <option value="IMMEDIATE" ${st.updateMode === "IMMEDIATE" ? "selected" : ""}>Immediate (Full-screen Play Store update)</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label for="nf_actionUrl" class="block text-xs font-bold text-slate-700 mb-1">Update URL / Play Store URL (Optional)</label>
+                  <input id="nf_actionUrl" type="url" value="${esc(st.actionUrl)}" oninput="onNotifFieldInput('actionUrl', this.value)"
+                    placeholder="https://play.google.com/store/apps/details?id=com.doctorlist.bd" class="input bg-white" />
+                  <p class="text-[11px] text-sky-800 mt-1">
+                    If provided, tapping opens this URL directly. If left empty, tapping triggers the official Google Play In-App Updates API using the selected Update Mode.
+                  </p>
+                </div>
+              </div>
+            ` : ""}
+
+            ${st.type === "NEW_DOCTOR" ? `
+              <div class="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200 space-y-3">
+                <div class="text-xs font-extrabold text-emerald-900 uppercase tracking-wide">New Doctor Destination Profile</div>
+                <div>
+                  <label for="nf_doctorSearch" class="block text-xs font-bold text-slate-700 mb-1">Filter Doctors (Name / Specialty)</label>
+                  <input id="nf_doctorSearch" type="text" value="${esc(st.doctorSearch)}" oninput="onNotifDoctorSearchInput(this.value)"
+                    placeholder="Type doctor name or specialty..." class="input bg-white" />
+                </div>
+                <div>
+                  <label for="nf_doctorId" class="block text-xs font-bold text-slate-700 mb-1">Select Doctor * (Recently Added First)</label>
+                  <select id="nf_doctorId" required onchange="onNotifDoctorSelected(this.value)" class="input bg-white font-semibold">
+                    <option value="">-- Select Doctor (${filteredDoctors.length} available) --</option>
+                    ${filteredDoctors.map(d =>
+                      `<option value="${esc(d.id)}" ${d.id === st.doctorId ? "selected" : ""}>${esc(d.displayName)} — ${esc(d.specialty)}</option>`
+                    ).join("")}
+                  </select>
+                  <p class="text-[11px] text-emerald-800 mt-1">
+                    Selected doctor is the destination profile (<code>doctorId</code>), NOT the recipient. Notification is sent to <strong>All App Users</strong>.
+                  </p>
+                </div>
+              </div>
+            ` : ""}
+
+            <!-- C. Common Editable Fields -->
+            <div>
+              <label for="nf_title" class="block text-xs font-bold text-slate-700 mb-1">Notification Title *</label>
+              <input id="nf_title" type="text" required minlength="2" maxlength="160" value="${esc(st.title)}"
+                oninput="onNotifFieldInput('title', this.value)"
+                placeholder="e.g. গুরুত্বপূর্ণ স্বাস্থ্য বিজ্ঞপ্তি / New Doctor Added" class="input" />
+            </div>
+
+            <div>
+              <label for="nf_body" class="block text-xs font-bold text-slate-700 mb-1">Notification Body *</label>
+              <textarea id="nf_body" required minlength="2" maxlength="1200" rows="4"
+                oninput="onNotifFieldInput('body', this.value)"
+                placeholder="Write the complete notification message (Bangla or English)..." class="input">${esc(st.body)}</textarea>
+            </div>
+
+            <div>
+              <label for="nf_imageUrl" class="block text-xs font-bold text-slate-700 mb-1">Notification Image URL (Optional)</label>
+              <input id="nf_imageUrl" type="url" value="${esc(st.imageUrl)}"
+                oninput="onNotifFieldInput('imageUrl', this.value)"
+                placeholder="https://example.com/banner.jpg" class="input" />
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3 pt-2">
+              <button type="submit" ${st.sending ? "disabled" : ""}
+                class="px-5 py-3 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-60 text-white font-bold text-sm shadow-sm">
+                ${st.sending ? "Sending Notification..." : "Send Notification to All Users"}
+              </button>
+              <button type="button" onclick="resetNotifForm()" ${st.sending ? "disabled" : ""}
+                class="px-4 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm">
+                Reset
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Live Notification Preview Panel -->
+        <div class="xl:col-span-5 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm sticky top-4">
+          <div class="flex items-center justify-between mb-3">
+            <h4 class="font-bold text-slate-900 text-sm">Live Notification Preview</h4>
+            <span class="text-[11px] text-slate-400">Updates in real time</span>
+          </div>
+          <div id="notifLivePreviewHost">
+            ${buildNotifPreviewInnerHtml()}
+          </div>
+        </div>
+      </div>
+
+      <!-- Notification History Table -->
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h4 class="font-bold text-slate-900 text-base">Notification History (${historyFiltered.length})</h4>
+            <p class="text-xs text-slate-500">All sent broadcasts with type, target details, and real delivery status.</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="text" value="${esc(st.historySearch)}"
+              oninput="notifFormState.historySearch=this.value;renderTab()"
+              placeholder="Search title, body, doctor..."
+              class="px-3 py-2 rounded-xl border border-slate-200 text-xs w-52" />
+            <select onchange="notifFormState.historyTypeFilter=this.value;renderTab()"
+              class="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold bg-white">
+              <option value="ALL" ${st.historyTypeFilter === "ALL" ? "selected" : ""}>All Types</option>
+              <option value="GENERAL" ${st.historyTypeFilter === "GENERAL" ? "selected" : ""}>General</option>
+              <option value="APP_UPDATE" ${st.historyTypeFilter === "APP_UPDATE" ? "selected" : ""}>App Update</option>
+              <option value="NEW_DOCTOR" ${st.historyTypeFilter === "NEW_DOCTOR" ? "selected" : ""}>New Doctor</option>
+            </select>
+          </div>
+        </div>
+
+        ${historyFiltered.length === 0 ? `
+          <div class="text-center py-10 text-sm text-slate-400 border border-dashed border-slate-200 rounded-xl">
+            No notifications found matching your filters.
+          </div>
+        ` : `
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr class="border-b border-slate-200 text-[11px] uppercase tracking-wider text-slate-500 bg-slate-50">
+                  <th class="py-2.5 px-3">#</th>
+                  <th class="py-2.5 px-3">Notification Title</th>
+                  <th class="py-2.5 px-3">Type</th>
+                  <th class="py-2.5 px-3">Recipient</th>
+                  <th class="py-2.5 px-3">Action / Target Details</th>
+                  <th class="py-2.5 px-3">Created Date &amp; Time</th>
+                  <th class="py-2.5 px-3">Delivery Status</th>
+                  <th class="py-2.5 px-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                ${historyFiltered.map((n, idx) => {
+                  const id = n.notificationId || n._key;
+                  const tMeta = getNotifTypeMeta(n.type || n.messageType);
+                  const sBadge = getNotifStatusBadge(n.status);
+                  const titleText = n.title || n.titleBn || n.titleEn || "Untitled";
+                  const bodyText = n.body || n.message || n.messageBn || n.messageEn || "";
+                  const createdStr = n.createdAt ? new Date(Number(n.createdAt)).toLocaleString() : "—";
+                  const docId = n.doctorId || n.selectedDoctorId || "";
+                  const docName = n.selectedDoctorName || (docId && dbState.doctors?.[docId]?.fullNameBn) || "";
+                  const actionUrl = n.actionUrl || n.updateUrl || "";
+                  const updateMode = n.updateMode || "";
+                  const version = n.version || "";
+                  const hasCounts = typeof n.totalRecipients === "number" && n.totalRecipients > 0;
+
+                  let targetHtml = `<span class="text-slate-400">In-App Dialog (Once)</span>`;
+                  if (tMeta.code === "NEW_DOCTOR") {
+                    targetHtml = `
+                      <div class="font-semibold text-emerald-800">${esc(docName || "Doctor Profile")}</div>
+                      <div class="text-[10px] font-mono text-slate-500">ID: ${esc(docId || "—")}</div>
+                    `;
+                  } else if (tMeta.code === "APP_UPDATE") {
+                    targetHtml = `
+                      <div class="font-semibold text-sky-800">Mode: ${esc(updateMode || "FLEXIBLE")}${version ? ` • v${esc(version)}` : ""}</div>
+                      <div class="text-[10px] text-slate-500 break-all">${actionUrl ? esc(actionUrl) : "Google Play In-App Updates API"}</div>
+                    `;
+                  }
+
+                  return `
+                    <tr class="hover:bg-slate-50/70 align-top">
+                      <td class="py-3 px-3 font-semibold text-slate-400">${idx + 1}</td>
+                      <td class="py-3 px-3 max-w-xs">
+                        <div class="font-bold text-slate-900">${esc(titleText)}</div>
+                        ${bodyText ? `<div class="text-[11px] text-slate-500 mt-0.5 line-clamp-2">${esc(bodyText)}</div>` : ""}
+                        ${n.imageUrl ? `<span class="inline-block mt-1 px-1.5 py-0.5 rounded bg-slate-100 text-[10px] text-slate-600">Has Image</span>` : ""}
+                      </td>
+                      <td class="py-3 px-3 whitespace-nowrap">
+                        <span class="px-2.5 py-1 rounded-full text-[11px] font-bold border ${tMeta.badgeCls}">${esc(tMeta.label)}</span>
+                      </td>
+                      <td class="py-3 px-3 whitespace-nowrap font-semibold text-slate-700">All App Users</td>
+                      <td class="py-3 px-3 max-w-xs">${targetHtml}</td>
+                      <td class="py-3 px-3 whitespace-nowrap text-slate-600">${esc(createdStr)}</td>
+                      <td class="py-3 px-3 whitespace-nowrap">
+                        <span class="px-2.5 py-1 rounded-full text-[10px] font-bold border ${sBadge.cls}">${esc(sBadge.label)}</span>
+                        ${hasCounts ? `<div class="text-[10px] text-slate-500 mt-1">${n.successCount || 0} / ${n.totalRecipients} sent${n.failureCount ? ` (${n.failureCount} failed)` : ""}</div>` : ""}
+                      </td>
+                      <td class="py-3 px-3 text-right whitespace-nowrap">
+                        <button type="button" onclick="deleteNotificationRecord('${esc(String(id).replace(/[^a-zA-Z0-9_-]/g, ""))}')"
+                          class="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold">Delete</button>
+                      </td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        `}
+      </div>
+    </div>
+
+    ${st.showConfirmModal ? `
+      <div class="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h4 class="text-base font-extrabold text-slate-900">Confirm Broadcast Notification</h4>
+              <p class="text-sm text-slate-700 mt-1">Are you sure you want to send this notification to all Doctor List BD users?</p>
+            </div>
+          </div>
+
+          <div class="rounded-xl bg-slate-50 border border-slate-200 p-3.5 text-xs space-y-1.5">
+            <div><span class="text-slate-500">Recipient:</span> <strong class="text-slate-900">All App Users</strong></div>
+            <div><span class="text-slate-500">Type:</span> <strong class="text-slate-900">${esc(getNotifTypeMeta(st.type).label)}</strong></div>
+            <div><span class="text-slate-500">Title:</span> <strong class="text-slate-900">${esc(st.title.trim())}</strong></div>
+            ${st.type === "NEW_DOCTOR" && selectedDocObj ? `
+              <div><span class="text-slate-500">Target Doctor:</span> <strong class="text-emerald-800">${esc(selectedDocObj.displayName)} (${esc(selectedDocObj.id)})</strong></div>
+            ` : ""}
+            ${st.type === "APP_UPDATE" ? `
+              <div><span class="text-slate-500">Update Action:</span> <strong class="text-sky-800">${st.actionUrl.trim() ? esc(st.actionUrl.trim()) : `Google Play In-App Update (${esc(st.updateMode)})`}</strong></div>
+            ` : ""}
+          </div>
+
+          ${!window.__dlbdAdminProof ? `
+            <div class="p-3 rounded-xl bg-amber-50 border border-amber-200 space-y-2">
+              <label for="nf_confirmAdminPass" class="block text-xs font-bold text-amber-900">Re-enter Admin Password to Authorize Push Dispatch</label>
+              <input id="nf_confirmAdminPass" type="password" placeholder="Enter your Admin password" class="input bg-white text-xs" />
+            </div>
+          ` : ""}
+
+          <div id="nf_confirmError" class="hidden text-xs font-semibold text-rose-600"></div>
+
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="closeNotifConfirmModal()" ${st.sending ? "disabled" : ""}
+              class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold">
+              Cancel
+            </button>
+            <button type="button" onclick="confirmAndSendBroadcastNotification()" ${st.sending ? "disabled" : ""}
+              class="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-60 text-white text-sm font-bold">
+              ${st.sending ? "Sending..." : "Confirm & Send"}
+            </button>
+          </div>
+        </div>
+      </div>
+    ` : ""}
+  `;
 }
 
 // --- SETTINGS, SECURITY & CSV ---
