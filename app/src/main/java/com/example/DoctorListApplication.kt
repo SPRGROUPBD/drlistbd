@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.notifications.PushNotificationManager
 import com.example.ui.ads.ConnectivityMonitor
 import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
 
 /** Application entry point for Doctor List BD. Custom Direct Sponsor Ads are managed by Firebase. */
 class DoctorListApplication : Application() {
@@ -19,8 +20,10 @@ class DoctorListApplication : Application() {
         }
         runCatching {
             PushNotificationManager.ensureNotificationChannel(this)
+            FirebaseMessaging.getInstance().isAutoInitEnabled = true
+            PushNotificationManager.syncCurrentFcmToken(this)
         }.onFailure { err ->
-            Log.w("DoctorListApp", "Notification channel init warning: ${err.message}")
+            Log.w("DoctorListApp", "Notification channel / FCM init warning: ${err.message}")
         }
         runCatching {
             ConnectivityMonitor.start(this)

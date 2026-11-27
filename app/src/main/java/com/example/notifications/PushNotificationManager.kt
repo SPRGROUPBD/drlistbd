@@ -1,6 +1,7 @@
 package com.example.notifications
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -103,6 +104,8 @@ object PushNotificationManager {
             description = "General announcements, app updates, and newly added doctors from Doctor List BD."
             enableLights(true)
             enableVibration(true)
+            setShowBadge(true)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
         manager.createNotificationChannel(channel)
     }
@@ -310,9 +313,13 @@ object PushNotificationManager {
             try {
                 if (FirebaseApp.getApps(appCtx).isEmpty()) return@launch
                 val messaging = FirebaseMessaging.getInstance()
+                messaging.isAutoInitEnabled = true
                 runCatching { messaging.subscribeToTopic(TOPIC_ALL_USERS).await() }
+                    .onSuccess { Log.i(TAG, "Subscribed to FCM topic: $TOPIC_ALL_USERS") }
+                    .onFailure { err -> Log.w(TAG, "Topic subscribe warning: ${err.message}") }
                 val token = runCatching { messaging.token.await() }.getOrNull().orEmpty().trim()
                 if (token.length >= 20) {
+                    Log.i(TAG, "FCM Registration Token: $token")
                     registerTokenInRtdb(appCtx, token, userUid)
                 }
             } catch (t: Throwable) {
@@ -325,7 +332,9 @@ object PushNotificationManager {
         val appCtx = context.applicationContext
         val clean = newToken.trim()
         if (clean.length < 20) return
+        Log.i(TAG, "FCM Token refreshed: $clean")
         ioScope.launch {
+            runCatching { FirebaseMessaging.getInstance().subscribeToTopic(TOPIC_ALL_USERS).await() }
             registerTokenInRtdb(appCtx, clean, GoogleAuthManager.currentUser.value?.uid)
         }
     }
@@ -431,10 +440,14 @@ object PushNotificationManager {
         } else null
 
         val builder = NotificationCompat.Builder(appCtx, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ContextCompat.getColor(appCtx, R.color.notification_accent))
             .setContentTitle(safeTitle)
             .setContentText(safeMsg)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
 
@@ -450,7 +463,7 @@ object PushNotificationManager {
         }
 
         try {
-            NotificationManagerCompat.from(appCtx).notify(notificationId.hashCode(), builder.build())
+            NotificationManagerCompat.from(appCtx).notify(notificationId, 0, builder.build())
         } catch (se: SecurityException) {
             Log.w(TAG, "Notification permission missing: ${se.message}")
         }

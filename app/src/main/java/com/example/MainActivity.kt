@@ -141,14 +141,17 @@ class MainActivity : ComponentActivity() {
         if (intent == null) return
         val notifId = intent.getStringExtra(PushNotificationManager.EXTRA_NOTIFICATION_ID).orEmpty().trim()
             .ifBlank { intent.getStringExtra("notificationId").orEmpty().trim() }
+            .ifBlank { intent.getStringExtra("google.message_id").orEmpty().trim() }
         val rawType = intent.getStringExtra(PushNotificationManager.EXTRA_MESSAGE_TYPE).orEmpty().trim()
             .ifBlank { intent.getStringExtra("type").orEmpty().trim() }
             .ifBlank { intent.getStringExtra("messageType").orEmpty().trim() }
         val title = intent.getStringExtra(PushNotificationManager.EXTRA_TITLE).orEmpty().trim()
             .ifBlank { intent.getStringExtra("title").orEmpty().trim() }
+            .ifBlank { intent.getStringExtra("gcm.notification.title").orEmpty().trim() }
         val body = intent.getStringExtra(PushNotificationManager.EXTRA_BODY).orEmpty().trim()
             .ifBlank { intent.getStringExtra("body").orEmpty().trim() }
             .ifBlank { intent.getStringExtra("message").orEmpty().trim() }
+            .ifBlank { intent.getStringExtra("gcm.notification.body").orEmpty().trim() }
         val imageUrl = PushNotificationManager.sanitizeHttpUrl(
             intent.getStringExtra(PushNotificationManager.EXTRA_IMAGE_URL).orEmpty().trim()
                 .ifBlank { intent.getStringExtra("imageUrl").orEmpty().trim() }
@@ -177,7 +180,9 @@ class MainActivity : ComponentActivity() {
             rawType.isNotBlank() ||
             docId.isNotBlank() ||
             actionUrl.isNotBlank() ||
-            deepLink.isNotBlank()
+            deepLink.isNotBlank() ||
+            title.isNotBlank() ||
+            body.isNotBlank()
 
         if (hasPushPayload) {
             val resolvedType = when {

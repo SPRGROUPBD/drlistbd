@@ -408,6 +408,52 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
     .footer-bottom { border-top: 1px solid rgba(255, 255, 255, 0.1); padding: 16px 0; font-size: 12.5px; color: #94a3b8; }
     .footer-bottom-inner { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
     .footer-disclaimer { color: #6ee7b7; }
+    .footer-right-col { display: flex; flex-direction: column; gap: 16px; }
+    .footer-visitor-box {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: 14px;
+      padding: 13px;
+    }
+    .footer-visitor-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      font-size: 12.5px; font-weight: 800; color: #f8fafc; margin-bottom: 10px;
+    }
+    .live-dot-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 700; color: #6ee7b7;
+      background: rgba(16, 185, 129, 0.16); border: 1px solid rgba(16, 185, 129, 0.35);
+      padding: 2px 8px; border-radius: 999px;
+    }
+    .live-dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #10b981;
+      box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.28);
+      animation: pulseLive 1.8s infinite;
+    }
+    @keyframes pulseLive { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.55; transform: scale(1.2); } }
+    .footer-visitor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .footer-vstat {
+      background: rgba(15, 23, 42, 0.52);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 10px;
+      padding: 8px 10px;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .footer-vstat-lbl { font-size: 11px; color: #94a3b8; font-weight: 600; line-height: 1.25; }
+    .footer-vstat-val { font-size: 16px; font-weight: 800; color: #ffffff; line-height: 1.2; }
+    .footer-vstat.online .footer-vstat-val { color: #34d399; }
+    .footer-app-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+      width: 100%; padding: 11px 14px; border-radius: 12px; text-decoration: none;
+      background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+      color: #ffffff; font-weight: 700; box-shadow: 0 8px 20px rgba(5, 150, 105, 0.28);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      transition: transform 0.15s, filter 0.16s;
+    }
+    .footer-app-btn:hover { filter: brightness(1.07); transform: translateY(-1px); }
+    .footer-app-btn-text { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2; }
+    .footer-app-btn-text small { font-size: 10.5px; font-weight: 600; opacity: 0.92; }
+    .footer-app-btn-text strong { font-size: 13.5px; font-weight: 800; color: #ffffff; }
     .site-toast { position: fixed; right: 18px; bottom: 18px; z-index: 100; background: var(--blue-950); color: var(--white); padding: 12px 18px; border-radius: 12px; font-size: 13.5px; font-weight: 600; box-shadow: var(--shadow-lg); }
 
     /* MOBILE & DESKTOP RESPONSIVE */
@@ -468,7 +514,7 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
       .hero-form-grid { grid-template-columns: 1.6fr 1fr 1fr 1fr auto; }
       .filter-grid { grid-template-columns: 1.5fr repeat(4, 1fr) auto; }
       .detail-grid { grid-template-columns: 2fr 1fr; align-items: start; }
-      .footer-grid { grid-template-columns: 1.6fr 1fr 1fr 1.1fr; }
+      .footer-grid { grid-template-columns: 1.35fr 0.85fr 0.9fr 1.4fr; }
     }
     @media (min-width: 1140px) {
       .spec-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
@@ -664,13 +710,40 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
           <li><a href="#/terms" data-nav="/terms" data-i18n="nav_terms">Terms of Service</a></li>
         </ul>
       </div>
-      <div>
-        <h3 class="footer-heading" data-i18n="footer_contact">যোগাযোগ</h3>
-        <ul class="footer-contact-list" id="footerContactList">
-          <li id="footerPhone" class="hidden"></li>
-          <li id="footerEmail" class="hidden"></li>
-          <li data-i18n="footer_country">বাংলাদেশ (৬৪ জেলা)</li>
-        </ul>
+      <div class="footer-right-col">
+        <div class="footer-visitor-box" aria-label="Live Visitor Counter">
+          <div class="footer-visitor-head">
+            <span data-i18n="vc_title">ভিজিটর পরিসংখ্যান</span>
+            <span class="live-dot-badge"><span class="live-dot"></span><span data-i18n="vc_live">লাইভ</span></span>
+          </div>
+          <div class="footer-visitor-grid">
+            <div class="footer-vstat online">
+              <span class="footer-vstat-lbl" data-i18n="vc_online">পেজ অনলাইন</span>
+              <span class="footer-vstat-val" id="vcOnline">1</span>
+            </div>
+            <div class="footer-vstat">
+              <span class="footer-vstat-lbl" data-i18n="vc_today">আজকের ভিজিটর</span>
+              <span class="footer-vstat-val" id="vcToday">0</span>
+            </div>
+            <div class="footer-vstat">
+              <span class="footer-vstat-lbl" data-i18n="vc_month">এই মাসের ভিজিটর</span>
+              <span class="footer-vstat-val" id="vcMonth">0</span>
+            </div>
+            <div class="footer-vstat">
+              <span class="footer-vstat-lbl" data-i18n="vc_all_time">সর্বমোট ভিজিটর</span>
+              <span class="footer-vstat-val" id="vcAllTime">0</span>
+            </div>
+          </div>
+        </div>
+        <a id="footerAppDownloadBtn" class="footer-app-btn" href="https://play.google.com/store/apps/details?id=com.doctorlist.bd" target="_blank" rel="noopener noreferrer" aria-label="Download Doctor List BD Android App">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M3.61 1.814L13.793 12 3.61 22.186a1.48 1.48 0 0 1-.61-1.2V3.014c0-.49.24-.926.61-1.2zm11.24 11.24l2.74 2.74-10.91 6.23 8.17-8.97zm3.74-3.74l2.63 1.5c.77.44.77 1.55 0 1.99l-2.63 1.5-2.99-2.99 2.99-2.0zm-11.91-7.34l10.91 6.23-2.74 2.74-8.17-8.97z" />
+          </svg>
+          <span class="footer-app-btn-text">
+            <small data-i18n="footer_app_sub">অ্যান্ড্রয়েড অ্যাপ</small>
+            <strong data-i18n="footer_app_btn">অ্যাপ ডাউনলোড করুন</strong>
+          </span>
+        </a>
       </div>
     </div>
     <div class="footer-bottom">
@@ -698,7 +771,7 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
     // 1. FIREBASE MODULAR SDK CONFIG (Linked with existing Google JSON: octor-aad88)
     // =========================================================================
     import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
-    import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-database.js";
+    import { getDatabase, ref, onValue, set, remove, onDisconnect, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-database.js";
 
     const DEFAULT_FIREBASE_CONFIG = {
       apiKey: "AIzaSyCfOJu1lzqyJmqmtiJiCGehSQ7Jr89FYPE",
@@ -864,6 +937,14 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
         footer_country: "বাংলাদেশ (৬৪ জেলা)",
         footer_rights: "সর্বস্বত্ব সংরক্ষিত।",
         footer_disclaimer: "জরুরি চিকিৎসা সেবায় নিকটস্থ হাসপাতালের জরুরি বিভাগে যোগাযোগ করুন।",
+        vc_title: "ভিজিটর পরিসংখ্যান",
+        vc_live: "লাইভ",
+        vc_online: "পেজ অনলাইন",
+        vc_today: "আজকের ভিজিটর",
+        vc_month: "এই মাসের ভিজিটর",
+        vc_all_time: "সর্বমোট ভিজিটর",
+        footer_app_sub: "গুগল প্লে / অ্যান্ড্রয়েড অ্যাপ",
+        footer_app_btn: "অ্যাপ ডাউনলোড করুন",
         prev_page: "পূর্ববর্তী",
         next_page: "পরবর্তী",
         about_title: "আমাদের সম্পর্কে — Doctor List BD",
@@ -1008,6 +1089,14 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
         footer_country: "Bangladesh (64 Districts)",
         footer_rights: "All rights reserved.",
         footer_disclaimer: "In case of a medical emergency, please contact your nearest hospital emergency department.",
+        vc_title: "Visitor Counter",
+        vc_live: "Live",
+        vc_online: "Page Online",
+        vc_today: "Today Visitors",
+        vc_month: "Month Visitors",
+        vc_all_time: "All-Time Visitors",
+        footer_app_sub: "Android Mobile App",
+        footer_app_btn: "Download App",
         prev_page: "Previous",
         next_page: "Next",
         about_title: "About Doctor List BD",
@@ -1224,25 +1313,100 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
       return candidate;
     }
 
+    const DAY_META = [
+      { idx: 0, en: "Saturday", bn: "শনিবার", aliases: ["saturday", "sat", "শনিবার", "শনি"] },
+      { idx: 1, en: "Sunday", bn: "রবিবার", aliases: ["sunday", "sun", "রবিবার", "রবি"] },
+      { idx: 2, en: "Monday", bn: "সোমবার", aliases: ["monday", "mon", "সোমবার", "সোম"] },
+      { idx: 3, en: "Tuesday", bn: "মঙ্গলবার", aliases: ["tuesday", "tue", "tues", "মঙ্গলবার", "মঙ্গল"] },
+      { idx: 4, en: "Wednesday", bn: "বুধবার", aliases: ["wednesday", "wed", "বুধবার", "বুধ"] },
+      { idx: 5, en: "Thursday", bn: "বৃহস্পতিবার", aliases: ["thursday", "thu", "thur", "thurs", "বৃহস্পতিবার", "বৃহঃ"] },
+      { idx: 6, en: "Friday", bn: "শুক্রবার", aliases: ["friday", "fri", "শুক্রবার", "শুক্র"] }
+    ];
+
+    function getDayOrderIndex(day) {
+      const key = String(day || "").trim().toLowerCase();
+      const found = DAY_META.find((d) => d.aliases.includes(key));
+      return found ? found.idx : 99;
+    }
+
+    function formatScheduleDay(day, lang) {
+      const raw = String(day || "").trim();
+      if (!raw) return "-";
+      const found = DAY_META.find((d) => d.aliases.includes(raw.toLowerCase()));
+      if (!found) return raw;
+      return lang === "bn" ? found.bn : found.en;
+    }
+
+    function timeToSortMinutes(tStr) {
+      const s = String(tStr || "").trim().toUpperCase();
+      const m = s.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/);
+      if (!m) return 9999;
+      let h = Number(m[1]), min = Number(m[2]);
+      if (m[3] === "PM" && h < 12) h += 12;
+      if (m[3] === "AM" && h === 12) h = 0;
+      return h * 60 + min;
+    }
+
+    function normalizeScheduleEntry(s, fallbackId = "") {
+      if (!s || typeof s !== "object") return null;
+      const openTime = String(s.openTime || s.startTime || s.open_time || s.fromTime || "").trim();
+      const closeTime = String(s.closeTime || s.endTime || s.close_time || s.toTime || "").trim();
+      const timeRange = String(s.timeRange || s.time || s.visitingTime || s.hours || "").trim();
+      const slotLabel = String(s.slotLabel || s.session || s.label || "").trim();
+      const dayOfWeek = String(s.dayOfWeek || s.day || s.weekday || "").trim();
+      if (!dayOfWeek && !openTime && !closeTime && !timeRange && !slotLabel) return null;
+      return {
+        id: String(s.id || fallbackId || ""),
+        chamberId: String(s.chamberId || s.chamber_id || "").trim(),
+        doctorId: String(s.doctorId || s.doctor_id || "").trim(),
+        dayOfWeek,
+        openTime,
+        closeTime,
+        timeRange,
+        slotLabel
+      };
+    }
+
+    function formatScheduleTimeText(sc) {
+      if (!sc) return "-";
+      const range = [sc.openTime, sc.closeTime].filter(Boolean).join(" – ") || sc.timeRange || "";
+      if (range) return range;
+      return sc.slotLabel || "-";
+    }
+
+    function formatScheduleSessionTag(sc, lang) {
+      const lbl = String(sc?.slotLabel || "").trim();
+      if (!lbl) return "";
+      const range = [sc.openTime, sc.closeTime].filter(Boolean).join(" – ") || sc.timeRange || "";
+      if (!range || lbl.toLowerCase() === range.toLowerCase()) return "";
+      if (lang === "bn") {
+        const low = lbl.toLowerCase();
+        if (low === "morning") return "সকাল";
+        if (low === "afternoon") return "বিকাল";
+        if (low === "evening") return "সন্ধ্যা";
+        if (low === "night") return "রাত";
+      }
+      return lbl;
+    }
+
+    function sortScheduleItems(arr) {
+      return arr.sort((a, b) => {
+        const dDiff = getDayOrderIndex(a.dayOfWeek) - getDayOrderIndex(b.dayOfWeek);
+        if (dDiff !== 0) return dDiff;
+        return timeToSortMinutes(a.openTime || a.timeRange) - timeToSortMinutes(b.openTime || b.timeRange);
+      });
+    }
+
     function normalizeSchedules(rawSchedules) {
       const byChamber = new Map(), byDoctor = new Map();
       for (const [id, s] of toEntries(rawSchedules)) {
-        const item = {
-          id,
-          chamberId: String(s.chamberId || ""),
-          doctorId: String(s.doctorId || ""),
-          dayOfWeek: String(s.dayOfWeek || s.day || "").trim(),
-          openTime: String(s.openTime || s.startTime || "").trim(),
-          closeTime: String(s.closeTime || s.endTime || "").trim(),
-          slotLabel: String(s.slotLabel || s.timeRange || "").trim()
-        };
-        if (!item.dayOfWeek && !item.slotLabel && !item.openTime) continue;
+        const item = normalizeScheduleEntry(s, id);
+        if (!item) continue;
         if (item.chamberId) { if (!byChamber.has(item.chamberId)) byChamber.set(item.chamberId, []); byChamber.get(item.chamberId).push(item); }
         if (item.doctorId) { if (!byDoctor.has(item.doctorId)) byDoctor.set(item.doctorId, []); byDoctor.get(item.doctorId).push(item); }
       }
-      const sortFn = (a, b) => (DAY_ORDER.indexOf(a.dayOfWeek) === -1 ? 99 : DAY_ORDER.indexOf(a.dayOfWeek)) - (DAY_ORDER.indexOf(b.dayOfWeek) === -1 ? 99 : DAY_ORDER.indexOf(b.dayOfWeek));
-      for (const arr of byChamber.values()) arr.sort(sortFn);
-      for (const arr of byDoctor.values()) arr.sort(sortFn);
+      for (const arr of byChamber.values()) sortScheduleItems(arr);
+      for (const arr of byDoctor.values()) sortScheduleItems(arr);
       return { byChamber, byDoctor };
     }
 
@@ -1253,6 +1417,9 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
         const doctorId = String(c.doctorId || "").trim();
         if (!doctorId) continue;
         const district = String(c.district || "").trim();
+        const linkedSchedules = scheduleMaps.byChamber.get(id) || [];
+        const rawEmbedded = Array.isArray(c.schedules) ? c.schedules : toEntries(c.schedules).map(([, v]) => v);
+        const embeddedSchedules = sortScheduleItems(rawEmbedded.map((s, idx) => normalizeScheduleEntry(s, `${id}_${idx}`)).filter(Boolean));
         const chamber = {
           id, doctorId,
           facilityName: String(c.facilityName || c.hospitalName || c.chamberName || "").trim(),
@@ -1268,7 +1435,7 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
           visitingDays: String(c.visitingDays || "").trim(),
           visitingHours: String(c.visitingHours || c.visitingTime || "").trim(),
           instructions: String(c.instructions || c.notes || "").trim(),
-          schedules: scheduleMaps.byChamber.get(id) || []
+          schedules: linkedSchedules.length ? linkedSchedules : embeddedSchedules
         };
         if (!byDoctor.has(doctorId)) byDoctor.set(doctorId, []);
         byDoctor.get(doctorId).push(chamber);
@@ -1281,12 +1448,7 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
       return toEntries(rawDoctor.chambers).filter(([, c]) => isRecordActive(c)).map(([cid, c]) => {
         const district = String(c.district || rawDoctor.district || "").trim();
         const rawSched = Array.isArray(c.schedules) ? c.schedules : toEntries(c.schedules).map(([, v]) => v);
-        const schedules = rawSched.filter((s) => s && typeof s === "object").map((s) => ({
-          dayOfWeek: String(s.dayOfWeek || s.day || "").trim(),
-          openTime: String(s.openTime || s.startTime || "").trim(),
-          closeTime: String(s.closeTime || s.endTime || "").trim(),
-          slotLabel: String(s.slotLabel || s.timeRange || "").trim()
-        })).filter((s) => s.dayOfWeek || s.slotLabel || s.openTime);
+        const schedules = sortScheduleItems(rawSched.map((s, idx) => normalizeScheduleEntry(s, `${cid}_${idx}`)).filter(Boolean));
         return {
           id: cid, doctorId,
           facilityName: String(c.facilityName || c.hospitalName || c.chamberName || "").trim(),
@@ -1309,12 +1471,12 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
 
     function summarizeVisitingHours(chambers) {
       for (const ch of chambers) {
-        if (ch.visitingHours) return ch.visitingDays ? `${ch.visitingDays} (${ch.visitingHours})` : ch.visitingHours;
         if (ch.schedules && ch.schedules.length) {
           const first = ch.schedules[0];
-          const time = first.slotLabel || [first.openTime, first.closeTime].filter(Boolean).join(" - ");
-          if (time) return first.dayOfWeek ? `${first.dayOfWeek}: ${time}` : time;
+          const time = formatScheduleTimeText(first);
+          if (time && time !== "-") return first.dayOfWeek ? `${first.dayOfWeek}: ${time}` : time;
         }
+        if (ch.visitingHours) return ch.visitingDays ? `${ch.visitingDays} (${ch.visitingHours})` : ch.visitingHours;
       }
       return "";
     }
@@ -1354,7 +1516,11 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
         const externalChambers = chambersByDoctor.get(id) || [];
         const embeddedChambers = extractEmbeddedChambers(d, id);
         let chambers = externalChambers.length ? externalChambers : embeddedChambers;
-        if (!chambers.length && (d.chamberAddress || d.address || d.currentHospital || d.hospitalName || d.district)) {
+        const docFallbackSchedules = scheduleMaps.byDoctor.get(id) || [];
+        if (chambers.length === 1 && (!chambers[0].schedules || !chambers[0].schedules.length) && docFallbackSchedules.length) {
+          chambers = [{ ...chambers[0], schedules: docFallbackSchedules }];
+        }
+        if (!chambers.length && (d.chamberAddress || d.address || d.currentHospital || d.hospitalName || d.district || docFallbackSchedules.length)) {
           const dist = String(d.district || "").trim();
           chambers = [{
             id: `${id}_primary`, doctorId: id,
@@ -1369,7 +1535,7 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
             visitingDays: String(d.visitingDays || "").trim(),
             visitingHours: String(d.visitingHours || d.visitingSchedule || "").trim(),
             instructions: String(d.instructions || "").trim(),
-            schedules: scheduleMaps.byDoctor.get(id) || []
+            schedules: docFallbackSchedules
           }];
         }
 
@@ -2214,11 +2380,22 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
         const sched = [];
         if (ch.schedules && ch.schedules.length) {
           sched.push(el("div", {}, [
-            el("div", { style: "font-size:12.5px;font-weight:700;color:#0a2e6e;margin-bottom:4px;", text: t(lang, "lbl_visiting_schedule") }),
-            el("div", { className: "schedule-grid" }, ch.schedules.map((sc) => el("div", { className: "schedule-pill" }, [
-              el("strong", { text: sc.dayOfWeek || "-" }),
-              el("span", { text: sc.slotLabel || [sc.openTime, sc.closeTime].filter(Boolean).join(" – ") || "-" })
-            ])))
+            el("div", { style: "font-size:12.5px;font-weight:700;color:#0a2e6e;margin-bottom:6px;display:flex;align-items:center;gap:6px;" }, [
+              svgIcon(ICONS.clock, 15),
+              el("span", { text: t(lang, "lbl_visiting_schedule") })
+            ]),
+            el("div", { className: "schedule-grid" }, ch.schedules.map((sc) => {
+              const dayLabel = formatScheduleDay(sc.dayOfWeek, lang);
+              const timeText = formatScheduleTimeText(sc);
+              const sessionTag = formatScheduleSessionTag(sc, lang);
+              return el("div", { className: "schedule-pill" }, [
+                el("div", { style: "display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:2px;" }, [
+                  el("strong", { text: dayLabel }),
+                  sessionTag ? el("small", { style: "font-size:10.5px;font-weight:700;color:#0b5ed7;background:#e7f1ff;padding:1px 7px;border-radius:999px;", text: sessionTag }) : null
+                ]),
+                el("span", { text: timeText })
+              ]);
+            }))
           ]));
         } else if (ch.visitingDays || ch.visitingHours) {
           sched.push(el("div", { className: "doc-meta-row" }, [svgIcon(ICONS.clock, 16), el("span", { text: `${t(lang, "lbl_visiting_schedule")}: ${[ch.visitingDays, ch.visitingHours].filter(Boolean).join(" • ")}` })]));
@@ -2586,6 +2763,12 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
       const email = String(settings.contactEmail || settings.supportEmail || "").trim();
       if (fp) { fp.textContent = phone ? `${t(currentLang, "lbl_phone")}: ${phone}` : ""; fp.classList.toggle("hidden", !phone); }
       if (fe) { fe.textContent = email ? `Email: ${email}` : ""; fe.classList.toggle("hidden", !email); }
+      const appBtn = document.getElementById("footerAppDownloadBtn");
+      if (appBtn) {
+        const customUrl = safeHttpUrl(settings.appDownloadUrl || settings.playStoreUrl || settings.androidAppUrl || settings.updateUrl || "");
+        appBtn.setAttribute("href", customUrl || "https://play.google.com/store/apps/details?id=com.doctorlist.bd");
+      }
+      renderVisitorCounterNumbers();
     }
 
     function refreshNotificationsUI() {
@@ -2812,10 +2995,93 @@ body#layout .ad-slot-wrap { display: block !important; padding: 8px; border: 1px
       window.addEventListener("hashchange", renderCurrentRoute);
     }
 
+    const visitorCounterState = { online: 1, today: 0, month: 0, allTime: 0 };
+
+    function renderVisitorCounterNumbers() {
+      const setNum = (id, val) => {
+        const node = document.getElementById(id);
+        if (node) node.textContent = formatNumber(Math.max(0, Number(val) || 0), currentLang);
+      };
+      setNum("vcOnline", Math.max(1, visitorCounterState.online));
+      setNum("vcToday", visitorCounterState.today);
+      setNum("vcMonth", visitorCounterState.month);
+      setNum("vcAllTime", visitorCounterState.allTime);
+    }
+
+    function getBangladeshDateKeys() {
+      const bdNow = new Date(Date.now() + 6 * 60 * 60 * 1000);
+      const y = bdNow.getUTCFullYear();
+      const m = String(bdNow.getUTCMonth() + 1).padStart(2, "0");
+      const d = String(bdNow.getUTCDate()).padStart(2, "0");
+      return { todayKey: `${y}-${m}-${d}`, monthKey: `${y}-${m}` };
+    }
+
+    function initLiveVisitorCounter() {
+      try {
+        const db = getPublicDatabase();
+        const basePath = "directory/ad_analytics/web_visitors";
+        const { todayKey, monthKey } = getBangladeshDateKeys();
+        const todayRef = ref(db, `${basePath}/daily/${todayKey}`);
+        const monthRef = ref(db, `${basePath}/monthly/${monthKey}`);
+        const allTimeRef = ref(db, `${basePath}/allTime`);
+        const onlineListRef = ref(db, `${basePath}/online`);
+
+        onValue(todayRef, (snap) => {
+          visitorCounterState.today = Number(snap.val()) || 0;
+          renderVisitorCounterNumbers();
+        });
+        onValue(monthRef, (snap) => {
+          visitorCounterState.month = Number(snap.val()) || 0;
+          renderVisitorCounterNumbers();
+        });
+        onValue(allTimeRef, (snap) => {
+          visitorCounterState.allTime = Number(snap.val()) || 0;
+          renderVisitorCounterNumbers();
+        });
+        onValue(onlineListRef, (snap) => {
+          const val = snap.val();
+          const now = Date.now();
+          let active = 0;
+          if (val && typeof val === "object") {
+            for (const entry of Object.values(val)) {
+              const ts = typeof entry === "number" ? entry : Number(entry?.ts || 0);
+              if (!ts || now - ts < 15 * 60 * 1000) active += 1;
+            }
+          }
+          visitorCounterState.online = Math.max(1, active);
+          renderVisitorCounterNumbers();
+        });
+
+        const visitKey = `dlbd_web_counted_${todayKey}`;
+        let alreadyCounted = false;
+        try { alreadyCounted = sessionStorage.getItem(visitKey) === "1"; } catch {}
+        if (!alreadyCounted) {
+          try { sessionStorage.setItem(visitKey, "1"); } catch {}
+          const inc = (cur) => (Number(cur) || 0) + 1;
+          runTransaction(todayRef, inc).catch(() => {});
+          runTransaction(monthRef, inc).catch(() => {});
+          runTransaction(allTimeRef, inc).catch(() => {});
+        }
+
+        const sessionId = `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+        const presenceRef = ref(db, `${basePath}/online/${sessionId}`);
+        onValue(ref(db, ".info/connected"), (snap) => {
+          if (snap.val() !== true) return;
+          onDisconnect(presenceRef).remove().catch(() => {});
+          set(presenceRef, { ts: Date.now() }).catch(() => {});
+        });
+        const hb = setInterval(() => {
+          if (document.visibilityState === "visible") set(presenceRef, { ts: Date.now() }).catch(() => {});
+        }, 3 * 60 * 1000);
+        window.addEventListener("pagehide", () => { clearInterval(hb); remove(presenceRef).catch(() => {}); });
+      } catch {}
+    }
+
     wireEvents();
     applyChromeTranslations();
     directoryStore.subscribe(() => renderCurrentRoute());
     directoryStore.start();
+    initLiveVisitorCounter();
   
 //]]>
   </script>

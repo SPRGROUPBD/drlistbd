@@ -422,6 +422,65 @@ let scheduleBuilder = {
   listDoctorFilter: ""
 };
 
+// Live search state for all 6 Medical Directory menus
+let dirSearchState = {
+  doctors: "",
+  chambers: "",
+  hospitals: "",
+  diagnostics: "",
+  specialties: "",
+  locations: ""
+};
+
+function onDirSearchInput(key, value, inputId) {
+  dirSearchState[key] = value;
+  const activeEl = document.getElementById(inputId);
+  const selStart = activeEl && typeof activeEl.selectionStart === "number" ? activeEl.selectionStart : value.length;
+  renderTab();
+  const nextEl = document.getElementById(inputId);
+  if (nextEl) {
+    nextEl.focus();
+    try { nextEl.setSelectionRange(selStart, selStart); } catch (_) {}
+  }
+}
+
+function clearDirSearch(key, inputId) {
+  dirSearchState[key] = "";
+  renderTab();
+  const nextEl = document.getElementById(inputId);
+  if (nextEl) nextEl.focus();
+}
+
+function matchesSearchTokens(haystack, query) {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return true;
+  const text = String(haystack || "").toLowerCase();
+  const tokens = q.split(/\s+/).filter(Boolean);
+  return tokens.every(tok => text.includes(tok));
+}
+
+function renderDirSearchBar(key, placeholder, matchCount, totalCount) {
+  const inputId = `dir_search_${key}`;
+  const val = dirSearchState[key] || "";
+  return `
+    <div class="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div class="relative flex-1 min-w-[220px]">
+        <svg class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="8"></circle><path stroke-linecap="round" d="m21 21-4.35-4.35"></path>
+        </svg>
+        <input id="${inputId}" type="search" value="${esc(val)}"
+          oninput="onDirSearchInput('${key}', this.value, '${inputId}')"
+          placeholder="${esc(placeholder)}"
+          class="input pl-10 pr-9 bg-slate-50 focus:bg-white" />
+        ${val ? `<button type="button" title="Clear search" onclick="clearDirSearch('${key}', '${inputId}')" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold flex items-center justify-center">&times;</button>` : ""}
+      </div>
+      <div class="text-xs font-semibold px-3 py-1.5 rounded-full bg-sky-50 text-sky-800 border border-sky-200 whitespace-nowrap">
+        Showing ${matchCount} of ${totalCount}
+      </div>
+    </div>
+  `;
+}
+
 function to12Hour(time24) {
   if (!time24) return "";
   if (/am|pm/i.test(time24)) return time24.trim().toUpperCase();
@@ -1242,39 +1301,56 @@ function renderDoctors() {
       </form>
     </div>
 
-    <div class="space-y-3">
-      ${docs.length === 0 ? `<div class="bg-white p-8 rounded-2xl border border-slate-200 text-center text-slate-500">No doctors added yet.</div>` : docs.map(([id, item]) => {
-        const displayName = item.doctorName || item.fullNameEn || item.fullNameBn || "";
-        const displayQual = item.qualification || item.degree || item.trainings || "";
+    ${(() => {
+      const q = dirSearchState.doctors || "";
+      const filteredDocs = docs.filter(([, item]) => {
         const specObj = dbState.specialties[item.mainSpecialtyId];
-        const specLabel = specObj ? `${specObj.nameEn} (${specObj.nameBn})` : "";
-        return `
-        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
-          <div class="flex items-center gap-3 min-w-0">
-            ${item.photoUrl
-              ? `<img src="${esc(item.photoUrl)}" alt="${esc(displayName)}" class="w-12 h-12 rounded-xl object-cover border border-slate-200 flex-shrink-0 bg-slate-50" onerror="this.style.display='none'" />`
-              : `<div class="w-12 h-12 rounded-xl bg-sky-50 text-sky-700 font-bold flex items-center justify-center flex-shrink-0">Dr</div>`
-            }
-            <div class="min-w-0">
-              <div class="font-bold text-slate-900 truncate">${esc(displayName)}</div>
-              ${displayQual ? `<div class="text-xs font-semibold text-teal-700 truncate">${esc(displayQual)}</div>` : ""}
-              <div class="text-xs text-slate-600 truncate">
-                ${esc(item.currentDesignation)}${item.currentHospital ? " • " + esc(item.currentHospital) : ""}
+        const haystack = [
+          item.doctorName, item.fullNameEn, item.fullNameBn,
+          item.qualification, item.degree, item.trainings,
+          item.currentDesignation, item.currentHospital, item.institution,
+          item.subSpecialty,
+          specObj ? `${specObj.nameEn || ""} ${specObj.nameBn || ""}` : ""
+        ].join(" ");
+        return matchesSearchTokens(haystack, q);
+      });
+      return `
+        ${renderDirSearchBar("doctors", "Search doctors by name, specialty, degree, designation, or hospital...", filteredDocs.length, docs.length)}
+        <div class="space-y-3">
+          ${filteredDocs.length === 0 ? `<div class="bg-white p-8 rounded-2xl border border-slate-200 text-center text-slate-500">${docs.length === 0 ? "No doctors added yet." : `No doctors matched "${esc(q)}".`}</div>` : filteredDocs.map(([id, item]) => {
+            const displayName = item.doctorName || item.fullNameEn || item.fullNameBn || "";
+            const displayQual = item.qualification || item.degree || item.trainings || "";
+            const specObj = dbState.specialties[item.mainSpecialtyId];
+            const specLabel = specObj ? `${specObj.nameEn} (${specObj.nameBn})` : "";
+            return `
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
+              <div class="flex items-center gap-3 min-w-0">
+                ${item.photoUrl
+                  ? `<img src="${esc(item.photoUrl)}" alt="${esc(displayName)}" class="w-12 h-12 rounded-xl object-cover border border-slate-200 flex-shrink-0 bg-slate-50" onerror="this.style.display='none'" />`
+                  : `<div class="w-12 h-12 rounded-xl bg-sky-50 text-sky-700 font-bold flex items-center justify-center flex-shrink-0">Dr</div>`
+                }
+                <div class="min-w-0">
+                  <div class="font-bold text-slate-900 truncate">${esc(displayName)}</div>
+                  ${displayQual ? `<div class="text-xs font-semibold text-teal-700 truncate">${esc(displayQual)}</div>` : ""}
+                  <div class="text-xs text-slate-600 truncate">
+                    ${esc(item.currentDesignation)}${item.currentHospital ? " • " + esc(item.currentHospital) : ""}
+                  </div>
+                  <div class="flex flex-wrap gap-1.5 mt-1">
+                    ${specLabel ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-sky-50 text-sky-800 font-medium">${esc(specLabel)}</span>` : ""}
+                    ${item.subSpecialty ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">${esc(item.subSpecialty)}</span>` : ""}
+                  </div>
+                </div>
               </div>
-              <div class="flex flex-wrap gap-1.5 mt-1">
-                ${specLabel ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-sky-50 text-sky-800 font-medium">${esc(specLabel)}</span>` : ""}
-                ${item.subSpecialty ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">${esc(item.subSpecialty)}</span>` : ""}
+              <div class="flex gap-2">
+                <button onclick='editing={doctor:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab();window.scrollTo({top:0,behavior:"smooth"})' class="px-3 py-1.5 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold">Edit</button>
+                <button onclick="deleteNode('doctors','${id}')" class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 text-xs font-semibold">Delete</button>
               </div>
             </div>
-          </div>
-          <div class="flex gap-2">
-            <button onclick='editing={doctor:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab();window.scrollTo({top:0,behavior:"smooth"})' class="px-3 py-1.5 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold">Edit</button>
-            <button onclick="deleteNode('doctors','${id}')" class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 text-xs font-semibold">Delete</button>
-          </div>
+          `;
+          }).join("")}
         </div>
       `;
-      }).join("")}
-    </div>
+    })()}
   `;
 }
 
@@ -1371,9 +1447,28 @@ function renderChambers() {
     sb.chamberId = "";
   }
 
-  const visibleChambers = sb.listDoctorFilter
+  const chamberSearchQ = dirSearchState.chambers || "";
+  const doctorFilteredChambers = sb.listDoctorFilter
     ? chambers.filter(([, ch]) => ch.doctorId === sb.listDoctorFilter)
     : chambers;
+  const visibleChambers = chamberSearchQ.trim()
+    ? doctorFilteredChambers.filter(([id, ch]) => {
+        const doc = dbState.doctors[ch.doctorId];
+        const chSlotsText = schedules
+          .filter(([, s]) => s.chamberId === id)
+          .map(([, s]) => {
+            const m = DAY_META[s.dayOfWeek] || {};
+            return `${m.bn || ""} ${m.en || ""} ${s.openTime || ""} ${s.closeTime || ""} ${s.slotLabel || ""}`;
+          })
+          .join(" ");
+        const haystack = [
+          ch.facilityName, ch.chamberName, ch.fullAddress, ch.district, ch.upazila, ch.serialPhone,
+          doc ? `${doc.doctorName || ""} ${doc.fullNameEn || ""} ${doc.fullNameBn || ""}` : "",
+          chSlotsText
+        ].join(" ");
+        return matchesSearchTokens(haystack, chamberSearchQ);
+      })
+    : doctorFilteredChambers;
 
   const isEditSlot = Boolean(sb.editingSlotId);
 
@@ -1657,10 +1752,10 @@ function renderChambers() {
     </div>
 
     <!-- Weekly Calendar Overview per Doctor & Chamber -->
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
       <div>
         <h3 class="font-bold text-slate-900 text-lg">Weekly Chamber Calendar (সাপ্তাহিক ক্যালেন্ডার)</h3>
-        <p class="text-xs text-slate-500">Showing ${visibleChambers.length} chamber(s) • Click Edit or × on any slot to update</p>
+        <p class="text-xs text-slate-500">Showing ${visibleChambers.length} of ${chambers.length} chamber(s) • Click Edit or × on any slot to update</p>
       </div>
       <select onchange="scheduleBuilder.listDoctorFilter=this.value;renderTab()" class="input max-w-xs bg-white">
         <option value="">Filter List: All Doctors (${docs.length})</option>
@@ -1668,10 +1763,12 @@ function renderChambers() {
       </select>
     </div>
 
+    ${renderDirSearchBar("chambers", "Search chambers by doctor, hospital, chamber name, district, upazila, phone, or day/time...", visibleChambers.length, doctorFilteredChambers.length)}
+
     <div class="space-y-5">
       ${visibleChambers.length === 0 ? `
         <div class="bg-white p-8 rounded-2xl border border-slate-200 text-center text-slate-500 text-sm">
-          No chambers found. Add a chamber above to configure its weekly calendar.
+          ${chambers.length === 0 ? "No chambers found. Add a chamber above to configure its weekly calendar." : "No chambers matched your search/filter."}
         </div>
       ` : visibleChambers.map(([id, ch]) => {
         const doc = dbState.doctors[ch.doctorId];
@@ -2067,20 +2164,30 @@ function renderHospitals() {
         </div>
       </form>
     </div>
-    <div class="space-y-2.5">
-      ${Object.entries(dbState.hospitals).map(([id, item]) => `
-        <div class="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center">
-          <div>
-            <div class="font-bold">${esc(item.nameBn)} (${esc(item.nameEn)})</div>
-            <div class="text-xs text-slate-500">${esc(item.address)}, ${esc(item.district)} • ${esc(item.contactNumber)}</div>
-          </div>
-          <div class="flex gap-2">
-            <button onclick='editing={hospital:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs">Edit</button>
-            <button onclick="deleteNode('hospitals','${id}')" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs">Delete</button>
-          </div>
+    ${(() => {
+      const allHospitals = Object.entries(dbState.hospitals);
+      const q = dirSearchState.hospitals || "";
+      const filteredHospitals = allHospitals.filter(([, item]) =>
+        matchesSearchTokens(`${item.nameBn || ""} ${item.nameEn || ""} ${item.district || ""} ${item.upazila || ""} ${item.address || ""} ${item.contactNumber || ""}`, q)
+      );
+      return `
+        ${renderDirSearchBar("hospitals", "Search hospitals by name (Bangla/English), district, upazila, address, or phone...", filteredHospitals.length, allHospitals.length)}
+        <div class="space-y-2.5">
+          ${filteredHospitals.length === 0 ? `<div class="bg-white p-8 rounded-2xl border border-slate-200 text-center text-slate-500 text-sm">${allHospitals.length === 0 ? "No hospitals added yet." : `No hospitals matched "${esc(q)}".`}</div>` : filteredHospitals.map(([id, item]) => `
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center gap-3">
+              <div>
+                <div class="font-bold">${esc(item.nameBn)} (${esc(item.nameEn)})</div>
+                <div class="text-xs text-slate-500">${esc(item.address)}${item.upazila ? ", " + esc(item.upazila) : ""}, ${esc(item.district)}${item.contactNumber ? " • " + esc(item.contactNumber) : ""}</div>
+              </div>
+              <div class="flex gap-2 flex-shrink-0">
+                <button onclick='editing={hospital:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs">Edit</button>
+                <button onclick="deleteNode('hospitals','${id}')" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs">Delete</button>
+              </div>
+            </div>
+          `).join("")}
         </div>
-      `).join("")}
-    </div>
+      `;
+    })()}
   `;
 }
 
@@ -2105,20 +2212,30 @@ function renderDiagnostics() {
         </div>
       </form>
     </div>
-    <div class="space-y-2.5">
-      ${Object.entries(dbState.diagnostic_centers).map(([id, item]) => `
-        <div class="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center">
-          <div>
-            <div class="font-bold">${esc(item.nameBn)} (${esc(item.nameEn)})</div>
-            <div class="text-xs text-slate-500">${esc(item.address)}, ${esc(item.district)} • ${esc(item.contactNumber)}</div>
-          </div>
-          <div class="flex gap-2">
-            <button onclick='editing={diag:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs">Edit</button>
-            <button onclick="deleteNode('diagnostic_centers','${id}')" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs">Delete</button>
-          </div>
+    ${(() => {
+      const allDiags = Object.entries(dbState.diagnostic_centers);
+      const q = dirSearchState.diagnostics || "";
+      const filteredDiags = allDiags.filter(([, item]) =>
+        matchesSearchTokens(`${item.nameBn || ""} ${item.nameEn || ""} ${item.district || ""} ${item.upazila || ""} ${item.address || ""} ${item.contactNumber || ""}`, q)
+      );
+      return `
+        ${renderDirSearchBar("diagnostics", "Search diagnostic centers by name (Bangla/English), district, upazila, address, or phone...", filteredDiags.length, allDiags.length)}
+        <div class="space-y-2.5">
+          ${filteredDiags.length === 0 ? `<div class="bg-white p-8 rounded-2xl border border-slate-200 text-center text-slate-500 text-sm">${allDiags.length === 0 ? "No diagnostic centers added yet." : `No diagnostic centers matched "${esc(q)}".`}</div>` : filteredDiags.map(([id, item]) => `
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center gap-3">
+              <div>
+                <div class="font-bold">${esc(item.nameBn)} (${esc(item.nameEn)})</div>
+                <div class="text-xs text-slate-500">${esc(item.address)}${item.upazila ? ", " + esc(item.upazila) : ""}, ${esc(item.district)}${item.contactNumber ? " • " + esc(item.contactNumber) : ""}</div>
+              </div>
+              <div class="flex gap-2 flex-shrink-0">
+                <button onclick='editing={diag:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs">Edit</button>
+                <button onclick="deleteNode('diagnostic_centers','${id}')" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs">Delete</button>
+              </div>
+            </div>
+          `).join("")}
         </div>
-      `).join("")}
-    </div>
+      `;
+    })()}
   `;
 }
 
@@ -2172,23 +2289,33 @@ function renderSpecialties() {
         </div>
       </form>
     </div>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-      ${Object.entries(dbState.specialties).map(([id, item]) => `
-        <div class="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center gap-2">
-          <div class="flex items-center gap-3 min-w-0">
-            ${item.iconUrl ? `<img src="${esc(item.iconUrl)}" class="w-9 h-9 rounded-lg object-cover border border-slate-200 flex-shrink-0" onerror="this.style.display='none'" />` : ""}
-            <div class="min-w-0">
-              <div class="font-bold truncate">${esc(item.nameBn)}</div>
-              <div class="text-xs text-slate-500 truncate">${esc(item.nameEn)} (${esc(item.iconKey || "medical")})</div>
+    ${(() => {
+      const allSpecs = Object.entries(dbState.specialties);
+      const q = dirSearchState.specialties || "";
+      const filteredSpecs = allSpecs.filter(([, item]) =>
+        matchesSearchTokens(`${item.nameBn || ""} ${item.nameEn || ""} ${item.iconKey || ""}`, q)
+      );
+      return `
+        ${renderDirSearchBar("specialties", "Search specialties by Bangla name, English name, or icon key...", filteredSpecs.length, allSpecs.length)}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          ${filteredSpecs.length === 0 ? `<div class="md:col-span-2 bg-white p-8 rounded-2xl border border-slate-200 text-center text-slate-500 text-sm">${allSpecs.length === 0 ? "No specialties added yet." : `No specialties matched "${esc(q)}".`}</div>` : filteredSpecs.map(([id, item]) => `
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center gap-2">
+              <div class="flex items-center gap-3 min-w-0">
+                ${item.iconUrl ? `<img src="${esc(item.iconUrl)}" class="w-9 h-9 rounded-lg object-cover border border-slate-200 flex-shrink-0" onerror="this.style.display='none'" />` : ""}
+                <div class="min-w-0">
+                  <div class="font-bold truncate">${esc(item.nameBn)}</div>
+                  <div class="text-xs text-slate-500 truncate">${esc(item.nameEn)} (${esc(item.iconKey || "medical")})</div>
+                </div>
+              </div>
+              <div class="flex gap-2 flex-shrink-0">
+                <button onclick='editing={spec:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold">Edit</button>
+                <button onclick="deleteNode('specialties','${id}')" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs font-semibold">Delete</button>
+              </div>
             </div>
-          </div>
-          <div class="flex gap-2 flex-shrink-0">
-            <button onclick='editing={spec:${JSON.stringify({...item, id}).replace(/'/g,"&#39;")}};renderTab()' class="px-3 py-1 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold">Edit</button>
-            <button onclick="deleteNode('specialties','${id}')" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs font-semibold">Delete</button>
-          </div>
+          `).join("")}
         </div>
-      `).join("")}
-    </div>
+      `;
+    })()}
   `;
 }
 
@@ -2211,12 +2338,31 @@ function setLocDivisionFilter(divEn) {
 }
 
 function renderLocations() {
-  const visibleDivs = locDivisionFilter === "ALL"
+  const baseDivs = locDivisionFilter === "ALL"
     ? BD_DIVISIONS_64
     : BD_DIVISIONS_64.filter(d => d.en === locDivisionFilter);
+  const q = dirSearchState.locations || "";
+  const visibleDivs = q.trim()
+    ? baseDivs
+        .map(div => {
+          const divMatches = matchesSearchTokens(`${div.bn} ${div.en}`, q);
+          const matchingDistricts = divMatches
+            ? div.districts
+            : div.districts.filter(d => matchesSearchTokens(`${d.bn} ${d.en} ${div.bn} ${div.en}`, q));
+          return { ...div, districts: matchingDistricts };
+        })
+        .filter(div => div.districts.length > 0)
+    : baseDivs;
+  const matchedDistrictCount = visibleDivs.reduce((sum, d) => sum + d.districts.length, 0);
+  const allCustomLocs = Object.entries(dbState.locations);
+  const filteredCustomLocs = allCustomLocs.filter(([, l]) =>
+    matchesSearchTokens(`${l.division || ""} ${l.district || ""} ${l.upazila || ""} ${l.area || ""}`, q)
+  );
   const editLoc = editing.loc || {};
 
   return `
+    ${renderDirSearchBar("locations", "Search divisions, 64 districts (Bangla/English), upazilas, or areas...", matchedDistrictCount + filteredCustomLocs.length, 64 + allCustomLocs.length)}
+
     <!-- বাংলাদেশের ৮টি বিভাগ ও ৬৪টি জেলার তালিকা -->
     <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm mb-6">
       <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -2224,7 +2370,7 @@ function renderLocations() {
           <h3 class="font-bold text-sky-800 text-base">বাংলাদেশের বিভাগ অনুযায়ী ৬৪টি জেলার তালিকা</h3>
           <p class="text-xs text-slate-500">মোট ৮টি বিভাগ ও ৬৪টি জেলা — সব জেলা অটোমেটিক অ্যাপ এবং চেম্বার ড্রপডাউনে যুক্ত আছে।</p>
         </div>
-        <span class="px-3 py-1 rounded-full bg-teal-50 text-teal-800 border border-teal-200 text-xs font-bold">8 Divisions • 64 Districts</span>
+        <span class="px-3 py-1 rounded-full bg-teal-50 text-teal-800 border border-teal-200 text-xs font-bold">${q.trim() ? `${matchedDistrictCount} / 64 Districts matched` : "8 Divisions • 64 Districts"}</span>
       </div>
       <div class="flex flex-wrap gap-1.5 mb-4">
         <button type="button" onclick="setLocDivisionFilter('ALL')" class="px-3 py-1.5 rounded-full text-xs font-semibold border ${locDivisionFilter === "ALL" ? "bg-sky-600 text-white border-sky-600" : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-sky-50"}">
@@ -2237,7 +2383,7 @@ function renderLocations() {
         `).join("")}
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        ${visibleDivs.map(div => `
+        ${visibleDivs.length === 0 ? `<div class="md:col-span-2 p-6 rounded-xl bg-slate-50 border border-slate-200 text-center text-slate-500 text-sm">No districts matched "${esc(q)}".</div>` : visibleDivs.map(div => `
           <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
             <div class="flex items-center justify-between mb-2.5">
               <div class="font-bold text-sky-900 text-sm">${esc(div.bn)} <span class="text-slate-500 font-normal">(${esc(div.en)} Division)</span></div>
@@ -2282,7 +2428,7 @@ function renderLocations() {
       </form>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-      ${Object.entries(dbState.locations).map(([id, l]) => `
+      ${filteredCustomLocs.length === 0 ? `<div class="md:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 text-center text-slate-500 text-sm">${allCustomLocs.length === 0 ? "No custom upazilas or areas added yet." : `No custom upazilas/areas matched "${esc(q)}".`}</div>` : filteredCustomLocs.map(([id, l]) => `
         <div class="bg-white p-3.5 rounded-xl border border-slate-200 flex justify-between items-center gap-2 text-sm">
           <span>${esc(l.division)} &rsaquo; <strong>${esc(l.district)}</strong> &rsaquo; ${esc(l.upazila)}${l.area ? " (" + esc(l.area) + ")" : ""}</span>
           <div class="flex gap-2 flex-shrink-0">
@@ -2723,9 +2869,12 @@ async function confirmAndSendBroadcastNotification() {
     dbState.notifications[savedRec.notificationId] = savedRec;
 
     const statusLabel = data.status || "SENT";
+    const topicSuffix = data.topicDelivered ? " + Broadcast Topic (all_app_users) dispatched for Background & Closed apps." : "";
     const summaryMsg = statusLabel === "INBOX_ONLY"
       ? "Saved to App Notification Inbox (0 registered FCM device tokens found yet)."
-      : `Notification processed (${statusLabel}): ${data.successCount || 0} delivered, ${data.failureCount || 0} failed out of ${data.totalRecipients || 0} registered devices.`;
+      : (data.totalRecipients || 0) === 0 && data.topicDelivered
+        ? `Notification pushed via FCM Topic (all_app_users) for Background & Closed devices (${statusLabel}).`
+        : `Notification processed (${statusLabel}): ${data.successCount || 0} delivered, ${data.failureCount || 0} failed out of ${data.totalRecipients || 0} registered devices.${topicSuffix}`;
 
     notifFormState.sending = false;
     notifFormState.showConfirmModal = false;

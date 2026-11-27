@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Prevent Privacy Sandbox AdServices binding errors (onNullBinding MEASUREMENT_SERVICE) on devices/emulators without AdServices -->
     <uses-permission
@@ -85,8 +86,17 @@
             tools:node="remove" />
 
         <meta-data
+            android:name="firebase_messaging_auto_init_enabled"
+            android:value="true" />
+        <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="doctor_list_bd_alerts" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_accent" />
 
         <service
             android:name=".notifications.DoctorListFirebaseMessagingService"
@@ -114,6 +124,10 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="doctorlistbd" />
                 <data android:scheme="app" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="OPEN_DOCTOR_LIST_NOTIFICATION" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
     </application>

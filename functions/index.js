@@ -42,9 +42,17 @@ function getAllowedOrigins() {
 function applyCors(req, res) {
   const origin = String(req.headers.origin || "").trim();
   const allowed = getAllowedOrigins();
-  if (origin && (allowed.has(origin) || origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:"))) {
+  if (
+    origin &&
+    (allowed.has(origin) ||
+      origin.startsWith("http://localhost:") ||
+      origin.startsWith("http://127.0.0.1:"))
+  ) {
     res.set("Access-Control-Allow-Origin", origin);
     res.set("Vary", "Origin");
+  } else {
+    // Admin authorization is strictly enforced server-side via verifyAdminRequest (Bearer or X-Admin-Id/Proof)
+    res.set("Access-Control-Allow-Origin", "*");
   }
   res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.set(
@@ -342,26 +350,40 @@ exports.sendBroadcastNotification = onRequest(
       createdAt: String(createdAt),
     };
 
-    // Send real FCM HTTP v1 multicast batches (500 tokens max per batch)
+    const TOPIC_ALL_USERS = "all_app_users";
+    const androidConfig = {
+      priority: "high",
+      ttl: 2419200 * 1000,
+      notification: {
+        channelId: "doctor_list_bd_alerts",
+        icon: "ic_notification",
+        color: "#0B5ED7",
+        sound: "default",
+        defaultSound: true,
+        defaultVibrateTimings: true,
+        visibility: "public",
+        priority: "max",
+        clickAction: "OPEN_DOCTOR_LIST_NOTIFICATION",
+        tag: notificationId,
+        ...(imageUrl ? { imageUrl } : {}),
+      },
+    };
+
+    const baseNotification = {
+      title,
+      body,
+      ...(imageUrl ? { imageUrl } : {}),
+    };
+
+    // 1. Send real FCM HTTP v1 multicast batches (500 tokens max per batch) for registered RTDB tokens
     const BATCH_SIZE = 500;
     for (let i = 0; i < tokens.length; i += BATCH_SIZE) {
       const batchTokens = tokens.slice(i, i + BATCH_SIZE);
       const multicastMessage = {
         tokens: batchTokens,
-        notification: {
-          title,
-          body,
-          ...(imageUrl ? { imageUrl } : {}),
-        },
+        notification: baseNotification,
         data: dataPayload,
-        android: {
-          priority: "high",
-          notification: {
-            channelId: "doctor_list_bd_alerts",
-            sound: "default",
-            ...(imageUrl ? { imageUrl } : {}),
-          },
-        },
+        android: androidConfig,
       };
 
       const batchResp = await admin.messaging().sendEachForMulticast(multicastMessage);
@@ -375,6 +397,23 @@ exports.sendBroadcastNotification = onRequest(
           stalePaths.push(...paths);
         }
       });
+    }
+
+    // 2. Also broadcast to topic "all_app_users" with identical android.notification.tag
+    // Ensures Background & Killed System Tray delivery even for devices whose RTDB token is not synced yet,
+    // while Android OS deduplicates by tag (background/killed) and client deduplicates by notificationId (foreground).
+    let topicDelivered = false;
+    let topicMessageId = "";
+    try {
+      topicMessageId = await admin.messaging().send({
+        topic: TOPIC_ALL_USERS,
+        notification: baseNotification,
+        data: dataPayload,
+        android: androidConfig,
+      });
+      topicDelivered = Boolean(topicMessageId);
+    } catch (topicErr) {
+      logger.warn("Topic broadcast warning (all_app_users)", topicErr.message);
     }
 
     // Prune invalid/unregistered tokens from RTDB
@@ -392,7 +431,10 @@ exports.sendBroadcastNotification = onRequest(
     if (totalRecipients > 0) {
       if (successCount > 0 && failureCount === 0) status = "SENT";
       else if (successCount > 0 && failureCount > 0) status = "PARTIAL";
+      else if (topicDelivered) status = "SENT";
       else status = "FAILED";
+    } else if (topicDelivered) {
+      status = "SENT";
     }
 
     const record = {
@@ -423,6 +465,8 @@ exports.sendBroadcastNotification = onRequest(
       totalRecipients,
       successCount,
       failureCount,
+      topicDelivered,
+      topicMessageId,
       prunedInvalidTokens: stalePaths.length,
       status,
     };
@@ -440,6 +484,8 @@ exports.sendBroadcastNotification = onRequest(
       totalRecipients,
       successCount,
       failureCount,
+      topicDelivered,
+      topicMessageId,
       prunedInvalidTokens: stalePaths.length,
       record,
     });
