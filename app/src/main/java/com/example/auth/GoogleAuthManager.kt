@@ -235,7 +235,7 @@ object GoogleAuthManager {
     }
 
     /**
-     * Secure logout clearing Credential Manager state before Firebase Auth sign-out inside `NonCancellable`.
+     * Secure logout removing device FCM token, clearing Credential Manager state, and signing out of Firebase Auth inside `NonCancellable`.
      */
     fun signOut(
         context: Context,
@@ -243,8 +243,15 @@ object GoogleAuthManager {
         onComplete: () -> Unit = {}
     ) {
         val credentialManager = runCatching { CredentialManager.create(context) }.getOrNull()
+        val activeUid = runCatching { Firebase.auth.currentUser?.uid }.getOrNull() ?: _currentUser.value?.uid
         scope.launch {
             withContext(NonCancellable) {
+                try {
+                    com.example.notifications.PushNotificationManager
+                        .unregisterCurrentDeviceTokenOnLogout(context.applicationContext, activeUid)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Failed to unregister FCM token on logout: ${t.message}")
+                }
                 try {
                     credentialManager?.clearCredentialState(ClearCredentialStateRequest())
                 } catch (t: Throwable) {

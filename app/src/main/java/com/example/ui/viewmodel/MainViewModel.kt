@@ -718,6 +718,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun markAllNotificationsRead() = viewModelScope.launch(exceptionHandler) { repo.markAllNotificationsRead() }
 
+    fun deleteNotification(id: String) = viewModelScope.launch(exceptionHandler) { repo.deleteNotification(id) }
+
     fun refreshDoctorForPush(doctorId: String) {
         val cleanId = doctorId.trim()
         if (cleanId.isBlank()) return

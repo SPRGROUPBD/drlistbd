@@ -830,6 +830,7 @@ fun NotificationCenterBottomSheet(
     isSyncing: Boolean,
     onMarkRead: (String) -> Unit,
     onMarkAllRead: () -> Unit,
+    onDeleteNotification: (String) -> Unit = {},
     onRefresh: () -> Unit,
     onOpenNotification: (NotificationEntity) -> Unit = {},
     notificationPermissionGranted: Boolean = true,
@@ -1097,12 +1098,31 @@ fun NotificationCenterBottomSheet(
                                         )
                                     }
                                     Spacer(Modifier.height(6.dp))
-                                    Text(
-                                        text = actionHint,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MedicalBlueDark,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = actionHint,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MedicalBlueDark,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        IconButton(
+                                            onClick = { onDeleteNotification(item.id) },
+                                            modifier = Modifier
+                                                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                                .testTag("delete_notification_${item.id}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.DeleteOutline,
+                                                contentDescription = tr(lang, "নোটিফিকেশন মুছুন", "Delete notification"),
+                                                tint = RoseAlert
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

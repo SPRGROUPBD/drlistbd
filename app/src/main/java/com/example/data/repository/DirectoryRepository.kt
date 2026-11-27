@@ -199,4 +199,20 @@ class DirectoryRepository(context: Context) {
             )
         }
     }
+
+    suspend fun deleteNotification(id: String) {
+        val cleanId = id.trim()
+        if (cleanId.isBlank()) return
+        val existing = db.notificationDao().getById(cleanId)
+        PushNotificationManager.markNotificationDeletedLocally(appContext, cleanId)
+        db.notificationDao().deleteById(cleanId)
+        PushNotificationManager.syncUserNotificationState(
+            context = appContext,
+            notificationId = cleanId,
+            type = existing?.messageType ?: PushNotificationManager.TYPE_GENERAL,
+            isRead = true,
+            isDisplayed = true,
+            isDeleted = true
+        )
+    }
 }

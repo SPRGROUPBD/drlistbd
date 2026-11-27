@@ -1229,6 +1229,7 @@ fun DoctorListBdApp(
                 isSyncing = isSyncing,
                 onMarkRead = vm::markNotificationRead,
                 onMarkAllRead = vm::markAllNotificationsRead,
+                onDeleteNotification = vm::deleteNotification,
                 onRefresh = { vm.syncNow(showToast = false) },
                 onOpenNotification = { item: NotificationEntity ->
                     showNotificationCenter = false

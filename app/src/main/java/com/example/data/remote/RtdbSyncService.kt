@@ -274,13 +274,17 @@ object RtdbSyncService {
                 } ?: emptyList()
             } else emptyList()
 
-            // Notifications (preserve local & remote userNotifications read/display status across auto-syncs)
+            // Notifications (preserve local & remote userNotifications read/display/delete status and merge direct per-user inbox records)
             val existingReadIds = runCatching { db.notificationDao().getReadIds().toMutableSet() }.getOrDefault(mutableSetOf())
             val existingDisplayedIds = runCatching { db.notificationDao().getDisplayedIds().toMutableSet() }.getOrDefault(mutableSetOf())
+            val existingDeletedIds = mutableSetOf<String>()
+            var directUserNotifRecords: List<Pair<String, JSONObject>> = emptyList()
             if (context != null) {
-                val (remoteRead, remoteDisplayed) = PushNotificationManager.fetchUserNotificationStates(context)
-                existingReadIds.addAll(remoteRead)
-                existingDisplayedIds.addAll(remoteDisplayed)
+                val inboxSnap = PushNotificationManager.fetchUserInboxSyncSnapshot(context)
+                existingReadIds.addAll(inboxSnap.readIds)
+                existingDisplayedIds.addAll(inboxSnap.displayedIds)
+                existingDeletedIds.addAll(inboxSnap.deletedIds)
+                directUserNotifRecords = inboxSnap.directRecords
             }
             val mergedNotifications = linkedMapOf<String, NotificationEntity>()
             fun parseNotificationRecord(id: String, o: JSONObject): NotificationEntity {
@@ -324,15 +328,28 @@ object RtdbSyncService {
             }
             root.optJSONObject("notifications")?.let { obj ->
                 parseMap(obj) { id, o -> parseNotificationRecord(id, o) }
+                    .filter { it.id !in existingDeletedIds }
                     .forEach { mergedNotifications[it.id] = it }
             }
             if (rootNotifBody.isNotBlank() && rootNotifBody != "null") {
                 runCatching {
-                    parseMap(JSONObject(rootNotifBody)) { id, o -> parseNotificationRecord(id, o) }
+                    parseMap(JSONObject(rootNotifBody)) { id, o ->
+                        // Skip single-user notifications belonging to other users
+                        val rMode = cleanOptString(o, "recipientMode").uppercase()
+                        if (rMode == "USER") null else parseNotificationRecord(id, o)
+                    }
+                        .filterNotNull()
+                        .filter { it.id !in existingDeletedIds }
                         .forEach { mergedNotifications[it.id] = it }
                 }
             }
-            val shouldUpdateNotifications = root.has("notifications") || mergedNotifications.isNotEmpty()
+            directUserNotifRecords.forEach { (id, o) ->
+                val entity = parseNotificationRecord(id, o)
+                if (entity.id !in existingDeletedIds) {
+                    mergedNotifications[entity.id] = entity
+                }
+            }
+            val shouldUpdateNotifications = root.has("notifications") || mergedNotifications.isNotEmpty() || existingDeletedIds.isNotEmpty()
 
             val parsedSettings: SiteSettingsEntity? = root.optJSONObject("settings")?.let { s ->
                 SiteSettingsEntity(

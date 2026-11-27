@@ -71,8 +71,16 @@ object PushNotificationManager {
     private const val KEY_DEVICE_KEY = "device_fcm_key"
     private const val KEY_LAST_TOKEN = "last_synced_fcm_token"
     private const val KEY_DISPLAYED_GENERAL_IDS = "displayed_general_notification_ids"
+    private const val KEY_DELETED_NOTIF_IDS = "deleted_notification_ids_v1"
     private const val KEY_RECEIVED_FCM_IDS = "received_fcm_notification_ids"
     private const val KEY_NOTIF_PERM_ASKED = "notif_permission_asked_v1"
+
+    data class UserInboxSyncSnapshot(
+        val readIds: Set<String>,
+        val displayedIds: Set<String>,
+        val deletedIds: Set<String>,
+        val directRecords: List<Pair<String, JSONObject>>
+    )
 
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -215,6 +223,23 @@ object PushNotificationManager {
         }
     }
 
+    @Synchronized
+    fun getDeletedNotificationIds(context: Context): Set<String> {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getStringSet(KEY_DELETED_NOTIF_IDS, emptySet())?.toSet() ?: emptySet()
+    }
+
+    @Synchronized
+    fun markNotificationDeletedLocally(context: Context, notificationId: String) {
+        val id = notificationId.trim()
+        if (id.isBlank()) return
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val existing = prefs.getStringSet(KEY_DELETED_NOTIF_IDS, emptySet())?.toMutableSet() ?: mutableSetOf()
+        val updated = if (existing.size > 400) existing.toList().takeLast(250).toMutableSet() else existing
+        updated.add(id)
+        prefs.edit().putStringSet(KEY_DELETED_NOTIF_IDS, updated).apply()
+    }
+
     /**
      * Marks a received FCM notificationId as processed to prevent duplicate system notifications
      * if FCM redelivers the same notificationId.
@@ -234,14 +259,15 @@ object PushNotificationManager {
     }
 
     /**
-     * Syncs the user's personal read / displayed status to RTDB under userNotifications/{userKey}/{notificationId}.
+     * Syncs the user's personal read / displayed / deleted status to RTDB under userNotifications/{userKey}/{notificationId}.
      */
     fun syncUserNotificationState(
         context: Context,
         notificationId: String,
         type: String = TYPE_GENERAL,
         isRead: Boolean = false,
-        isDisplayed: Boolean = false
+        isDisplayed: Boolean = false,
+        isDeleted: Boolean = false
     ) {
         val id = notificationId.trim()
         if (id.isBlank()) return
@@ -256,6 +282,7 @@ object PushNotificationManager {
                     put("type", normalizeType(type))
                     put("isRead", isRead)
                     put("isDisplayed", isDisplayed)
+                    put("isDeleted", isDeleted)
                     put("receivedAt", now)
                     put("updatedAt", now)
                 }
@@ -265,13 +292,15 @@ object PushNotificationManager {
     }
 
     /**
-     * Fetches the current user's notification read/display state from userNotifications/{userKey}.
-     * Returns pair of (readIds, displayedIds).
+     * Fetches the current user's notification read/display/deleted states AND any direct per-user
+     * inbox notifications stored under userNotifications/{userKey}.
      */
-    suspend fun fetchUserNotificationStates(context: Context): Pair<Set<String>, Set<String>> = withContext(Dispatchers.IO) {
+    suspend fun fetchUserInboxSyncSnapshot(context: Context): UserInboxSyncSnapshot = withContext(Dispatchers.IO) {
         val appCtx = context.applicationContext
         val readIds = mutableSetOf<String>()
         val displayedIds = mutableSetOf<String>()
+        val deletedIds = mutableSetOf<String>()
+        val directRecords = mutableListOf<Pair<String, JSONObject>>()
         runCatching {
             val userKey = getUserNotificationKey(appCtx)
             val idToken = runCatching { GoogleAuthManager.getIdToken(false) }.getOrNull()
@@ -296,11 +325,26 @@ object PushNotificationManager {
                         displayedIds.add(key)
                         markGeneralDisplayedLocally(appCtx, key)
                     }
+                    if (rec.optBoolean("isDeleted", false)) {
+                        deletedIds.add(key)
+                        markNotificationDeletedLocally(appCtx, key)
+                    } else if (rec.optString("title", "").isNotBlank() || rec.optString("titleBn", "").isNotBlank()) {
+                        directRecords.add(key to rec)
+                    }
                 }
             }
         }
         displayedIds.addAll(getDisplayedGeneralIds(appCtx))
-        readIds to displayedIds
+        deletedIds.addAll(getDeletedNotificationIds(appCtx))
+        UserInboxSyncSnapshot(readIds, displayedIds, deletedIds, directRecords)
+    }
+
+    /**
+     * Backward-compatible wrapper returning (readIds, displayedIds).
+     */
+    suspend fun fetchUserNotificationStates(context: Context): Pair<Set<String>, Set<String>> {
+        val snap = fetchUserInboxSyncSnapshot(context)
+        return snap.readIds to snap.displayedIds
     }
 
     /**
@@ -386,6 +430,35 @@ object PushNotificationManager {
                 .edit()
                 .putString(KEY_LAST_TOKEN, token)
                 .apply()
+        }
+    }
+
+    /**
+     * Removes the current device's FCM token from user-scoped RTDB paths on logout.
+     * Must be invoked BEFORE Firebase.auth.signOut() so the Firebase ID token authorizes the delete.
+     */
+    suspend fun unregisterCurrentDeviceTokenOnLogout(context: Context, explicitUid: String? = null) {
+        val appCtx = context.applicationContext
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val deviceKey = getOrCreateDeviceKey(appCtx)
+                val uid = explicitUid?.trim().orEmpty().ifBlank {
+                    GoogleAuthManager.currentUser.value?.uid.orEmpty().trim()
+                }
+                val idToken = runCatching { GoogleAuthManager.getIdToken(false) }.getOrNull()
+                if (uid.isNotBlank() && !idToken.isNullOrBlank()) {
+                    deleteJson(buildRtdbUrl("users/$uid/fcmTokens/$deviceKey", idToken))
+                    deleteJson(buildRtdbUrl("fcmTokens/$uid/$deviceKey", idToken))
+                    deleteJson(buildRtdbUrl("fcm_tokens/$deviceKey", idToken))
+                }
+                appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .remove(KEY_LAST_TOKEN)
+                    .apply()
+                Log.i(TAG, "Unregistered device FCM token on logout (deviceKey=$deviceKey)")
+            }.onFailure { err ->
+                Log.w(TAG, "Logout FCM token cleanup warning: ${err.message}")
+            }
         }
     }
 
@@ -534,6 +607,22 @@ object PushNotificationManager {
                 setRequestProperty("Content-Type", "application/json; charset=UTF-8")
             }
             OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
+            conn.responseCode in 200..299
+        } catch (_: Exception) {
+            false
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    private fun deleteJson(urlString: String): Boolean {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
+                requestMethod = "DELETE"
+                connectTimeout = 6000
+                readTimeout = 6000
+            }
             conn.responseCode in 200..299
         } catch (_: Exception) {
             false

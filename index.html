@@ -373,9 +373,96 @@
     </div>
   </div>
 
+<script type="module">
+  import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
+  import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-functions.js";
+
+  const FIREBASE_WEB_CONFIG = {
+    apiKey: "AIzaSyCfOJu1lzqyJmqmtiJiCGehSQ7Jr89FYPE",
+    authDomain: "octor-aad88.firebaseapp.com",
+    databaseURL: "https://octor-aad88-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "octor-aad88",
+    storageBucket: "octor-aad88.firebasestorage.app",
+    messagingSenderId: "606146627263",
+    appId: "1:606146627263:web:34c6c0f622c3c090517f06"
+  };
+
+  const app = getApps().length ? getApps()[0] : initializeApp(FIREBASE_WEB_CONFIG);
+  const auth = getAuth(app);
+  const functions = getFunctions(app, "asia-south1");
+
+  window.dlbdFirebase = {
+    app,
+    auth,
+    functions,
+    region: "asia-south1",
+    currentUser: null,
+    isAdminClaim: false,
+    callable(name) {
+      return httpsCallable(functions, name);
+    },
+    async getIdToken(forceRefresh = false) {
+      try {
+        return auth.currentUser ? await auth.currentUser.getIdToken(forceRefresh) : "";
+      } catch (_) {
+        return "";
+      }
+    },
+    async signInWithGoogleAdmin() {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      const cred = await signInWithPopup(auth, provider);
+      const tokenResult = await cred.user.getIdTokenResult(true);
+      window.dlbdFirebase.currentUser = cred.user;
+      window.dlbdFirebase.isAdminClaim = Boolean(tokenResult?.claims?.admin === true);
+      if (typeof loadRootCollections === "function") {
+        await loadRootCollections();
+      }
+      if (typeof activeTab !== "undefined" && activeTab === "notifications" && typeof renderTab === "function") {
+        renderTab();
+      }
+      return cred.user;
+    },
+    async signOutFirebaseAdmin() {
+      await signOut(auth);
+      window.dlbdFirebase.currentUser = null;
+      window.dlbdFirebase.isAdminClaim = false;
+      if (typeof activeTab !== "undefined" && activeTab === "notifications" && typeof renderTab === "function") {
+        renderTab();
+      }
+    }
+  };
+
+  onAuthStateChanged(auth, async (user) => {
+    window.dlbdFirebase.currentUser = user || null;
+    if (user) {
+      try {
+        const tr = await user.getIdTokenResult();
+        window.dlbdFirebase.isAdminClaim = Boolean(tr?.claims?.admin === true);
+      } catch (_) {
+        window.dlbdFirebase.isAdminClaim = false;
+      }
+      if (typeof loadRootCollections === "function") {
+        loadRootCollections().then(() => {
+          if (typeof activeTab !== "undefined" && activeTab === "notifications" && typeof renderTab === "function") {
+            renderTab();
+          }
+        }).catch(() => {});
+      }
+    } else {
+      window.dlbdFirebase.isAdminClaim = false;
+    }
+    if (typeof activeTab !== "undefined" && activeTab === "notifications" && typeof renderTab === "function") {
+      renderTab();
+    }
+  });
+</script>
+
 <script>
 const RTDB_ROOT = "https://octor-aad88-default-rtdb.europe-west1.firebasedatabase.app";
 const RTDB_BASE = `${RTDB_ROOT}/directory`;
+const FUNCTIONS_REGION = "asia-south1";
 let rootState = {
   adPackages: {},
   advertisers: {},
@@ -387,7 +474,9 @@ let rootState = {
   users: {},
   visitors: {},
   subAdmins: {},
-  notifications: {}
+  notifications: {},
+  fcmTokens: {},
+  fcm_tokens: {}
 };
 const DAYS = ["SATURDAY", "SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
 const DAY_META = {
@@ -1009,11 +1098,21 @@ function esc(v) {
   return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
+async function getFirebaseAuthQuerySuffix() {
+  try {
+    const token = window.dlbdFirebase ? await window.dlbdFirebase.getIdToken(false) : "";
+    return token ? `?auth=${encodeURIComponent(token)}` : "";
+  } catch (_) {
+    return "";
+  }
+}
+
 async function loadRootCollections() {
   const keys = Object.keys(rootState);
+  const authSuffix = await getFirebaseAuthQuerySuffix();
   await Promise.all(keys.map(async (k) => {
     try {
-      const r = await fetch(`${RTDB_ROOT}/${k}.json`);
+      const r = await fetch(`${RTDB_ROOT}/${k}.json${authSuffix}`);
       if (r.ok) {
         const val = await r.json();
         rootState[k] = val && typeof val === "object" ? val : {};
@@ -1023,7 +1122,8 @@ async function loadRootCollections() {
 }
 
 async function saveRootNode(collection, id, obj, silent = false) {
-  const url = id ? `${RTDB_ROOT}/${collection}/${id}.json` : `${RTDB_ROOT}/${collection}.json`;
+  const authSuffix = await getFirebaseAuthQuerySuffix();
+  const url = id ? `${RTDB_ROOT}/${collection}/${id}.json${authSuffix}` : `${RTDB_ROOT}/${collection}.json${authSuffix}`;
   const res = await fetch(url, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -1044,7 +1144,8 @@ async function saveRootNode(collection, id, obj, silent = false) {
 
 async function deleteRootNode(collection, id, skipConfirm = false) {
   if (!skipConfirm && !confirm("Are you sure you want to delete this record?")) return false;
-  const res = await fetch(`${RTDB_ROOT}/${collection}/${id}.json`, { method: "DELETE" });
+  const authSuffix = await getFirebaseAuthQuerySuffix();
+  const res = await fetch(`${RTDB_ROOT}/${collection}/${id}.json${authSuffix}`, { method: "DELETE" });
   if (!res.ok) { toast("Delete failed"); return false; }
   if (rootState[collection]) delete rootState[collection][id];
   if (!skipConfirm) {
@@ -2453,11 +2554,12 @@ async function submitLocation(e) {
   });
 }
 
-// --- APP NOTIFICATIONS (COMPLETE NOTIFICATION MANAGEMENT SYSTEM) ---
-const DEFAULT_FCM_BACKEND_URL = "https://asia-south1-octor-aad88.cloudfunctions.net/sendBroadcastNotification";
-
+// --- APP NOTIFICATIONS (FIREBASE HTTPSCALLABLE + REAL-TIME INBOX + FCM PUSH MANAGEMENT) ---
 let notifFormState = {
   type: "GENERAL",
+  recipientMode: "ALL", // ALL | USER
+  targetUserId: "",
+  deliveryMode: "FCM_AND_INBOX", // FCM_AND_INBOX | INBOX_ONLY
   title: "",
   body: "",
   imageUrl: "",
@@ -2470,9 +2572,17 @@ let notifFormState = {
   historySearch: "",
   historyTypeFilter: "ALL",
   sending: false,
+  retryingId: "",
   showConfirmModal: false,
-  lastResult: null, // { ok, type, message, detail, canFallbackInbox, pendingPayload }
-  showBackendConfig: false
+  lastResult: null, // { ok, status, message, detail, canFallbackInbox, pendingPayload }
+  backendStatus: {
+    state: "UNKNOWN", // UNKNOWN | CHECKING | CONNECTED | ERROR
+    message: "Click 'Check Connection' to verify Cloud Functions v2 (asia-south1).",
+    activeTokenCount: null,
+    registeredUsersCount: null,
+    authMethod: "",
+    checkedAt: 0
+  }
 };
 
 function sanitizeNotifHttpUrl(raw) {
@@ -2491,6 +2601,114 @@ function sanitizeNotifActionUrl(raw) {
   if (!v) return "";
   if (/^market:\/\/[a-zA-Z0-9._/?=&%-]+$/i.test(v)) return v;
   return sanitizeNotifHttpUrl(v);
+}
+
+function formatFirebaseCallableError(err) {
+  const code = String(err?.code || "").toLowerCase();
+  const msg = String(err?.message || err || "Unknown Firebase error");
+  if (code.includes("unauthenticated")) {
+    return {
+      title: "Admin authentication required (functions/unauthenticated).",
+      detail: "Sign in with your Firebase Admin Google account or enter your Admin password to authorize Cloud Functions."
+    };
+  }
+  if (code.includes("permission-denied")) {
+    return {
+      title: "Access denied: Admin custom claim or role required (functions/permission-denied).",
+      detail: msg
+    };
+  }
+  if (code.includes("not-found")) {
+    return {
+      title: `Cloud Function not found in region ${FUNCTIONS_REGION} (functions/not-found).`,
+      detail: "Deploy functions/index.js with `firebase deploy --only functions,database` from the project root. You can also use Inbox Only Mode meanwhile."
+    };
+  }
+  if (code.includes("unavailable") || code.includes("internal") || msg.toLowerCase().includes("failed to fetch") || msg.toLowerCase().includes("network")) {
+    return {
+      title: `Cloud Functions v2 (${FUNCTIONS_REGION}) unreachable.`,
+      detail: `Firebase Functions could not be reached (${msg}). Ensure \`firebase deploy --only functions\` has been run and your internet connection is active. No fake push was sent.`
+    };
+  }
+  if (code.includes("invalid-argument")) {
+    return { title: `Validation error: ${msg}`, detail: "Please verify all notification fields and try again." };
+  }
+  return { title: `Firebase Function error (${code || "error"}): ${msg}`, detail: "FCM push was NOT confirmed. Use Inbox Only Mode or retry after checking Firebase Functions logs." };
+}
+
+function getFcmTokenStatsFromRtdb() {
+  const uniqueTokens = new Set();
+  const userTokenCounts = new Map();
+
+  const registerTok = (tok, ownerKey) => {
+    const clean = String(tok || "").trim();
+    if (clean.length < 20) return;
+    uniqueTokens.add(clean);
+    if (ownerKey) {
+      if (!userTokenCounts.has(ownerKey)) userTokenCounts.set(ownerKey, new Set());
+      userTokenCounts.get(ownerKey).add(clean);
+    }
+  };
+
+  Object.entries(rootState.fcmTokens || {}).forEach(([userKey, devices]) => {
+    if (!devices || typeof devices !== "object") return;
+    Object.values(devices).forEach(rec => {
+      if (rec && rec.active !== false && rec.token) registerTok(rec.token, userKey);
+    });
+  });
+
+  Object.entries(rootState.fcm_tokens || {}).forEach(([, rec]) => {
+    if (rec && rec.active !== false && rec.token) {
+      registerTok(rec.token, rec.uid || (rec.deviceKey ? `guest_${rec.deviceKey}` : ""));
+    }
+  });
+
+  Object.entries(rootState.users || {}).forEach(([uid, u]) => {
+    if (!u || !u.fcmTokens || typeof u.fcmTokens !== "object") return;
+    Object.values(u.fcmTokens).forEach(rec => {
+      if (rec && rec.active !== false && rec.token) registerTok(rec.token, uid);
+    });
+  });
+
+  return {
+    activeTokenCount: uniqueTokens.size,
+    userTokenCounts
+  };
+}
+
+function getRecipientUsersList() {
+  const { userTokenCounts } = getFcmTokenStatsFromRtdb();
+  const map = new Map();
+
+  const upsert = (uid, name, email, role) => {
+    const cleanUid = String(uid || "").trim();
+    if (!cleanUid) return;
+    const prev = map.get(cleanUid) || { uid: cleanUid, name: "", email: "", role: "", tokenCount: 0 };
+    map.set(cleanUid, {
+      uid: cleanUid,
+      name: prev.name || String(name || "").trim(),
+      email: prev.email || String(email || "").trim(),
+      role: prev.role || String(role || "").trim(),
+      tokenCount: userTokenCounts.get(cleanUid)?.size || prev.tokenCount
+    });
+  };
+
+  Object.entries(rootState.users || {}).forEach(([uid, u]) => {
+    if (u && typeof u === "object") upsert(uid, u.name || u.displayName, u.email, u.role || "user");
+  });
+  Object.entries(rootState.visitors || {}).forEach(([uid, v]) => {
+    if (v && typeof v === "object") upsert(uid, v.name || v.displayName, v.email, "visitor");
+  });
+  userTokenCounts.forEach((tokSet, userKey) => {
+    upsert(userKey, userKey.startsWith("guest_") ? `Guest Device (${userKey.slice(-6)})` : userKey, "", userKey.startsWith("guest_") ? "guest" : "user");
+  });
+
+  return Array.from(map.values())
+    .map(u => ({
+      ...u,
+      label: u.name && u.email ? `${u.name} (${u.email})` : (u.name || u.email || u.uid)
+    }))
+    .sort((a, b) => (b.tokenCount - a.tokenCount) || a.label.localeCompare(b.label));
 }
 
 function getNotifSortedDoctors() {
@@ -2539,6 +2757,7 @@ function getNotifStatusBadge(status) {
   if (s === "SENT") return { label: "SENT", cls: "bg-emerald-100 text-emerald-800 border-emerald-200" };
   if (s === "PARTIAL") return { label: "PARTIAL", cls: "bg-amber-100 text-amber-800 border-amber-200" };
   if (s === "FAILED") return { label: "FAILED", cls: "bg-rose-100 text-rose-800 border-rose-200" };
+  if (s === "PENDING") return { label: "PENDING", cls: "bg-sky-100 text-sky-800 border-sky-200" };
   return { label: "INBOX ONLY", cls: "bg-slate-100 text-slate-700 border-slate-200" };
 }
 
@@ -2550,26 +2769,30 @@ function buildNotifPreviewInnerHtml() {
   const validImg = sanitizeNotifHttpUrl(st.imageUrl);
   const doctors = getNotifSortedDoctors();
   const selDoc = doctors.find(d => d.id === st.doctorId);
+  const users = getRecipientUsersList();
+  const selUser = users.find(u => u.uid === st.targetUserId);
 
-  let behaviorText = "Shows an in-app General announcement popup once when the user opens Doctor List BD.";
+  let behaviorText = "Saved to Realtime Database Inbox & shown once inside an in-app popup dialog when opened.";
   if (meta.code === "APP_UPDATE") {
     const cleanUrl = sanitizeNotifActionUrl(st.actionUrl);
-    if (cleanUrl) {
-      behaviorText = `Tapping opens Update URL directly: ${cleanUrl}`;
-    } else {
-      behaviorText = `Tapping launches Google Play In-App Updates (${st.updateMode === "IMMEDIATE" ? "Immediate" : "Flexible"} mode).`;
-    }
+    behaviorText = cleanUrl
+      ? `Tapping opens Update URL directly: ${cleanUrl}`
+      : `Tapping launches Google Play In-App Updates (${st.updateMode === "IMMEDIATE" ? "Immediate" : "Flexible"} mode).`;
   } else if (meta.code === "NEW_DOCTOR") {
     behaviorText = selDoc
       ? `Tapping navigates directly to Dr. Profile: ${selDoc.displayName} (${selDoc.id}).`
       : "Select a doctor from the list to bind destination doctorId.";
   }
 
+  const recipientLabel = st.recipientMode === "USER"
+    ? (selUser ? `${selUser.label} (${selUser.tokenCount} device${selUser.tokenCount === 1 ? "" : "s"})` : "Select an Individual User")
+    : "All App Users (Broadcast + Topic)";
+
   return `
     <div class="rounded-2xl bg-slate-900 p-4 text-white shadow-inner">
       <div class="flex items-center justify-between text-[11px] text-slate-400 mb-3 px-1">
         <span>9:41</span>
-        <span>Android Push Preview</span>
+        <span>${st.deliveryMode === "INBOX_ONLY" ? "In-App Inbox Only Preview" : "Android System Tray + Inbox Preview"}</span>
         <span>5G • 100%</span>
       </div>
       <div class="rounded-2xl bg-white text-slate-900 p-4 shadow-lg border border-slate-100">
@@ -2602,7 +2825,9 @@ function buildNotifPreviewInnerHtml() {
       <div class="mt-3 rounded-xl bg-slate-800/80 border border-slate-700 p-3 text-[11px] text-slate-200 space-y-1">
         <div class="font-bold text-sky-300">Tap Action Behavior</div>
         <div class="text-slate-300 leading-relaxed">${esc(behaviorText)}</div>
-        <div class="text-[10px] text-slate-400 pt-1">Recipient: <strong class="text-white">All App Users</strong> (Fixed)</div>
+        <div class="text-[10px] text-slate-400 pt-1">
+          Recipient: <strong class="text-white">${esc(recipientLabel)}</strong> • Mode: <strong class="text-white">${st.deliveryMode === "INBOX_ONLY" ? "Inbox Only (No Push)" : "FCM Push + Inbox"}</strong>
+        </div>
       </div>
     </div>
   `;
@@ -2676,20 +2901,83 @@ function resetNotifForm() {
   notifFormState.updateMode = "FLEXIBLE";
   notifFormState.doctorId = "";
   notifFormState.doctorSearch = "";
+  notifFormState.recipientMode = "ALL";
+  notifFormState.targetUserId = "";
+  notifFormState.deliveryMode = "FCM_AND_INBOX";
   notifFormState.lastAutoTemplate = false;
   notifFormState.lastResult = null;
   renderTab();
 }
 
-async function saveFcmBackendUrlSetting() {
-  const input = document.getElementById("nf_backendUrl");
-  const raw = String(input ? input.value : "").trim();
-  if (raw && !sanitizeNotifHttpUrl(raw)) {
-    toast("Please enter a valid https:// Cloud Function URL.");
+async function signInFirebaseAdminForNotif() {
+  if (!window.dlbdFirebase) {
+    toast("Firebase SDK is still loading. Please retry in a second.");
     return;
   }
-  const nextSettings = { ...(dbState.settings || {}), fcmBackendUrl: raw || DEFAULT_FCM_BACKEND_URL };
-  await saveNode("settings", null, nextSettings);
+  try {
+    await window.dlbdFirebase.signInWithGoogleAdmin();
+    toast("Firebase Admin Auth connected!");
+    checkNotificationBackendConnection();
+  } catch (err) {
+    toast("Firebase Sign-In cancelled or failed: " + (err?.message || err));
+  }
+}
+
+async function signOutFirebaseAdminForNotif() {
+  if (!window.dlbdFirebase) return;
+  await window.dlbdFirebase.signOutFirebaseAdmin();
+  toast("Signed out of Firebase Admin Auth.");
+}
+
+async function checkNotificationBackendConnection() {
+  if (!window.dlbdFirebase) {
+    notifFormState.backendStatus = {
+      state: "ERROR",
+      message: "Firebase JS SDK module failed to load. Check internet connection.",
+      activeTokenCount: null,
+      registeredUsersCount: null,
+      authMethod: "",
+      checkedAt: Date.now()
+    };
+    renderTab();
+    return;
+  }
+
+  notifFormState.backendStatus = {
+    ...notifFormState.backendStatus,
+    state: "CHECKING",
+    message: `Connecting to Firebase Functions v2 (${FUNCTIONS_REGION}) via httpsCallable...`
+  };
+  renderTab();
+
+  try {
+    const adminAuth = window.__dlbdAdminProof
+      ? { adminId: sessionStorage.getItem("dlbd_admin_id") || "", proof: window.__dlbdAdminProof }
+      : undefined;
+    const fn = window.dlbdFirebase.callable("checkNotificationBackend");
+    const resp = await fn({ adminAuth });
+    const data = resp?.data || {};
+    notifFormState.backendStatus = {
+      state: "CONNECTED",
+      message: `Connected to Cloud Functions v2 (${data.region || FUNCTIONS_REGION}) as ${data.actor || "Admin"} (${data.authMethod || "VERIFIED"}).`,
+      activeTokenCount: typeof data.activeTokenCount === "number" ? data.activeTokenCount : null,
+      registeredUsersCount: typeof data.registeredUsersCount === "number" ? data.registeredUsersCount : null,
+      authMethod: data.authMethod || "",
+      checkedAt: Date.now()
+    };
+    await loadRootCollections();
+  } catch (err) {
+    const mapped = formatFirebaseCallableError(err);
+    notifFormState.backendStatus = {
+      state: "ERROR",
+      message: `${mapped.title} ${mapped.detail}`,
+      activeTokenCount: null,
+      registeredUsersCount: null,
+      authMethod: "",
+      checkedAt: Date.now()
+    };
+  }
+  renderTab();
 }
 
 function validateAndOpenNotifConfirm(e) {
@@ -2707,6 +2995,11 @@ function validateAndOpenNotifConfirm(e) {
   }
   if (body.length < 2 || body.length > 1200) {
     notifFormState.lastResult = { ok: false, message: "Notification Body must be between 2 and 1200 characters." };
+    renderTab();
+    return;
+  }
+  if (notifFormState.recipientMode === "USER" && !notifFormState.targetUserId.trim()) {
+    notifFormState.lastResult = { ok: false, message: "Please select an Individual User recipient or switch to All App Users." };
     renderTab();
     return;
   }
@@ -2740,6 +3033,14 @@ function closeNotifConfirmModal() {
 }
 
 async function resolveAdminProofForPush() {
+  // If signed in with Firebase Auth, callable automatically attaches Firebase Auth token & custom claims
+  if (window.dlbdFirebase && window.dlbdFirebase.currentUser) {
+    return {
+      usingFirebaseAuth: true,
+      adminId: sessionStorage.getItem("dlbd_admin_id") || window.dlbdFirebase.currentUser.email || "",
+      proof: window.__dlbdAdminProof || ""
+    };
+  }
   if (window.__dlbdAdminProof) {
     return {
       adminId: sessionStorage.getItem("dlbd_admin_id") || "",
@@ -2751,7 +3052,7 @@ async function resolveAdminProofForPush() {
   const adminId = sessionStorage.getItem("dlbd_admin_id") || "";
   const role = sessionStorage.getItem("dlbd_admin_role") || "SUPER_ADMIN";
   if (!enteredPass) {
-    return { error: "Please enter your Admin password to authorize server-side FCM broadcast." };
+    return { error: "Sign in with Firebase Admin Auth or enter your Admin password to authorize server-side FCM dispatch." };
   }
   if (role === "SUB_ADMIN" && typeof verifySubAdminLogin === "function") {
     const subCheck = await verifySubAdminLogin(adminId, enteredPass);
@@ -2780,6 +3081,8 @@ function buildPendingNotifPayload() {
   const st = notifFormState;
   const doctors = getNotifSortedDoctors();
   const selDoc = doctors.find(d => d.id === st.doctorId);
+  const users = getRecipientUsersList();
+  const selUser = users.find(u => u.uid === st.targetUserId);
   const cleanImageUrl = sanitizeNotifHttpUrl(st.imageUrl) || "";
   const cleanActionUrl = st.type === "APP_UPDATE" ? (sanitizeNotifActionUrl(st.actionUrl) || "") : "";
   const notificationId = "ntf_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
@@ -2788,7 +3091,11 @@ function buildPendingNotifPayload() {
     title: st.title.trim(),
     body: st.body.trim(),
     type: st.type,
-    recipient: "ALL_APP_USERS",
+    recipientMode: st.recipientMode,
+    recipient: st.recipientMode === "USER" ? st.targetUserId.trim() : "ALL_APP_USERS",
+    targetUserId: st.recipientMode === "USER" ? st.targetUserId.trim() : "",
+    targetUserLabel: st.recipientMode === "USER" && selUser ? selUser.label : "",
+    inboxOnly: st.deliveryMode === "INBOX_ONLY",
     imageUrl: cleanImageUrl,
     actionUrl: cleanActionUrl,
     updateMode: st.type === "APP_UPDATE" ? st.updateMode : "",
@@ -2801,6 +3108,16 @@ function buildPendingNotifPayload() {
 async function confirmAndSendBroadcastNotification() {
   if (notifFormState.sending) return;
 
+  const payload = buildPendingNotifPayload();
+
+  // Direct Inbox-Only Mode selected explicitly by Admin
+  if (payload.inboxOnly) {
+    notifFormState.showConfirmModal = false;
+    notifFormState.lastResult = { ok: false, pendingPayload: payload };
+    await publishNotificationInboxOnlyFallback();
+    return;
+  }
+
   const authCheck = await resolveAdminProofForPush();
   if (authCheck.error) {
     const modalErr = document.getElementById("nf_confirmError");
@@ -2811,42 +3128,30 @@ async function confirmAndSendBroadcastNotification() {
     return;
   }
 
-  const payload = buildPendingNotifPayload();
-  const endpoint = String(dbState.settings?.fcmBackendUrl || DEFAULT_FCM_BACKEND_URL).trim();
+  if (!window.dlbdFirebase) {
+    notifFormState.showConfirmModal = false;
+    notifFormState.lastResult = {
+      ok: false,
+      message: "Firebase Functions SDK is unavailable in this browser.",
+      detail: "Reload the page or use Inbox Only Mode below. No fake push was sent.",
+      canFallbackInbox: true,
+      pendingPayload: payload
+    };
+    renderTab();
+    return;
+  }
 
   notifFormState.sending = true;
   renderTab();
 
   try {
-    const resp = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Admin-Id": authCheck.adminId,
-        "X-Admin-Proof": authCheck.proof
-      },
-      body: JSON.stringify(payload)
+    const sendFn = window.dlbdFirebase.callable("sendNotificationCallable");
+    const callableResp = await sendFn({
+      ...payload,
+      adminAuth: authCheck.proof ? { adminId: authCheck.adminId, proof: authCheck.proof } : undefined
     });
+    const data = callableResp?.data || {};
 
-    let data = null;
-    try { data = await resp.json(); } catch (_) {}
-
-    if (!resp.ok || !data || !data.ok) {
-      const serverErr = (data && data.error) ? data.error : `Backend HTTP ${resp.status}`;
-      notifFormState.sending = false;
-      notifFormState.showConfirmModal = false;
-      notifFormState.lastResult = {
-        ok: false,
-        message: `Push dispatch failed: ${serverErr}`,
-        detail: "FCM push was NOT sent. Verify that your Firebase Cloud Function (sendBroadcastNotification) is deployed and reachable.",
-        canFallbackInbox: resp.status === 404 || resp.status >= 500,
-        pendingPayload: payload
-      };
-      renderTab();
-      return;
-    }
-
-    // Update local caches with authoritative record returned by backend
     const savedRec = data.record || {
       ...payload,
       titleBn: payload.title,
@@ -2856,9 +3161,8 @@ async function confirmAndSendBroadcastNotification() {
       messageEn: payload.body,
       messageType: payload.type,
       selectedDoctorId: payload.doctorId,
-      recipientType: "all_users",
       createdAt: Date.now(),
-      status: data.status || "SENT",
+      status: data.status || "INBOX_ONLY",
       totalRecipients: data.totalRecipients || 0,
       successCount: data.successCount || 0,
       failureCount: data.failureCount || 0
@@ -2866,15 +3170,30 @@ async function confirmAndSendBroadcastNotification() {
     if (!rootState.notifications) rootState.notifications = {};
     if (!dbState.notifications) dbState.notifications = {};
     rootState.notifications[savedRec.notificationId] = savedRec;
-    dbState.notifications[savedRec.notificationId] = savedRec;
+    if (payload.recipientMode === "ALL") {
+      dbState.notifications[savedRec.notificationId] = savedRec;
+    }
 
-    const statusLabel = data.status || "SENT";
-    const topicSuffix = data.topicDelivered ? " + Broadcast Topic (all_app_users) dispatched for Background & Closed apps." : "";
-    const summaryMsg = statusLabel === "INBOX_ONLY"
-      ? "Saved to App Notification Inbox (0 registered FCM device tokens found yet)."
-      : (data.totalRecipients || 0) === 0 && data.topicDelivered
-        ? `Notification pushed via FCM Topic (all_app_users) for Background & Closed devices (${statusLabel}).`
-        : `Notification processed (${statusLabel}): ${data.successCount || 0} delivered, ${data.failureCount || 0} failed out of ${data.totalRecipients || 0} registered devices.${topicSuffix}`;
+    const statusLabel = data.status || "INBOX_ONLY";
+    const isPushSuccess = statusLabel === "SENT" || statusLabel === "PARTIAL";
+    const topicSuffix = data.topicDelivered ? " + Broadcast Topic (all_app_users) sent for Background/Closed apps." : "";
+    let summaryMsg = "";
+    if (statusLabel === "INBOX_ONLY") {
+      summaryMsg = "Saved to Realtime Database Inbox (INBOX_ONLY — 0 active FCM device tokens found for target).";
+    } else if (statusLabel === "FAILED") {
+      summaryMsg = `Saved to Inbox, but FCM Push FAILED (${data.failureCount || 0} failed out of ${data.totalRecipients || 0} devices). Use Retry Push below.`;
+    } else if ((data.totalRecipients || 0) === 0 && data.topicDelivered) {
+      summaryMsg = `Saved to Inbox & pushed via FCM Topic (all_app_users) (${statusLabel}).`;
+    } else {
+      summaryMsg = `Saved to Inbox & FCM Push ${statusLabel}: ${data.successCount || 0} succeeded, ${data.failureCount || 0} failed of ${data.totalRecipients || 0} device(s).${topicSuffix}`;
+    }
+
+    notifFormState.backendStatus = {
+      ...notifFormState.backendStatus,
+      state: "CONNECTED",
+      message: `Connected to Cloud Functions v2 (${FUNCTIONS_REGION}) via httpsCallable.`,
+      checkedAt: Date.now()
+    };
 
     notifFormState.sending = false;
     notifFormState.showConfirmModal = false;
@@ -2886,23 +3205,87 @@ async function confirmAndSendBroadcastNotification() {
     notifFormState.doctorId = "";
     notifFormState.lastAutoTemplate = false;
     notifFormState.lastResult = {
-      ok: true,
+      ok: isPushSuccess || statusLabel === "INBOX_ONLY",
       status: statusLabel,
       message: summaryMsg,
-      detail: data.prunedInvalidTokens ? `Cleaned up ${data.prunedInvalidTokens} expired device token(s).` : ""
+      detail: [
+        data.prunedInvalidTokens ? `Removed ${data.prunedInvalidTokens} invalid/expired token(s).` : "",
+        data.fcmError ? `FCM note: ${data.fcmError}` : ""
+      ].filter(Boolean).join(" ")
     };
-    toast("Notification sent!");
+    toast(statusLabel === "FAILED" ? "Saved to Inbox; FCM Push failed." : "Notification processed!");
     renderTab();
   } catch (err) {
+    const mapped = formatFirebaseCallableError(err);
     notifFormState.sending = false;
     notifFormState.showConfirmModal = false;
+    notifFormState.backendStatus = {
+      ...notifFormState.backendStatus,
+      state: "ERROR",
+      message: `${mapped.title} ${mapped.detail}`,
+      checkedAt: Date.now()
+    };
     notifFormState.lastResult = {
       ok: false,
-      message: `Could not reach FCM Cloud Function (${err.message || "Network/CORS error"}).`,
-      detail: "Deploy functions/index.js (`firebase deploy --only functions`) and verify the Backend Endpoint URL below. No fake push was sent.",
+      message: mapped.title,
+      detail: mapped.detail,
       canFallbackInbox: true,
       pendingPayload: payload
     };
+    renderTab();
+  }
+}
+
+async function retryFailedNotificationPush(notificationId) {
+  if (!notificationId || notifFormState.retryingId || notifFormState.sending) return;
+  if (!window.dlbdFirebase) {
+    toast("Firebase SDK unavailable.");
+    return;
+  }
+  const hasFirebaseAuth = Boolean(window.dlbdFirebase.currentUser);
+  if (!hasFirebaseAuth && !window.__dlbdAdminProof) {
+    toast("Sign in with Firebase Admin Auth (top button) or re-authorize to retry push.");
+    return;
+  }
+
+  notifFormState.retryingId = notificationId;
+  renderTab();
+
+  try {
+    const retryFn = window.dlbdFirebase.callable("retryNotificationCallable");
+    const resp = await retryFn({
+      notificationId,
+      adminAuth: window.__dlbdAdminProof
+        ? { adminId: sessionStorage.getItem("dlbd_admin_id") || "", proof: window.__dlbdAdminProof }
+        : undefined
+    });
+    const data = resp?.data || {};
+    if (data.record) {
+      if (!rootState.notifications) rootState.notifications = {};
+      if (!dbState.notifications) dbState.notifications = {};
+      rootState.notifications[notificationId] = data.record;
+      if ((data.record.recipientMode || "ALL") === "ALL") {
+        dbState.notifications[notificationId] = data.record;
+      }
+    }
+    const statusLabel = data.status || "INBOX_ONLY";
+    notifFormState.lastResult = {
+      ok: statusLabel === "SENT" || statusLabel === "PARTIAL",
+      status: statusLabel,
+      message: `Retry #${data.retryCount || 1} completed (${statusLabel}): ${data.successCount || 0} sent, ${data.failureCount || 0} failed${data.topicDelivered ? " + Topic broadcast ✓" : ""}.`,
+      detail: data.fcmError || (data.prunedInvalidTokens ? `Cleaned ${data.prunedInvalidTokens} expired token(s).` : "")
+    };
+    toast(`Retry result: ${statusLabel}`);
+  } catch (err) {
+    const mapped = formatFirebaseCallableError(err);
+    notifFormState.lastResult = {
+      ok: false,
+      message: `Retry failed: ${mapped.title}`,
+      detail: mapped.detail
+    };
+    toast("Retry failed.");
+  } finally {
+    notifFormState.retryingId = "";
     renderTab();
   }
 }
@@ -2914,6 +3297,7 @@ async function publishNotificationInboxOnlyFallback() {
   renderTab();
   try {
     const now = Date.now();
+    const isSingleUser = pending.recipientMode === "USER" && pending.targetUserId;
     const record = {
       notificationId: pending.notificationId,
       title: pending.title,
@@ -2925,9 +3309,12 @@ async function publishNotificationInboxOnlyFallback() {
       messageEn: pending.body,
       type: pending.type,
       messageType: pending.type,
-      recipient: "ALL_APP_USERS",
-      recipientType: "all_users",
-      targetRole: "ALL",
+      recipientMode: isSingleUser ? "USER" : "ALL",
+      recipient: isSingleUser ? pending.targetUserId : "ALL_APP_USERS",
+      recipientType: isSingleUser ? "single_user" : "all_users",
+      targetRole: isSingleUser ? "USER" : "ALL",
+      targetUserId: isSingleUser ? pending.targetUserId : "",
+      targetUserLabel: isSingleUser ? (pending.targetUserLabel || pending.targetUserId) : "",
       imageUrl: pending.imageUrl || "",
       actionUrl: pending.actionUrl || "",
       doctorId: pending.doctorId || "",
@@ -2938,19 +3325,50 @@ async function publishNotificationInboxOnlyFallback() {
       deepLink: pending.type === "NEW_DOCTOR" && pending.doctorId ? `doctorlistbd://doctor/${pending.doctorId}` : (pending.actionUrl || ""),
       createdAt: now,
       updatedAt: now,
-      createdBy: sessionStorage.getItem("dlbd_admin_id") || "admin",
+      createdBy: (window.dlbdFirebase?.currentUser?.email) || sessionStorage.getItem("dlbd_admin_id") || "admin",
       totalRecipients: 0,
       successCount: 0,
       failureCount: 0,
+      topicDelivered: false,
       status: "INBOX_ONLY"
     };
-    await fetch(`${RTDB_BASE}/notifications/${record.notificationId}.json`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(record)
-    });
+
+    const authSuffix = await getFirebaseAuthQuerySuffix();
+    const writes = [];
+    if (isSingleUser) {
+      writes.push(fetch(`${RTDB_ROOT}/userNotifications/${encodeURIComponent(pending.targetUserId)}/${record.notificationId}.json${authSuffix}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...record, isRead: false, isDisplayed: false, isDeleted: false, receivedAt: now })
+      }));
+      writes.push(fetch(`${RTDB_ROOT}/notifications/${record.notificationId}.json${authSuffix}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(record)
+      }));
+    } else {
+      writes.push(fetch(`${RTDB_BASE}/notifications/${record.notificationId}.json${authSuffix}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(record)
+      }));
+      writes.push(fetch(`${RTDB_ROOT}/notifications/${record.notificationId}.json${authSuffix}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(record)
+      }));
+    }
+
+    const responses = await Promise.all(writes);
+    const anyOk = responses.some(r => r.ok);
+    if (!anyOk) {
+      throw new Error(`RTDB write rejected (HTTP ${responses[0]?.status || "error"}). Sign in with Firebase Admin Auth first.`);
+    }
+
+    if (!rootState.notifications) rootState.notifications = {};
     if (!dbState.notifications) dbState.notifications = {};
-    dbState.notifications[record.notificationId] = record;
+    rootState.notifications[record.notificationId] = record;
+    if (!isSingleUser) dbState.notifications[record.notificationId] = record;
 
     notifFormState.sending = false;
     notifFormState.title = "";
@@ -2963,9 +3381,10 @@ async function publishNotificationInboxOnlyFallback() {
     notifFormState.lastResult = {
       ok: true,
       status: "INBOX_ONLY",
-      message: "Published to In-App Notification Inbox (INBOX_ONLY). Deploy Cloud Functions for live FCM push delivery."
+      message: `Saved to In-App Notification Inbox ONLY (INBOX_ONLY — No FCM push sent).`,
+      detail: "Users will see this notification in their real-time App Inbox. Click 'Retry Push' in History once Cloud Functions v2 is deployed."
     };
-    toast("Published to App Inbox!");
+    toast("Saved to App Inbox (INBOX_ONLY).");
     renderTab();
   } catch (err) {
     notifFormState.sending = false;
@@ -2976,9 +3395,10 @@ async function publishNotificationInboxOnlyFallback() {
 
 async function deleteNotificationRecord(notificationId) {
   if (!confirm("Are you sure you want to delete this notification from history?")) return;
+  const authSuffix = await getFirebaseAuthQuerySuffix();
   await Promise.allSettled([
-    fetch(`${RTDB_BASE}/notifications/${notificationId}.json`, { method: "DELETE" }),
-    fetch(`${RTDB_ROOT}/notifications/${notificationId}.json`, { method: "DELETE" })
+    fetch(`${RTDB_BASE}/notifications/${notificationId}.json${authSuffix}`, { method: "DELETE" }),
+    fetch(`${RTDB_ROOT}/notifications/${notificationId}.json${authSuffix}`, { method: "DELETE" })
   ]);
   if (dbState.notifications) delete dbState.notifications[notificationId];
   if (rootState.notifications) delete rootState.notifications[notificationId];
@@ -2993,49 +3413,92 @@ function renderNotifications() {
     const q = st.doctorSearch.trim().toLowerCase();
     return !q || d.displayName.toLowerCase().includes(q) || d.specialty.toLowerCase().includes(q) || d.id.toLowerCase().includes(q);
   });
+  const recipientUsers = getRecipientUsersList();
+  const rtdbTokenStats = getFcmTokenStatsFromRtdb();
+  const activeTokensDisplay = st.backendStatus.activeTokenCount !== null
+    ? st.backendStatus.activeTokenCount
+    : rtdbTokenStats.activeTokenCount;
+  const registeredUsersDisplay = st.backendStatus.registeredUsersCount !== null
+    ? st.backendStatus.registeredUsersCount
+    : recipientUsers.length;
+  const fbUser = window.dlbdFirebase?.currentUser || null;
+  const hasAdminClaim = Boolean(window.dlbdFirebase?.isAdminClaim);
+
   const historyAll = getMergedNotificationsList();
   const historyFiltered = historyAll.filter(n => {
     const nType = getNotifTypeMeta(n.type || n.messageType).code;
     if (st.historyTypeFilter !== "ALL" && nType !== st.historyTypeFilter) return false;
     const q = st.historySearch.trim().toLowerCase();
     if (!q) return true;
-    const hay = `${n.title || n.titleBn || n.titleEn || ""} ${n.body || n.message || n.messageBn || ""} ${n.selectedDoctorName || ""} ${n.doctorId || n.selectedDoctorId || ""} ${n.actionUrl || ""}`.toLowerCase();
+    const hay = `${n.title || n.titleBn || n.titleEn || ""} ${n.body || n.message || n.messageBn || ""} ${n.selectedDoctorName || ""} ${n.doctorId || n.selectedDoctorId || ""} ${n.targetUserLabel || ""} ${n.actionUrl || ""}`.toLowerCase();
     return hay.includes(q);
   });
 
-  const backendUrl = String(dbState.settings?.fcmBackendUrl || DEFAULT_FCM_BACKEND_URL);
   const selectedDocObj = doctors.find(d => d.id === st.doctorId);
+  const selectedUserObj = recipientUsers.find(u => u.uid === st.targetUserId);
+
+  const connBadge = st.backendStatus.state === "CONNECTED"
+    ? { cls: "bg-emerald-50 border-emerald-200 text-emerald-800", dot: "bg-emerald-500", label: `Functions v2 Connected (${FUNCTIONS_REGION})` }
+    : st.backendStatus.state === "CHECKING"
+      ? { cls: "bg-sky-50 border-sky-200 text-sky-800", dot: "bg-sky-500 animate-pulse", label: "Checking Connection..." }
+      : st.backendStatus.state === "ERROR"
+        ? { cls: "bg-rose-50 border-rose-200 text-rose-800", dot: "bg-rose-500", label: "Backend Disconnected (Inbox Only Ready)" }
+        : { cls: "bg-slate-100 border-slate-200 text-slate-700", dot: "bg-slate-400", label: `Region: ${FUNCTIONS_REGION} (Unchecked)` };
 
   return `
     <div class="space-y-6">
-      <!-- Top Header & Cloud Function Endpoint Toggle -->
-      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+      <!-- Top Header, Backend Connection Status & FCM Token Telemetry -->
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 class="text-lg font-extrabold text-slate-900">Doctor List BD — Notification Management System</h3>
-            <p class="text-xs text-slate-500 mt-0.5">Send targeted-action push notifications (General, App Update, or New Doctor) to All App Users via FCM HTTP v1.</p>
+            <h3 class="text-lg font-extrabold text-slate-900">Doctor List BD — FCM Push &amp; Inbox Notification Center</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Firebase Cloud Functions v2 (<code>httpsCallable</code> • <code>${FUNCTIONS_REGION}</code>) — saves to Realtime Database Inbox first, then dispatches real FCM HTTP v1 push.</p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
-            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold">
-              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-              Recipient: All App Users (Fixed)
+            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold ${connBadge.cls}">
+              <span class="w-2 h-2 rounded-full ${connBadge.dot}"></span>
+              ${esc(connBadge.label)}
             </span>
-            <button type="button" onclick="notifFormState.showBackendConfig=!notifFormState.showBackendConfig;renderTab()"
-              class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold">
-              ${st.showBackendConfig ? "Hide Backend Config" : "FCM Backend Endpoint"}
+            <button type="button" onclick="checkNotificationBackendConnection()"
+              class="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold">
+              Test Connection
             </button>
+            ${fbUser ? `
+              <button type="button" onclick="signOutFirebaseAdminForNotif()"
+                class="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-semibold" title="Signed in as ${esc(fbUser.email || fbUser.uid)}">
+                Firebase Auth: ${esc(fbUser.email || "Connected")}${hasAdminClaim ? " ★ Admin Claim" : ""} (Sign Out)
+              </button>
+            ` : `
+              <button type="button" onclick="signInFirebaseAdminForNotif()"
+                class="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold">
+                Connect Firebase Admin Auth
+              </button>
+            `}
           </div>
         </div>
 
-        ${st.showBackendConfig ? `
-          <div class="mt-4 pt-4 border-t border-slate-100 flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
-            <div class="flex-1">
-              <label class="block text-xs font-bold text-slate-700 mb-1">Firebase Cloud Function URL (FCM HTTP v1)</label>
-              <input id="nf_backendUrl" type="url" value="${esc(backendUrl)}" placeholder="https://asia-south1-octor-aad88.cloudfunctions.net/sendBroadcastNotification" class="input text-xs font-mono" />
-            </div>
-            <button type="button" onclick="saveFcmBackendUrlSetting()" class="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold">Save Endpoint</button>
+        <!-- Status Cards: Backend Connection, FCM Device Tokens, Registered Users, Total History -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+            <div class="text-[11px] font-semibold text-slate-500 uppercase">FCM Device Token Status</div>
+            <div class="text-xl font-extrabold text-sky-800 mt-0.5">${activeTokensDisplay} <span class="text-xs font-semibold text-slate-500">active token(s)</span></div>
+            <div class="text-[11px] text-slate-500 mt-0.5">${activeTokensDisplay > 0 ? "Android devices synced to RTDB" : "Connect Firebase Auth or open app to register tokens"}</div>
           </div>
-        ` : ""}
+          <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+            <div class="text-[11px] font-semibold text-slate-500 uppercase">Targetable Users</div>
+            <div class="text-xl font-extrabold text-teal-800 mt-0.5">${registeredUsersDisplay} <span class="text-xs font-semibold text-slate-500">account(s)</span></div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Supports All Users + Individual User</div>
+          </div>
+          <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+            <div class="text-[11px] font-semibold text-slate-500 uppercase">Transport Protocol</div>
+            <div class="text-sm font-extrabold text-slate-900 mt-1">Firebase <code>httpsCallable</code></div>
+            <div class="text-[11px] text-slate-500 mt-0.5">No hardcoded URLs • Region <code>${FUNCTIONS_REGION}</code></div>
+          </div>
+          <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+            <div class="text-[11px] font-semibold text-slate-500 uppercase">Backend Diagnostics</div>
+            <div class="text-xs font-semibold ${st.backendStatus.state === "ERROR" ? "text-rose-700" : st.backendStatus.state === "CONNECTED" ? "text-emerald-700" : "text-slate-600"} mt-1 line-clamp-2">${esc(st.backendStatus.message)}</div>
+          </div>
+        </div>
       </div>
 
       ${st.lastResult ? `
@@ -3055,32 +3518,52 @@ function renderNotifications() {
       <!-- Form + Live Notification Preview -->
       <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
         <div class="xl:col-span-7 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <h4 class="font-bold text-sky-900 text-base mb-4">Create &amp; Send Push Notification</h4>
+          <h4 class="font-bold text-sky-900 text-base mb-4">Send Notification</h4>
           <form onsubmit="validateAndOpenNotifConfirm(event)" class="space-y-4">
-            <!-- A. Fixed Recipient -->
-            <div>
-              <label class="block text-xs font-bold text-slate-700 mb-1">Notification Recipient</label>
-              <div class="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm">
-                <span class="font-bold text-slate-800">All App Users</span>
-                <span class="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold">Default &amp; Fixed</span>
+            <!-- A. Recipient Selection: All Users vs Individual User -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label for="nf_recipientMode" class="block text-xs font-bold text-slate-700 mb-1">Recipient Selection *</label>
+                <select id="nf_recipientMode" onchange="notifFormState.recipientMode=this.value;renderTab()" class="input font-semibold bg-white">
+                  <option value="ALL" ${st.recipientMode === "ALL" ? "selected" : ""}>All App Users (Broadcast)</option>
+                  <option value="USER" ${st.recipientMode === "USER" ? "selected" : ""}>Individual User</option>
+                </select>
               </div>
-              <p class="text-[11px] text-slate-400 mt-1">All notification types are broadcast to every active Doctor List BD app user.</p>
+              <div>
+                <label for="nf_deliveryMode" class="block text-xs font-bold text-slate-700 mb-1">Delivery Mode *</label>
+                <select id="nf_deliveryMode" onchange="notifFormState.deliveryMode=this.value;renderTab()" class="input font-semibold bg-white">
+                  <option value="FCM_AND_INBOX" ${st.deliveryMode === "FCM_AND_INBOX" ? "selected" : ""}>FCM Push + In-App Inbox (Real-Time)</option>
+                  <option value="INBOX_ONLY" ${st.deliveryMode === "INBOX_ONLY" ? "selected" : ""}>Inbox Only Mode (No FCM Push)</option>
+                </select>
+              </div>
             </div>
 
-            <!-- B. Notification Type Dropdown (Exactly 3 types) -->
+            ${st.recipientMode === "USER" ? `
+              <div class="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200 space-y-2">
+                <label for="nf_targetUserId" class="block text-xs font-bold text-amber-900">Select Target User *</label>
+                <select id="nf_targetUserId" required onchange="onNotifFieldInput('targetUserId', this.value)" class="input bg-white font-semibold">
+                  <option value="">-- Select User (${recipientUsers.length} loaded) --</option>
+                  ${recipientUsers.map(u =>
+                    `<option value="${esc(u.uid)}" ${u.uid === st.targetUserId ? "selected" : ""}>${esc(u.label)} — ${u.tokenCount} active device(s)</option>`
+                  ).join("")}
+                </select>
+                <p class="text-[11px] text-amber-800">Delivered exclusively to this user's private RTDB Inbox (<code>userNotifications/{uid}</code>) and their registered device token(s).</p>
+              </div>
+            ` : ""}
+
+            <!-- B. Notification Type Dropdown (3 types) -->
             <div>
               <label for="nf_type" class="block text-xs font-bold text-slate-700 mb-1">Notification Type *</label>
-              <select id="nf_type" onchange="onNotifTypeChange(this.value)" class="input font-semibold">
+              <select id="nf_type" onchange="onNotifTypeChange(this.value)" class="input font-semibold bg-white">
                 <option value="GENERAL" ${st.type === "GENERAL" ? "selected" : ""}>General</option>
                 <option value="APP_UPDATE" ${st.type === "APP_UPDATE" ? "selected" : ""}>App Update</option>
                 <option value="NEW_DOCTOR" ${st.type === "NEW_DOCTOR" ? "selected" : ""}>New Doctor</option>
               </select>
             </div>
 
-            <!-- Dynamic Type-Specific Fields -->
             ${st.type === "GENERAL" ? `
               <div class="p-3.5 rounded-xl bg-violet-50 border border-violet-200 text-xs text-violet-900">
-                <strong>General Notification Behavior:</strong> Delivered to all users via FCM and shown once inside an in-app popup dialog when the user opens Doctor List BD.
+                <strong>General Notification Behavior:</strong> Saved to Realtime Database Inbox first, then pushed via FCM HTTP v1 and shown once in an in-app popup when opened.
               </div>
             ` : ""}
 
@@ -3105,9 +3588,6 @@ function renderNotifications() {
                   <label for="nf_actionUrl" class="block text-xs font-bold text-slate-700 mb-1">Update URL / Play Store URL (Optional)</label>
                   <input id="nf_actionUrl" type="url" value="${esc(st.actionUrl)}" oninput="onNotifFieldInput('actionUrl', this.value)"
                     placeholder="https://play.google.com/store/apps/details?id=com.doctorlist.bd" class="input bg-white" />
-                  <p class="text-[11px] text-sky-800 mt-1">
-                    If provided, tapping opens this URL directly. If left empty, tapping triggers the official Google Play In-App Updates API using the selected Update Mode.
-                  </p>
                 </div>
               </div>
             ` : ""}
@@ -3128,9 +3608,6 @@ function renderNotifications() {
                       `<option value="${esc(d.id)}" ${d.id === st.doctorId ? "selected" : ""}>${esc(d.displayName)} — ${esc(d.specialty)}</option>`
                     ).join("")}
                   </select>
-                  <p class="text-[11px] text-emerald-800 mt-1">
-                    Selected doctor is the destination profile (<code>doctorId</code>), NOT the recipient. Notification is sent to <strong>All App Users</strong>.
-                  </p>
                 </div>
               </div>
             ` : ""}
@@ -3160,7 +3637,11 @@ function renderNotifications() {
             <div class="flex flex-wrap items-center gap-3 pt-2">
               <button type="submit" ${st.sending ? "disabled" : ""}
                 class="px-5 py-3 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-60 text-white font-bold text-sm shadow-sm">
-                ${st.sending ? "Sending Notification..." : "Send Notification to All Users"}
+                ${st.sending
+                  ? "Sending Notification..."
+                  : st.deliveryMode === "INBOX_ONLY"
+                    ? (st.recipientMode === "USER" ? "Save to User Inbox Only" : "Save to All Users Inbox Only")
+                    : (st.recipientMode === "USER" ? "Send Push Notification to Selected User" : "Send Notification to All Users")}
               </button>
               <button type="button" onclick="resetNotifForm()" ${st.sending ? "disabled" : ""}
                 class="px-4 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm">
@@ -3182,17 +3663,17 @@ function renderNotifications() {
         </div>
       </div>
 
-      <!-- Notification History Table -->
+      <!-- Notification History & Delivery Results + Retry Failed Notifications -->
       <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
-            <h4 class="font-bold text-slate-900 text-base">Notification History (${historyFiltered.length})</h4>
-            <p class="text-xs text-slate-500">All sent broadcasts with type, target details, and real delivery status.</p>
+            <h4 class="font-bold text-slate-900 text-base">Notification History &amp; Delivery Results (${historyFiltered.length})</h4>
+            <p class="text-xs text-slate-500">Real FCM multicast &amp; topic counts from Cloud Functions v2. Failed or Inbox-Only records can be retried directly.</p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <input type="text" value="${esc(st.historySearch)}"
               oninput="notifFormState.historySearch=this.value;renderTab()"
-              placeholder="Search title, body, doctor..."
+              placeholder="Search title, body, user, doctor..."
               class="px-3 py-2 rounded-xl border border-slate-200 text-xs w-52" />
             <select onchange="notifFormState.historyTypeFilter=this.value;renderTab()"
               class="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold bg-white">
@@ -3217,17 +3698,21 @@ function renderNotifications() {
                   <th class="py-2.5 px-3">Notification Title</th>
                   <th class="py-2.5 px-3">Type</th>
                   <th class="py-2.5 px-3">Recipient</th>
-                  <th class="py-2.5 px-3">Action / Target Details</th>
-                  <th class="py-2.5 px-3">Created Date &amp; Time</th>
-                  <th class="py-2.5 px-3">Delivery Status</th>
-                  <th class="py-2.5 px-3 text-right">Action</th>
+                  <th class="py-2.5 px-3">Action / Target</th>
+                  <th class="py-2.5 px-3">Sent Date &amp; Time</th>
+                  <th class="py-2.5 px-3">Delivery Results</th>
+                  <th class="py-2.5 px-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
                 ${historyFiltered.map((n, idx) => {
                   const id = n.notificationId || n._key;
+                  const safeId = String(id).replace(/[^a-zA-Z0-9_-]/g, "");
                   const tMeta = getNotifTypeMeta(n.type || n.messageType);
                   const sBadge = getNotifStatusBadge(n.status);
+                  const normStatus = String(n.status || "INBOX_ONLY").toUpperCase();
+                  const canRetry = normStatus === "FAILED" || normStatus === "PARTIAL" || normStatus === "INBOX_ONLY";
+                  const isRetryingThis = st.retryingId === safeId;
                   const titleText = n.title || n.titleBn || n.titleEn || "Untitled";
                   const bodyText = n.body || n.message || n.messageBn || n.messageEn || "";
                   const createdStr = n.createdAt ? new Date(Number(n.createdAt)).toLocaleString() : "—";
@@ -3237,6 +3722,8 @@ function renderNotifications() {
                   const updateMode = n.updateMode || "";
                   const version = n.version || "";
                   const hasCounts = typeof n.totalRecipients === "number" && n.totalRecipients > 0;
+                  const isUserRecip = String(n.recipientMode || "").toUpperCase() === "USER" || Boolean(n.targetUserId);
+                  const recipDisplay = isUserRecip ? (n.targetUserLabel || n.targetUserId || "Single User") : "All App Users";
 
                   let targetHtml = `<span class="text-slate-400">In-App Dialog (Once)</span>`;
                   if (tMeta.code === "NEW_DOCTOR") {
@@ -3262,15 +3749,26 @@ function renderNotifications() {
                       <td class="py-3 px-3 whitespace-nowrap">
                         <span class="px-2.5 py-1 rounded-full text-[11px] font-bold border ${tMeta.badgeCls}">${esc(tMeta.label)}</span>
                       </td>
-                      <td class="py-3 px-3 whitespace-nowrap font-semibold text-slate-700">All App Users</td>
+                      <td class="py-3 px-3 max-w-[160px]">
+                        <span class="font-semibold ${isUserRecip ? "text-amber-800" : "text-slate-700"}">${esc(recipDisplay)}</span>
+                      </td>
                       <td class="py-3 px-3 max-w-xs">${targetHtml}</td>
                       <td class="py-3 px-3 whitespace-nowrap text-slate-600">${esc(createdStr)}</td>
                       <td class="py-3 px-3 whitespace-nowrap">
                         <span class="px-2.5 py-1 rounded-full text-[10px] font-bold border ${sBadge.cls}">${esc(sBadge.label)}</span>
-                        ${hasCounts ? `<div class="text-[10px] text-slate-500 mt-1">${n.successCount || 0} / ${n.totalRecipients} sent${n.failureCount ? ` (${n.failureCount} failed)` : ""}</div>` : ""}
+                        ${hasCounts ? `<div class="text-[10px] text-slate-600 mt-1">${n.successCount || 0} / ${n.totalRecipients} sent${n.failureCount ? ` • ${n.failureCount} failed` : ""}</div>` : ""}
+                        ${n.topicDelivered ? `<div class="text-[10px] text-emerald-700 font-semibold mt-0.5">Topic broadcast ✓</div>` : ""}
+                        ${n.retryCount ? `<div class="text-[10px] text-sky-700 mt-0.5">Retried ${n.retryCount}×</div>` : ""}
+                        ${n.fcmError ? `<div class="text-[10px] text-rose-600 mt-0.5 max-w-[180px] truncate" title="${esc(n.fcmError)}">${esc(n.fcmError)}</div>` : ""}
                       </td>
-                      <td class="py-3 px-3 text-right whitespace-nowrap">
-                        <button type="button" onclick="deleteNotificationRecord('${esc(String(id).replace(/[^a-zA-Z0-9_-]/g, ""))}')"
+                      <td class="py-3 px-3 text-right whitespace-nowrap space-x-1">
+                        ${canRetry ? `
+                          <button type="button" ${isRetryingThis ? "disabled" : ""} onclick="retryFailedNotificationPush('${safeId}')"
+                            class="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 font-semibold disabled:opacity-50">
+                            ${isRetryingThis ? "Retrying..." : "Retry Push"}
+                          </button>
+                        ` : ""}
+                        <button type="button" onclick="deleteNotificationRecord('${safeId}')"
                           class="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold">Delete</button>
                       </td>
                     </tr>
@@ -3288,13 +3786,18 @@ function renderNotifications() {
         <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
           <div class="flex items-start justify-between gap-3">
             <div>
-              <h4 class="text-base font-extrabold text-slate-900">Confirm Broadcast Notification</h4>
-              <p class="text-sm text-slate-700 mt-1">Are you sure you want to send this notification to all Doctor List BD users?</p>
+              <h4 class="text-base font-extrabold text-slate-900">Confirm Notification Dispatch</h4>
+              <p class="text-sm text-slate-700 mt-1">
+                ${st.recipientMode === "USER"
+                  ? `Are you sure you want to send this notification to ${esc(selectedUserObj ? selectedUserObj.label : st.targetUserId)}?`
+                  : "Are you sure you want to send this notification to all Doctor List BD users?"}
+              </p>
             </div>
           </div>
 
           <div class="rounded-xl bg-slate-50 border border-slate-200 p-3.5 text-xs space-y-1.5">
-            <div><span class="text-slate-500">Recipient:</span> <strong class="text-slate-900">All App Users</strong></div>
+            <div><span class="text-slate-500">Recipient:</span> <strong class="text-slate-900">${st.recipientMode === "USER" ? esc(selectedUserObj ? selectedUserObj.label : st.targetUserId) : "All App Users"}</strong></div>
+            <div><span class="text-slate-500">Delivery Mode:</span> <strong class="text-slate-900">${st.deliveryMode === "INBOX_ONLY" ? "Inbox Only (No FCM Push)" : "Realtime Database Inbox + FCM HTTP v1 Push"}</strong></div>
             <div><span class="text-slate-500">Type:</span> <strong class="text-slate-900">${esc(getNotifTypeMeta(st.type).label)}</strong></div>
             <div><span class="text-slate-500">Title:</span> <strong class="text-slate-900">${esc(st.title.trim())}</strong></div>
             ${st.type === "NEW_DOCTOR" && selectedDocObj ? `
@@ -3305,9 +3808,9 @@ function renderNotifications() {
             ` : ""}
           </div>
 
-          ${!window.__dlbdAdminProof ? `
+          ${st.deliveryMode !== "INBOX_ONLY" && !window.__dlbdAdminProof && !(window.dlbdFirebase && window.dlbdFirebase.currentUser) ? `
             <div class="p-3 rounded-xl bg-amber-50 border border-amber-200 space-y-2">
-              <label for="nf_confirmAdminPass" class="block text-xs font-bold text-amber-900">Re-enter Admin Password to Authorize Push Dispatch</label>
+              <label for="nf_confirmAdminPass" class="block text-xs font-bold text-amber-900">Re-enter Admin Password to Authorize Push Dispatch (or Connect Firebase Admin Auth)</label>
               <input id="nf_confirmAdminPass" type="password" placeholder="Enter your Admin password" class="input bg-white text-xs" />
             </div>
           ` : ""}
